@@ -1,0 +1,52 @@
+name: Continuous Integration
+
+on:
+  - push
+  - pull_request
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['ubuntu-latest']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        deps: ['', '--prefer-lowest']
+        include:
+          - os: 'windows-latest'
+            php: '8.5'
+          - os: 'macos-latest'
+            php: '8.5'
+
+    name: ${{ matrix.os }}; PHP ${{ matrix.php }}; ${{ matrix.deps && 'lowest' || 'latest' }}-deps
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 5
+          max_attempts: 5
+          retry_wait_seconds: 30
+          command: |
+            composer update --optimize-autoloader --no-interaction --ansi --no-progress --prefer-dist ${{ matrix.deps }}
+            composer info -D
+
+      - name: Tests
+        run: vendor/bin/phpunit --configuration phpunit.xml.dist

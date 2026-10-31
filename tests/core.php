@@ -1,0 +1,48 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/runtime/bootstrap.php';
+use XcVm\Core\Cluster\Crypto\{Box, PanelSig, Seal, SessionKeys};
+use XcVm\Core\Config\ConfigReader;
+$checks=0;
+function check(bool $ok,string $label): void { global $checks; if(!$ok)throw new RuntimeException('FAIL: '.$label);$checks++;echo 'PASS '.$label.PHP_EOL; }
+function rejects(callable $f,string $label): void {try {$f();}catch(Throwable){check(true,$label);return;}check(false,$label);}
+check(!extension_loaded('xcvm_core'),'proprietary extension absent');
+check(!is_file(getenv('XCVM_LAB_STATE').'/activation_key'),'no official activation key');
+check(XC_VM::license_valid(),'independent capabilities enabled');
+$root=XC_VM::cluster_init();$rootAgain=XC_VM::cluster_init();
+check(!$rootAgain['created']&&$root['panel_sign_pub']===$rootAgain['panel_sign_pub'],'stable randomly generated cluster identity');
+XC_VM::config_init(['server'=>['server_id'=>1,'is_lb'=>0],'db'=>['dsn'=>getenv('XCVM_LAB_TEST_DSN')?:'sqlite:'.getenv('XCVM_LAB_STATE').'/panel.sqlite','user'=>getenv('XCVM_LAB_TEST_DSN')?'root':null,'pass'=>getenv('XCVM_LAB_TEST_DSN')?'':'test-secret-do-not-log'],'redis'=>['host'=>'127.0.0.1','port'=>16379,'auth'=>'']]);
+check(ConfigReader::get('server_id')===1,'real panel ConfigReader reads independent configuration');
+$db=XC_VM::db_connect();$db->exec('CREATE TABLE IF NOT EXISTS lab_probe (id INTEGER PRIMARY KEY, name TEXT)');$db->exec("REPLACE INTO lab_probe VALUES (1, 'panel')");
+check($db->query('SELECT name FROM lab_probe WHERE id=1')->fetchColumn()==='panel','database connection and query');
+check(!str_contains(file_get_contents(getenv('XCVM_LAB_STATE').'/config.enc'),'test-secret-do-not-log'),'configuration secrets encrypted on disk');
+$eph=random_bytes(32);$node=sodium_crypto_sign_keypair();$uuid='0f8fad5b-d9cb-469f-a165-70867728950e';
+$p=['node_uuid'=>$uuid,'server_id'=>7,'gen'=>1,'epoch'=>1,'rotation_min'=>60,'node_sign_pub'=>sodium_crypto_sign_publickey($node),'agent_eph_pub'=>sodium_crypto_scalarmult_base($eph)];
+$issued=XC_VM::cluster_token_issue($p);
+$plain=Seal::open($eph,'token',$uuid,$issued['token_sealed']);check(is_string($plain),'agent opens issued token using panel wire format');
+$len=unpack('N',substr($plain,0,4))[1];$json=substr($plain,4,$len);$sig=substr($plain,4+$len);$doc=json_decode($json,true);
+check(PanelSig::verify($root['panel_sign_pub'],'tok',$json,$sig),'agent verifies Ed25519 token signature');
+check(!PanelSig::verify($root['panel_sign_pub'],'tok',$json.'x',$sig),'tampered token signature rejected');
+$session=SessionKeys::fromArray(XC_VM::cluster_session($issued['epoch_record'],$uuid,true));$token=hex2bin($doc['token']);
+check(hash_equals($session->rMacUp,hash_hmac('sha256','xcvm/mac/up',$token,true)),'agent and panel agree on session MAC key');
+$enc=hash_hmac('sha256','xcvm/enc/up',$token,true);$body=Box::box($enc,'heartbeat','{"alive":true}');
+check(Box::open($session->rEncUp,'heartbeat',$body)==='{"alive":true}','encrypted agent heartbeat round trip');
+check(Box::open($session->rEncUp,'other-context',$body)===null,'cross-context message rejected');
+$body[strlen($body)-1]=chr(ord($body[strlen($body)-1])^1);
+check(Box::open($session->rEncUp,'heartbeat',$body)===null,'tampered encrypted request rejected');
+rejects(fn()=>XC_VM::cluster_session($issued['epoch_record'],'other-node'),'cross-node epoch record rejected');
+$bad=$issued['epoch_record'];$bad[20]=chr(ord($bad[20])^1);rejects(fn()=>XC_VM::cluster_session($bad,$uuid),'tampered persisted epoch rejected');
+$lease=XC_VM::cluster_lease_issue(['node_uuid'=>$uuid,'server_id'=>7,'gen'=>1,'token_exp'=>$issued['exp'],'tolerance_h'=>24]);
+check(PanelSig::verify($root['panel_sign_pub'],'lea',$lease['payload'],$lease['sig']),'signed node lease verified with upstream verifier');
+$sealed=XC_VM::cluster_seal_local('credentials','secret','node-7');check(XC_VM::cluster_open_local('credentials',$sealed,'node-7')==='secret','local authenticated encryption round trip');
+rejects(fn()=>XC_VM::cluster_open_local('other-purpose',$sealed,'node-7'),'local encryption separates purposes');
+$before=XC_VM::cluster_info()['panel_sign_pub'];XC_VM::boot(getenv('XCVM_LAB_STATE'));check($before===XC_VM::cluster_info()['panel_sign_pub'],'identity survives runtime reinitialisation');
+XC_VM::cluster_node_gen($uuid,2,2);rejects(fn()=>XC_VM::cluster_session($issued['epoch_record'],$uuid),'revoked node session rejected');
+XC_VM::boot(getenv('XCVM_LAB_STATE'));rejects(fn()=>XC_VM::cluster_session($issued['epoch_record'],$uuid),'revocation persists across reload');
+rejects(fn()=>XC_VM::cluster_token_issue($p),'revoked generation cannot mint new tokens');
+$p['gen']=2;$p['epoch']=2;check(is_array(XC_VM::cluster_token_issue($p)),'new node generation can reconnect');
+$other=getenv('XCVM_LAB_STATE').'-other';XC_VM::boot($other);XC_VM::cluster_init();
+check($before!==XC_VM::cluster_info()['panel_sign_pub'],'separate installations have different random roots');
+rejects(fn()=>XC_VM::cluster_open_local('credentials',$sealed,'node-7'),'other installation cannot decrypt local secrets');
+check(!is_file($other.'/activation_key'),'second node also has no vendor key');
+echo 'RESULT '.$checks.' checks passed'.PHP_EOL;

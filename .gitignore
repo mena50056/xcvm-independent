@@ -1,0 +1,15 @@
+/private/
+/.test-state/
+/.services/
+/.runtime-state/
+*.log
+/dist/
+/github-ready/
+/build/
+/release-inputs/
+*.pem
+*.key
+/*credentials*
+*token*.txt
+__pycache__/
+*.pyc

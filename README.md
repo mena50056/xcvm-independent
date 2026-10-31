@@ -1,0 +1,95 @@
+# XCVM Independent — experimental private distribution
+
+مستودع النسخة التجريبية المستقلة. التغيير الحالي في أدوات التنصيب والتجميع؛
+لم نغيّر شكل الواجهة أو طريقة إدارة القنوات والمستخدمين.
+
+المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع خاص.
+مفتاح GitHub هو تصريح لتنزيل الملفات الخاصة، وليس مفتاح تفعيل للبانل.
+لا تُحفظ مفاتيح GitHub أو بيانات السيرفرات في Git.
+
+## حدود الإصدار
+
+- Ubuntu 22.04 amd64 فقط، سيرفر جديد، ومسار `/opt/xcvm-independent-lab`.
+- المُثبّت يرفض أي بانل موجود، ولا ينفذ ترقية أو فورمات.
+- عنوان السيرفر الأصلي محظور صراحة في المُثبّت.
+- حزم النظام تُحمّل من مستودعات Ubuntu؛ ملفات البانل واللود من Releases بهذا المستودع.
+- `xcvm_core` وionCube الأصلية مستبعدتان؛ تُنشأ مفاتيح تشفير محلية مستقلة.
+- هذه نسخة مختبر، وليست نسخة إنتاج مكتملة. راجع NOTICE.md.
+- تثبيت اللود من داخل زر البانل القديم غير مفعّل في هذا التوزيع؛ استخدم المسار المستقل أدناه.
+- تحديث النسخ القائمة يحتاج مسار ترقية منفصل؛ لا تشغّل المُثبّت على نسخة قائمة.
+
+## نشر إصدار خاص
+
+ارفع المصدر المنظف إلى Git. ضع الملفين الناتجين و`SHA256SUMS` و`install.py`
+و`fetch_release.py` في Release بالوسم `v0.1.0-lab.1`:
+
+```
+xcvm-independent-main-linux-amd64.tar.gz
+xcvm-independent-node-linux-amd64.tar.gz
+SHA256SUMS
+install.py
+fetch_release.py
+```
+
+لا ترفع مجلدات `private` أو `.runtime-state` أو قواعد البيانات أو شهادات TLS
+أو ملف هوية عقدة مسجلة. الحفاظ على إشعارات الترخيص مطلوب.
+
+## تنصيب MAIN
+
+نزّل `install.py` و`fetch_release.py` من الإصدار الخاص عبر حسابك، ثم انقلهما
+إلى مجلد واحد على السيرفر الجديد. يحتاج المُثبّت Python 3.10 أو أحدث
+(متوفر افتراضيًا في Ubuntu 22.04).
+أنشئ ملفًا محليًا `chmod 600` يحتوي تصريح GitHub محدودًا بالمستودع وبصلاحية
+Contents: read. لا تضع قيمة التصريح في الأمر أو الرابط أو السجل.
+
+```bash
+sudo python3 install.py --role main --repository mena50056/xcvm-independent \
+  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
+  --server-ip NEW_SERVER_IP --plan
+
+sudo python3 install.py --role main --repository mena50056/xcvm-independent \
+  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
+  --server-ip NEW_SERVER_IP --admin-user admin
+```
+
+بيانات الدخول تُنشأ عشوائيًا في ملف خاص بالسيرفر:
+`/opt/xcvm-independent-lab/.runtime-state/main/admin-login.json`.
+واجهة البانل `/lab/login`. الشهادة الافتراضية ذاتية التوقيع؛ تواصل الكلاستر
+بين أجهزة مختلفة يحتاج شهادة HTTPS موثوقة يثق بها الطرف الآخر. يمكن تمرير
+`--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem` أثناء التنصيب.
+لا يفتح المُثبّت الجدار الناري تلقائيًا؛ احتفظ بوصول SSH وافتح منافذ الخدمة المطلوبة.
+
+## تنصيب عقدة لود مستقلة
+
+1. نزّل حزمة `node` من نفس الإصدار بواسطة `fetch_release.py` إلى السيرفر الجديد.
+2. استخرج executable `panel/src/bin/xc_agent/xc_agent` إلى مجلد تجهيز خاص.
+3. شغّل `xc_agent keygen -uuid NODE_UUID -state /root/node-setup/agent.json`.
+   لا تنقل المفتاح الخاص إلى MAIN؛ انقل ناتج المفاتيح العامة فقط.
+4. على MAIN استخدم `deployment/enroll-node.php` لتسجيل المفاتيح العامة وإصدار
+   enrollment JSON مشفر وموقّع لهذه العقدة، ثم انقله بجانب `agent.json`.
+5. شغّل المُثبّت:
+
+```bash
+sudo python3 install.py --role node --repository mena50056/xcvm-independent \
+  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
+  --server-ip NEW_NODE_IP --enrollment-file /root/node-setup/enrollment.json
+```
+
+عقدة اللود تعمل بـGo دون بيانات دخول قاعدة MAIN ودون PHP أو إضافة التفعيل.
+لا تنسخ هوية عقدة مسجلة إلى جهاز آخر.
+
+## الاختبارات والتجميع
+
+`deployment/build.py` ينشئ checkout نظيفًا وحزمتي MAIN/node من مدخلات تشغيل
+محلية منتقاة. يتعمد عدم تنزيل أي ملفات من مستودعات المطوّر الأصلي.
+الحزم لا تتضمن قنوات التجربة أو حسابات المشاهدين أو مفاتيح التجربة.
+
+```bash
+python3 deployment/build.py --source-output /tmp/xcvm-clean \
+  --release-output /tmp/xcvm-release \
+  --php-runtime /secure/runtime-input.tar.gz \
+  --go-runtime /secure/go-runtime-input.tar.gz
+```
+
+ملفات التشغيل الثنائية تُنشر في Releases، ولا تُلزم Git بتخزينها.
+بصمة SHA-256 تكشف تلف الملفات؛ الثقة في الإصدار تعتمد أيضًا على حماية حساب GitHub.

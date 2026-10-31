@@ -1,0 +1,119 @@
+<?php
+
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\AdminHelpers;
+use XcVm\Domain\Stream\CategoryService;
+use XcVm\Domain\Stream\StreamConfigRepository;
+use XcVm\Domain\Stream\StreamRepository;
+
+/**
+ * CreatedChannelController — редактирование/добавление канала.
+ *
+ * @renders Views/admin/created_channel.php
+ *
+ * @package XC_VM_Public_Controllers_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class CreatedChannelController extends BaseAdminController {
+	public function index() {
+		$this->requirePermission();
+
+		global $db, $rServers;
+
+		$rCategories = CategoryService::getAllByType('live');
+		$rTranscodeProfiles = StreamConfigRepository::getTranscodeProfiles();
+
+		if (!RequestManager::has('id')) {
+			$rChannel = null;
+		} else {
+			// The channel as stored: the form escapes what it prints and posts it back,
+			// so text read through the row cleaner ('&lt;' for '<') would be saved escaped.
+			$db->query('SELECT * FROM `streams` WHERE `id` = ?;', intval(RequestManager::get('id')));
+			$rChannel = $db->get_raw_row();
+
+			if (!$rChannel || $rChannel['type'] != 3) {
+				AdminHelpers::goHome();
+			}
+		}
+
+		$rOnDemand = [];
+		$rProperties = null;
+		$rChannelSys = null;
+		$rServerTree = [
+			[
+				'id' => 'source',
+				'parent' => '#',
+				'text' => "<span class='badge bg-success'>Online</span>",
+				'icon' => 'icon-base ti tabler-player-play',
+				'state' => ['opened' => true]
+			],
+			[
+				'id' => 'offline',
+				'parent' => '#',
+				'text' => "<span class='badge bg-secondary'>Offline</span>",
+				'icon' => 'icon-base ti tabler-player-stop',
+				'state' => ['opened' => true]
+			]
+		];
+
+		if (isset($rChannel)) {
+			$rProperties = json_decode($rChannel['movie_properties'], true);
+
+			if (!$rProperties) {
+				$rProperties = ['type' => $rChannel['series_no'] > 0 ? 0 : 1];
+			}
+
+			$rChannelSys = StreamRepository::getSystemRows(RequestManager::get('id'));
+
+			foreach ($rServers as $rServer) {
+				if (isset($rChannelSys[intval($rServer['id'])])) {
+					// An on-demand server is one of the channel's servers, chosen in the
+					// on-demand list (StreamController does the same): left off the tree
+					// and off the list, saving the form took it off the channel.
+					$rParent = $rChannelSys[intval($rServer['id'])]['parent_id'] != 0
+						? intval($rChannelSys[intval($rServer['id'])]['parent_id'])
+						: 'source';
+
+					if ($rChannelSys[intval($rServer['id'])]['on_demand']) {
+						$rOnDemand[] = intval($rServer['id']);
+					}
+				} else {
+					$rParent = 'offline';
+				}
+
+				$rServerTree[] = [
+					'id' => $rServer['id'],
+					'parent' => $rParent,
+					'text' => $rServer['server_name'],
+					'icon' => 'icon-base ti tabler-server',
+					'state' => ['opened' => true]
+				];
+			}
+		} else {
+			foreach ($rServers as $rServer) {
+				$rServerTree[] = [
+					'id' => $rServer['id'],
+					'parent' => 'offline',
+					'text' => $rServer['server_name'],
+					'icon' => 'icon-base ti tabler-server',
+					'state' => ['opened' => true]
+				];
+			}
+		}
+
+		// The load-balancer server tree is driven by jstree.
+		$GLOBALS['xmNewuiVendors'] = array_values(array_unique(array_merge(
+			(array) ($GLOBALS['xmNewuiVendors'] ?? []),
+			['jstree']
+		)));
+
+		$this->setTitle('Created Channel');
+		$this->render('created_channel', ['rCategories' => $rCategories, 'rTranscodeProfiles' => $rTranscodeProfiles, 'rChannel' => $rChannel, 'rOnDemand' => $rOnDemand, 'rServerTree' => $rServerTree, 'rProperties' => $rProperties, 'rChannelSys' => $rChannelSys]);
+	}
+}

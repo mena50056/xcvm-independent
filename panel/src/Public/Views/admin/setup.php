@@ -1,0 +1,403 @@
+<?php
+
+use XcVm\Core\Auth\Authenticator;
+use XcVm\Core\Auth\AuthRepository;
+use XcVm\Core\Auth\PageAuthorization;
+use XcVm\Core\Auth\SessionManager;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Database\DatabaseHandler;
+use XcVm\Core\Database\QueryHelper;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\AdminHelpers;
+use XcVm\Core\Util\LayoutRenderer;
+use XcVm\Core\Util\NetworkUtils;
+use XcVm\Core\Localization\Translator;
+use XcVm\Cli\Commands\MigrateCommand;
+use XcVm\Domain\Server\SettingsService;
+use XcVm\Infrastructure\Bootstrap\AdminScopeBootstrap;
+
+
+global $db, $rSettings, $rMobile, $rServers, $rProxyServers, $rDetect,
+    $rTimeout, $rProtocol, $allServers, $rPermissions, $allowedLangs,
+    $rServerError, $allServersHealthy, $updateRequired, $rUserInfo,
+    $_STATUS, $customScript, $language;
+$language = Translator::class;
+AdminScopeBootstrap::hydrateAdminContext();
+if (!RequestManager::has('update')):
+    $rFirstRun = true;
+    $db->query('SELECT COUNT(`id`) AS `count` FROM `users` LEFT JOIN `users_groups` ON `users_groups`.`group_id` = `users`.`member_group_id` WHERE `users_groups`.`is_admin` = 1;');
+
+    if ($db->get_row()['count'] > 0) {
+        $rFirstRun = false;
+        SessionManager::start('admin');
+        SessionManager::requireAuth();
+
+        if (!PageAuthorization::checkPermissions()) {
+            AdminHelpers::goHome();
+        }
+    }
+
+    $rMigrating = false;
+
+    if (file_exists(TMP_PATH . '.migration.status') && file_exists(TMP_PATH . '.migration.pid')) {
+        $rPID = file_get_contents(TMP_PATH . '.migration.pid');
+
+        if (file_exists('/proc/' . $rPID)) {
+            $rMigrating = true;
+        }
+    }
+
+    if (RequestManager::has('migrate')) {
+        $rMigrateOptions = array();
+
+        foreach (RequestManager::getAll() as $rKey => $rValue) {
+            if (substr($rKey, 0, 8) == 'migrate#') {
+                list(, $rMigrateOptions[]) = explode('#', $rKey);
+            }
+        }
+
+        if (count($rMigrateOptions) != 0) {
+            if (file_exists(TMP_PATH . '.migration.pid')) {
+                $rPID = intval(file_get_contents(TMP_PATH . '.migration.pid'));
+                exec('kill -9 ' . $rPID);
+            }
+
+            file_put_contents(TMP_PATH . '.migration.options', json_encode($rMigrateOptions));
+            unlink(TMP_PATH . '.migration.status');
+            unlink(TMP_PATH . '.migration.pid');
+            unlink(TMP_PATH . '.migration.log');
+            shell_exec(PHP_BIN . ' ' . MAIN_HOME . 'console.php migrate > ' . TMP_PATH . '.migration.log 2>&1 &');
+            $rMigrating = true;
+        } else {
+            header('Location: ./setup');
+            exit();
+        }
+    } else {
+        if (RequestManager::has('new_user') && $rFirstRun) {
+            if (strlen(RequestManager::get('password')) < 8 || strlen(RequestManager::get('username')) < 8) {
+                RequestManager::update('new', 1);
+                $_STATUS = STATUS_FAILURE;
+            } else {
+                $rArray = QueryHelper::verifyPostTable('users');
+                $rArray['username'] = RequestManager::get('username');
+                $rArray['password'] = Authenticator::hashPassword(RequestManager::get('password'));
+                $rArray['email'] = RequestManager::get('email');
+                $rArray['last_login'] = time();
+                $rArray['date_registered'] = $rArray['last_login'];
+                $rArray['member_group_id'] = 1;
+                $rArray['ip'] = NetworkUtils::getUserIP();
+                $rArray['last_login'] = time();
+                $rPrepare = QueryHelper::prepareArray($rArray);
+                $rQuery = 'INSERT INTO `users`(' . $rPrepare['columns'] . ') VALUES(' . $rPrepare['placeholder'] . ');';
+
+                if ($db->query($rQuery, ...$rPrepare['data'])) {
+                    session_regenerate_id(true); // signed in from here: a fresh id, as at login
+                    $_SESSION['hash'] = $db->last_insert_id();
+                    $_SESSION['ip'] = NetworkUtils::getUserIP();
+                    $_SESSION['code'] = AuthRepository::getCurrentCode();
+                    $_SESSION['verify'] = md5($rArray['username'] . '||' . $rArray['password']);
+                    $db->query('UPDATE `servers` SET `server_ip` = ? WHERE `is_main` = 1 AND `server_type` = 0 LIMIT 1;', $_SERVER['SERVER_ADDR']);
+                    $db->query('UPDATE `settings` SET `live_streaming_pass` = ? WHERE `id` = 1', AdminHelpers::generateString(25));
+                    // The panel's language, timezone, name and message of the day, from the same form.
+                    $rBasics = SettingsService::firstRunValues(RequestManager::getAll());
+                    if ($rBasics !== []) {
+                        $rPrepare = QueryHelper::prepareArray($rBasics);
+                        $db->query('UPDATE `settings` SET ' . $rPrepare['update'] . ' WHERE `id` = 1;', ...$rPrepare['data']);
+                        SettingsManager::clearCache();
+                    }
+
+                    if ($_SESSION['code'] == 'setup') {
+                        header('Location: ./codes');
+
+                        exit();
+                    }
+
+                    header('Location: ./dashboard');
+                    exit();
+                }
+
+                RequestManager::update('new', 1);
+                $_STATUS = STATUS_FAILURE;
+            }
+        }
+    }
+
+    if (!$rMigrating) {
+        $rMigrateConnection = false;
+        $odb = new DatabaseHandler(migrate: true);
+
+        if ($odb->connected) {
+            $rMigrateConnection = true;
+        }
+
+        $odb->query("SHOW TABLES LIKE 'access_codes';");
+
+        if ($odb->num_rows() > 0) {
+            $rCount = array('access_codes' => array('Access Codes', 0), 'users' => array('Users & Resellers', 0), 'blocked_ips' => array('Blocked IP Addresses', 0), 'blocked_uas' => array('Blocked User-Agents', 0), 'blocked_isps' => array("Blocked ISP's", 0), 'bouquets' => array('Bouquets', 0), 'enigma2_devices' => array('Device Info - Engima2', 0), 'mag_devices' => array('Device Info - MAG', 0), 'epg' => array('EPG Providers ', 0), 'users_groups' => array('User Groups', 0), 'users_packages' => array('User Packages', 0), 'rtmp_ips' => array("RTMP IP's", 0), 'streams_series' => array('TV Series', 0), 'streams_episodes' => array('TV Episodes', 0), 'servers' => array('Servers - Load Balancers', 0), 'streams' => array('Streams - Live, Radio, Created & VOD', 0), 'streams_options' => array('Stream Options', 0), 'streams_servers' => array('Stream Servers', 0), 'streams_categories' => array('Stream Categories', 0), 'tickets' => array('Tickets', 0), 'tickets_replies' => array('Ticket Replies', 0), 'profiles' => array('Transcoding Profile', 0), 'providers' => array('Streaming Providers', 0), 'lines' => array('Lines - Standard, MAG & Enigma2 Devices', 0));
+        } else {
+            $rCount = array('reg_users' => array('Users & Resellers', 0), 'users' => array('Lines - Standard, MAG & Enigma2 Devices', 0), 'enigma2_devices' => array('Device Info - Engima2', 0), 'mag_devices' => array('Device Info - MAG', 0), 'user_output' => array('Line Output - HLS, MPEG-TS & RTMP', 0), 'streaming_servers' => array('Servers - Load Balancers', 0), 'series' => array('TV Series', 0), 'series_episodes' => array('TV Episodes', 0), 'streams' => array('Streams - Live, Radio, Created & VOD', 0), 'streams_sys' => array('Stream Servers', 0), 'streams_options' => array('Stream Options', 0), 'stream_categories' => array('Stream Categories', 0), 'bouquets' => array('Bouquets', 0), 'member_groups' => array('Member Groups', 0), 'packages' => array('Reseller Packages', 0), 'rtmp_ips' => array("RTMP IP's", 0), 'epg' => array('EPG Providers ', 0), 'blocked_ips' => array('Blocked IP Addresses', 0), 'blocked_user_agents' => array('Blocked User-Agents', 0), 'isp_addon' => array("Blocked ISP's", 0), 'tickets' => array('Tickets', 0), 'tickets_replies' => array('Ticket Replies', 0), 'transcoding_profiles' => array('Transcoding Profile', 0), 'members' => array('Users & Resellers', 0), 'epg_sources' => array('EPG Providers', 0), 'blocked_isps' => array("Blocked ISP's", 0), 'categories' => array('Stream Categories', 0), 'groups' => array('Member Groups', 0), 'servers' => array('Servers - Load Balancers', 0), 'stream_servers' => array('Stream Servers', 0));
+        }
+
+        foreach (array_keys($rCount) as $rTable) {
+            try {
+                $odb->query("SHOW TABLES LIKE '" . $rTable . "';");
+
+                if ($odb->num_rows() > 0) {
+                    $odb->query('SELECT COUNT(*) AS `count` FROM `' . $rTable . '`;');
+                    $rCount[$rTable][1] = $odb->get_row()['count'];
+                }
+            } catch (Exception $e) {
+            }
+        }
+        $rTotalCount = 0;
+
+        foreach ($rCount as $rTable => $rItemCount) {
+            $rTotalCount += $rItemCount[1];
+        }
+        ksort($rCount);
+    }
+
+    // Backup tables the core does not own (MigrateCommand::moduleTables()): the
+    // migration saves them to Modules/migration/ for their modules. Listed so
+    // the operator knows before migrating.
+    $rModuleTables = [];
+    if (!$rMigrating && $rMigrateConnection) {
+        $odb->query('SHOW TABLES;');
+        $rBackupTables = array_map(static fn(array $rRow): string => (string) reset($rRow), $odb->get_rows());
+        foreach (MigrateCommand::moduleTables($rBackupTables, MigrateCommand::coreSchemaTables()) as $rTable) {
+            $odb->query('SELECT COUNT(*) AS `count` FROM `' . str_replace('`', '', $rTable) . '`;');
+            $rRows = (int) ($odb->get_row()['count'] ?? 0);
+            if ($rRows > 0) {
+                $rModuleTables[$rTable] = $rRows;
+            }
+        }
+    }
+
+    if (!($rFirstRun || PageAuthorization::checkPermissions())) {
+        AdminHelpers::goHome();
+    }
+
+    $_TITLE = 'Database Migration';
+    $_SETUP = true;
+    $GLOBALS['_SETUP'] = true;
+    LayoutRenderer::renderHeader('admin', ['_SETUP' => true]);
+?>
+    <h4 class="py-3 mb-4"><?= $language::get('database_migration') ?></h4>
+    <div class="card">
+        <div class="card-body">
+            <?php if ($rMigrating) { ?>
+                <!-- State (a): migration in progress -->
+                <div class="text-center">
+                    <i class="icon-base ti tabler-database-export text-info" style="font-size:2.5rem;"></i>
+                    <h5 class="text-info mt-2 mb-3"><?= $language::get('setup_migrating') ?></h5>
+                    <textarea readonly id="migration_progress"
+                        class="form-control bg-dark text-white font-monospace mb-3"
+                        style="height:360px; resize:none;"></textarea>
+                    <div class="text-end">
+                        <button disabled onClick="migrateServer();" class="btn btn-info" id="migrate_button">
+                            <i class="icon-base ti tabler-refresh me-1"></i><?= $language::get('try_again') ?>
+                        </button>
+                    </div>
+                </div>
+                <?php } else {
+                if (RequestManager::has('new') && $rFirstRun) { ?>
+                    <!-- State (b): first-run admin account creation -->
+                    <form action="./setup" method="POST" data-parsley-validate="">
+                        <?php if (isset($_STATUS) && $_STATUS == STATUS_FAILURE) { ?>
+                            <div class="alert alert-danger" role="alert"><?= $language::get('setup_password_length_error') ?></div>
+                        <?php } else { ?>
+                            <div class="alert alert-info" role="alert"><?= $language::get('setup_create_admin_intro') ?></div>
+                        <?php } ?>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="username"><?= $language::get('admin_username') ?></label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" id="username" name="username" value=""
+                                    required data-parsley-trigger="change">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="password"><?= $language::get('admin_password') ?></label>
+                            <div class="col-md-8">
+                                <input type="password" class="form-control" id="password" name="password"
+                                    value="" required data-parsley-trigger="change">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="email"><?= $language::get('email_address') ?></label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" id="email" name="email" value="">
+                            </div>
+                        </div>
+                        <hr class="my-4">
+                        <?php // The panel's basics, prefilled with what is stored: sent unchanged, nothing changes. ?>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="server_name"><?= $language::get('server_name') ?></label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" id="server_name" name="server_name" maxlength="255"
+                                    value="<?= htmlspecialchars((string) ($rSettings['server_name'] ?? ''), ENT_QUOTES) ?>">
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="language"><?= $language::get('interface_language') ?></label>
+                            <div class="col-md-8">
+                                <select class="form-select" id="language" name="language">
+                                    <?php foreach (Translator::available() as $rLangCode): ?>
+                                        <option value="<?= htmlspecialchars($rLangCode, ENT_QUOTES) ?>" <?= ($rSettings['language'] ?? 'en') === $rLangCode ? 'selected' : '' ?>><?= htmlspecialchars(Translator::displayName($rLangCode)) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="default_timezone"><?= $language::get('server_timezone') ?></label>
+                            <div class="col-md-8">
+                                <select class="form-select" id="default_timezone" name="default_timezone">
+                                    <?php foreach (AdminHelpers::TimeZoneList() as $rZone): ?>
+                                        <option value="<?= htmlspecialchars($rZone['zone'], ENT_QUOTES) ?>" <?= ($rSettings['default_timezone'] ?? '') === $rZone['zone'] ? 'selected' : '' ?>><?= htmlspecialchars($rZone['zone'] . ' ' . $rZone['diff_from_GMT']) ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row mb-3">
+                            <label class="col-md-4 col-form-label" for="message_of_day"><?= $language::get('message_of_the_day') ?></label>
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" id="message_of_day" name="message_of_day" maxlength="2000"
+                                    value="<?= htmlspecialchars((string) ($rSettings['message_of_day'] ?? ''), ENT_QUOTES) ?>">
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <input name="new_user" type="submit" class="btn btn-primary" value="<?= htmlspecialchars($language::get('create'), ENT_QUOTES) ?>" />
+                        </div>
+                    </form>
+                <?php } else { ?>
+                    <!-- State (c): migration table + Migrate / Don't-Migrate actions -->
+                    <form action="./setup" method="POST" data-parsley-validate="">
+                        <div class="alert alert-secondary" role="alert"><?= $language::get('setup_migration_instructions') ?></div>
+                        <?php if (!$rMigrateConnection): ?>
+                            <div class="alert alert-danger" role="alert"><?= $language::get('setup_migrate_connection_error') ?></div>
+                        <?php endif; ?>
+                        <?php if ($rMigrateConnection && $rTotalCount > 0): ?>
+                            <div class="alert alert-secondary" role="alert"><?= $language::get('setup_migration_records_intro') ?></div>
+                            <div class="table-responsive mb-4">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th><?= $language::get('description') ?></th>
+                                            <th><?= $language::get('table_name') ?></th>
+                                            <th class="text-center"><?= $language::get('records') ?></th>
+                                            <th class="text-center"><?= $language::get('migrate') ?></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach ($rCount as $rTable => $rItem) {
+                                            if ($rItem[1] != 0) { ?>
+                                                <tr>
+                                                    <td><?php echo htmlspecialchars($rItem[0]); ?></td>
+                                                    <td><?php echo htmlspecialchars($rTable); ?></td>
+                                                    <td class="text-center"><span class="badge bg-label-<?php echo (0 < $rItem[1] ? 'info' : 'secondary'); ?>"><?php echo $rItem[1]; ?></span></td>
+                                                    <td class="text-center">
+                                                        <div class="form-check d-inline-block">
+                                                            <input name="migrate#<?php echo htmlspecialchars($rTable); ?>"
+                                                                <?php echo (0 < $rItem[1] ? 'checked' : 'disabled'); ?>
+                                                                type="checkbox" class="form-check-input activate">
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                        <?php }
+                                        } ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($rModuleTables)) { ?>
+                            <div class="alert alert-info" role="alert">
+                                <?= $language::get('setup_module_tables_intro') ?>
+                                <ul class="mb-0 mt-2">
+                                    <?php foreach ($rModuleTables as $rTable => $rRows) { ?>
+                                        <li><code><?= htmlspecialchars($rTable, ENT_QUOTES) ?></code> — <?= number_format($rRows, 0, '.', ' ') ?></li>
+                                    <?php } ?>
+                                </ul>
+                            </div>
+                        <?php } ?>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <?php if ($rFirstRun) { ?>
+                                <a href="./setup?new"><button name="dont_migrate" class="btn btn-danger"
+                                        type="button"><?= $language::get('dont_migrate') ?></button></a>
+                            <?php } else { ?>
+                                <span></span>
+                            <?php }
+                            if ($rMigrateConnection && $rTotalCount > 0) { ?>
+                                <input name="migrate" type="submit" class="btn btn-primary" value="<?= htmlspecialchars($language::get('migrate'), ENT_QUOTES) ?>" />
+                            <?php } ?>
+                        </div>
+                    </form>
+            <?php }
+            } ?>
+        </div>
+    </div>
+    <?php
+    LayoutRenderer::renderFooter('admin', ['_SETUP' => true]);
+    ?>
+    <?php if ($rMigrating): ?>
+        <script>
+            function getMigrationStatus() {
+                $.getJSON("./setup?update=1", function(data) {
+                    // Use the raw <textarea> .value (not jQuery .html()) so log text
+                    // is set reliably as plain content, never parsed as markup.
+                    var box = document.getElementById('migration_progress');
+                    if (data.result === true) {
+                        if (box) box.value = data.data;
+                        if (data.status == 1) {
+                            setTimeout(getMigrationStatus, 1000);
+                        } else if (data.status == 2) {
+                            window.location.href = 'dashboard';
+                        } else if (data.status == 3) {
+                            $("#migrate_button").prop("disabled", false);
+                        }
+                    } else {
+                        if (box) box.value = <?= json_encode($language::get('setup_no_progress')) ?>;
+                        setTimeout(getMigrationStatus, 1000);
+                    }
+                    if (box) {
+                        box.scrollTop = box.scrollHeight;
+                    }
+                });
+            }
+
+            function migrateServer() {
+                window.location.href = 'setup?migrate=1';
+            }
+
+            $(document).ready(function() {
+                $(window).keypress(function(event) {
+                    if (event.which == 13 && event.target.nodeName != "TEXTAREA") return false;
+                });
+                getMigrationStatus();
+            });
+        </script>
+    <?php endif; ?>
+<?php
+else:
+    if (file_exists(TMP_PATH . '.migration.log')) {
+        $rLog = file_get_contents(TMP_PATH . '.migration.log');
+        $rStatus = intval(file_get_contents(TMP_PATH . '.migration.status'));
+
+        if (!$rStatus) {
+            $rStatus = 1;
+        }
+
+        if ($rStatus == 2) {
+            unlink(TMP_PATH . '.migration.options');
+            unlink(TMP_PATH . '.migration.status');
+            unlink(TMP_PATH . '.migration.pid');
+            unlink(TMP_PATH . '.migration.log');
+        }
+
+        echo json_encode(array('result' => true, 'status' => $rStatus, 'data' =>
+        $rLog));
+    } else {
+        echo json_encode(array('result' => false));
+    }
+
+    exit();
+endif;
+?>

@@ -1,0 +1,156 @@
+<?php
+
+namespace XcVm\Domain\Stream;
+
+use XcVm\Core\Auth\Authorization;
+use XcVm\Core\Database\QueryHelper;
+use XcVm\Core\Util\AdminHelpers;
+use XcVm\Core\Validation\InputValidator;
+use XcVm\Infrastructure\Database\DatabaseAware;
+
+/**
+ * ProviderService — provider service
+ *
+ * @package XC_VM_Domain_Stream
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class ProviderService {
+	use DatabaseAware;
+
+	/** Resolve a saved live channel for the existing source probe without exposing credentials. */
+	public static function liveSourceUrl(int $rProviderId, int $rStreamId): ?string {
+		if ($rProviderId <= 0 || $rStreamId <= 0) {
+			return null;
+		}
+		$db = self::db();
+		$db->query('SELECT p.`ip`, p.`port`, p.`username`, p.`password`, p.`ssl`, p.`hls`, p.`legacy` FROM `providers` p INNER JOIN `providers_streams` s ON s.`provider_id` = p.`id` WHERE p.`id` = ? AND s.`stream_id` = ? AND s.`type` = ? LIMIT 1;', $rProviderId, $rStreamId, 'live');
+		$rRow = $db->get_raw_row();
+		if (!$rRow) {
+			return null;
+		}
+		$rHost = rtrim((string) preg_replace('#^https?://#i', '', (string) $rRow['ip']), '/');
+		return ($rRow['ssl'] ? 'https' : 'http') . '://' . $rHost . ':' . intval($rRow['port']) . '/live/'
+			. rawurlencode((string) $rRow['username']) . '/' . rawurlencode((string) $rRow['password']) . '/' . $rStreamId
+			. ($rRow['hls'] ? '.m3u8' : ($rRow['legacy'] ? '.ts' : ''));
+	}
+
+	/**
+	 * Create or update a provider from admin form data.
+	 *
+	 * Validates input, enforces advanced permissions and IP+username uniqueness.
+	 *
+	 * @param array $rData Submitted form data (includes `edit` id when updating).
+	 * @return array ['status' => STATUS_* constant, 'data' => insert_id or payload].
+	 */
+	public static function process(array $rData) {
+		$db = self::db();
+		if (InputValidator::validate('processProvider', $rData)) {
+			if (isset($rData['edit'])) {
+				if (Authorization::check('adv', 'streams')) {
+					// The edit starts from the provider as stored: the row cleaner's
+					// escaping would be written back into every field not sent.
+					$db->query('SELECT * FROM `providers` WHERE `id` = ?;', intval($rData['edit']));
+					$rArray = AdminHelpers::overwriteData($db->get_raw_row(), $rData);
+				} else {
+					exit();
+				}
+			} else {
+				if (Authorization::check('adv', 'streams')) {
+					$rArray = QueryHelper::verifyPostTable('providers', $rData);
+					unset($rArray['id']);
+				} else {
+					exit();
+				}
+			}
+
+			foreach (['enabled', 'ssl', 'hls', 'legacy'] as $rKey) {
+				if (isset($rData[$rKey])) {
+					$rArray[$rKey] = 1;
+				} else {
+					$rArray[$rKey] = 0;
+				}
+			}
+
+			if (isset($rData['edit'])) {
+				$db->query('SELECT `id` FROM `providers` WHERE `ip` = ? AND `username` = ? AND `id` <> ? LIMIT 1;', $rArray['ip'], $rArray['username'], $rData['edit']);
+			} else {
+				$db->query('SELECT `id` FROM `providers` WHERE `ip` = ? AND `username` = ? LIMIT 1;', $rArray['ip'], $rArray['username']);
+			}
+
+			if (0 >= $db->num_rows()) {
+				$rPrepare = QueryHelper::prepareArray($rArray);
+				$rQuery = 'REPLACE INTO `providers`(' . $rPrepare['columns'] . ') VALUES(' . $rPrepare['placeholder'] . ');';
+
+				if ($db->query($rQuery, ...$rPrepare['data'])) {
+					$rInsertID = $db->last_insert_id();
+					return ['status' => STATUS_SUCCESS, 'data' => ['insert_id' => $rInsertID]];
+				}
+
+				return ['status' => STATUS_FAILURE, 'data' => $rData];
+			}
+
+			return ['status' => STATUS_EXISTS_IP, 'data' => $rData];
+		}
+		return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
+	}
+
+	/**
+	 * Fetch a single provider by id.
+	 *
+	 * @param int $rID Provider id.
+	 * @return array|null The provider row, or null if not found.
+	 */
+	public static function getById(int $rID) {
+		$db = self::db();
+		$db->query('SELECT * FROM `providers` WHERE `id` = ?;', $rID);
+
+		if ($db->num_rows() != 1) {
+			return null;
+		}
+
+		return $db->get_row();
+	}
+
+	/**
+	 * Fetch all providers, most recently changed first.
+	 *
+	 * @return array Provider rows.
+	 */
+	public static function getAll() {
+		$db = self::db();
+		$rReturn = [];
+		$db->query('SELECT * FROM `providers` ORDER BY `last_changed` DESC;');
+
+		if ($db->num_rows() > 0) {
+			foreach ($db->get_rows() as $rRow) {
+				$rReturn[] = $rRow;
+			}
+		}
+
+		return $rReturn;
+	}
+
+	/**
+	 * Delete a provider and its stream associations.
+	 *
+	 * @param int $rID Provider id.
+	 * @return bool True on deletion, false if the provider does not exist.
+	 */
+	public static function deleteById(int $rID) {
+		$db = self::db();
+		$rProvider = self::getById($rID);
+
+		if (!$rProvider) {
+			return false;
+		}
+
+		$db->query('DELETE FROM `providers` WHERE `id` = ?;', $rID);
+		$db->query('DELETE FROM `providers_streams` WHERE `provider_id` = ?;', $rID);
+
+		return true;
+	}
+}

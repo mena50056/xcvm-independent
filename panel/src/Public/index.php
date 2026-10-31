@@ -1,0 +1,330 @@
+<?php
+
+use XcVm\Core\Audit\AdminAudit;
+use XcVm\Core\Error\ErrorResponder;
+use XcVm\Core\Http\Router;
+use XcVm\Core\Module\ModuleLoader;
+use XcVm\Infrastructure\Bootstrap\ScopeBootstrapFactory;
+use XcVm\Infrastructure\Bootstrap\StreamingRequestBootstrap;
+use XcVm\Infrastructure\Bootstrap\WebApiBootstrap;
+use XcVm\Public\Controllers\Api\ActiveCodeApiController;
+use XcVm\Public\Controllers\Api\AdminApiController;
+use XcVm\Public\Controllers\Api\Enigma2ApiController;
+use XcVm\Public\Controllers\Api\EpgApiController;
+use XcVm\Public\Controllers\Api\MetricsController;
+use XcVm\Public\Controllers\Api\PlayerApiController;
+use XcVm\Public\Controllers\Api\PlaylistApiController;
+use XcVm\Public\Controllers\Api\ResellerRestApiController;
+use XcVm\Public\Controllers\Api\XPluginApiController;
+use XcVm\Public\Controllers\Player\PortalController;
+
+/**
+ * Front Controller — единая точка входа для admin/reseller/player.
+ *
+ * Flow: nginx → FC → scope/pageName → bootstrap → Router::dispatch() → Controller
+ *
+ * @see Core/Http/Router.php
+ * @see Public/routes/admin.php
+ * @see bin/nginx/conf/codes/template
+ *
+ * @package XC_VM_Public
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+// 1. MAIN_HOME
+if (!defined('MAIN_HOME')) {
+	define('MAIN_HOME', dirname(__DIR__) . '/');
+}
+
+// 1b. Autoloader
+require_once MAIN_HOME . 'vendor/autoload.php';
+
+// 2. Разбор URL → scope + pageName
+
+$requestUri = $_SERVER['REQUEST_URI'] ?? '/';
+$urlPath    = parse_url($requestUri, PHP_URL_PATH);
+$urlPath    = '/' . ltrim($urlPath, '/');
+
+if (empty($_GET) && !empty($requestUri)) {
+	$queryString = $_SERVER['QUERY_STRING'] ?? '';
+	if ($queryString === '') {
+		$queryString = (string) parse_url($requestUri, PHP_URL_QUERY);
+	}
+	if ($queryString !== '') {
+		parse_str($queryString, $_GET);
+	}
+}
+
+$scope      = 'admin';
+$pageName   = '';
+$accessCode = null;
+$rawScope   = null;
+
+if (!empty($_SERVER['XC_SCOPE'])) {
+	// Режим A: access code (nginx XC_SCOPE/XC_CODE)
+	$rawScope   = $_SERVER['XC_SCOPE'];
+	$accessCode = $_SERVER['XC_CODE'] ?? null;
+
+	$scopeMap = [
+		'admin'                => 'admin',
+		'reseller'             => 'reseller',
+		'ministra'             => 'ministra',
+		'ministra/new'         => 'ministra',
+		'includes/api/admin'   => 'admin',
+		'includes/api/reseller' => 'reseller',
+		'player'               => 'player',
+		'portal'               => 'portal',
+		'player_v2'            => 'player_v2',
+	];
+
+	$scope = $scopeMap[$rawScope] ?? 'admin';
+
+	if ($accessCode && preg_match('#^/' . preg_quote($accessCode, '#') . '(?:/(.*))?$#', $urlPath, $m)) {
+		$pageName = isset($m[1]) ? trim($m[1], '/') : '';
+	} else {
+		$pageName = trim($urlPath, '/');
+		$parts = explode('/', $pageName, 2);
+		$pageName = $parts[1] ?? '';
+	}
+} elseif (preg_match('#^/(admin|reseller|portal)(?:/(.*))?$#', $urlPath, $m)) {
+	// Режим B: прямой URL /admin/... или /reseller/... или /portal/...
+	$scope    = $m[1];
+	$pageName = isset($m[2]) ? trim($m[2], '/') : '';
+} else {
+	// Режим C: access code без XC_SCOPE (fallback admin)
+	$selfDir = basename(dirname($_SERVER['PHP_SELF'] ?? ''));
+
+	if (!in_array($selfDir, ['admin', 'reseller'], true)) {
+		$accessCode = $selfDir;
+	} else {
+		$scope = $selfDir;
+	}
+
+	$parts = explode('/', trim($urlPath, '/'));
+	array_shift($parts);
+	$pageName = implode('/', $parts);
+}
+
+$pageName = preg_replace('/\.php$/', '', $pageName);
+
+if ($pageName === '') {
+	$pageName = 'index';
+}
+
+// 3. REST API (access code type 3/4) — dispatch до редиректа и роутера
+if (isset($rawScope) && in_array($rawScope, ['includes/api/admin', 'includes/api/reseller'], true)) {
+	require_once MAIN_HOME . 'bootstrap.php';
+	XC_Bootstrap::boot(XC_Bootstrap::CONTEXT_ADMIN);
+	// Boot modules (no router → registries only, no route side-effects) so a
+	// module-owned serverSide table (TableRegistry) is reachable over the REST API.
+	if (class_exists(ModuleLoader::class)) {
+		$rApiModuleLoader = new ModuleLoader();
+		$rApiModuleLoader->loadAll();
+		$rApiModuleLoader->bootAll(XC_Bootstrap::getContainer());
+	}
+	if ($rawScope === 'includes/api/admin') {
+		$controller = new AdminApiController();
+	} else {
+		$controller = new ResellerRestApiController();
+	}
+	$controller->index();
+	exit;
+}
+
+// 4. Redirect /CODE/ → /CODE/login (иначе relative assets ломаются)
+if ($pageName === 'index' && $accessCode && in_array($scope, ['admin', 'reseller'], true)
+	&& ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+) {
+	header('Location: /' . $accessCode . '/login');
+	exit;
+}
+
+// 4b. Player / Portal: /CODE (без завершающего слэша) → /CODE/
+if ($accessCode && in_array($scope, ['player', 'player_v2', 'portal'], true)
+	&& ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+	&& rtrim(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '', '/') === '/' . $accessCode
+	&& substr(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '', -1) !== '/'
+) {
+	$query = (string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_QUERY);
+	header('Location: /' . $accessCode . '/' . ($query !== '' ? '?' . $query : ''));
+	exit;
+}
+
+if (!defined('PAGE_NAME')) {
+	define('PAGE_NAME', $pageName);
+}
+
+// 5. Статические ресурсы (fallback для неверной nginx-конфигурации)
+$ext = pathinfo($pageName, PATHINFO_EXTENSION);
+if (in_array($ext, ['css', 'js', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot', 'map'], true)) {
+	http_response_code(404);
+	exit;
+}
+
+// 6. Streaming / web API (XC_SCOPE=api, XC_API={endpoint})
+// Each entry: [controller class, bootstrap kind]. `::class` yields the resolved
+// FQN, so `new $class()` works without a manual namespace prefix.
+if (isset($rawScope) && $rawScope === 'api' && !empty($_SERVER['XC_API'])) {
+	$rApiName = $_SERVER['XC_API'];
+	$rApiEndpoints = [
+		'player_api' => [PlayerApiController::class,   'stream'],
+		'enigma2'    => [Enigma2ApiController::class,  'web'],
+		'xplugin'    => [XPluginApiController::class,  'web'],
+		'epg'        => [EpgApiController::class,      'web'],
+		'playlist'     => [PlaylistApiController::class,     'web'],
+		'active_code'  => [ActiveCodeApiController::class,   'web'],
+		'active_codes' => [ActiveCodeApiController::class,   'web'],
+		// MAIN only: nginx routes them there, and the load balancer build has no controller.
+		'metrics'      => [MetricsController::class,         'web'],
+		'healthz'      => [MetricsController::class,         'web'],
+	];
+
+	if (!isset($rApiEndpoints[$rApiName])) {
+		http_response_code(404);
+		exit;
+	}
+
+	[$rControllerClass, $rBootstrapKind] = $rApiEndpoints[$rApiName];
+	$rFilename = (in_array($rApiName, ['active_code', 'active_codes'], true) ? 'active_code' : $rApiName);
+
+	if ($rBootstrapKind === 'stream') {
+		StreamingRequestBootstrap::init($rFilename);
+	} else {
+		WebApiBootstrap::init($rFilename);
+	}
+
+	$controller = new $rControllerClass();
+	register_shutdown_function([$controller, 'shutdown']);
+	$controller->index();
+	exit;
+}
+
+// 6b. Stalker STB compatibility. The box firmware pings <portal_base>/server/load.php
+// (load-balancer handshake) and may follow to server/login. These have no file and
+// no route, so under the ministra scope they fall through to the admin session check
+// (unknown scope -> admin fallback below), whose relative ./login redirect resolves
+// to the same /server/... path and self-loops — the STB hangs on "authorization".
+// Redirect them to the portal in the SAME base (portal.php answers the handshake).
+if ($scope === 'ministra') {
+	$rReqPath = (string) parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+	if (preg_match('#/server/(load\.php|login)$#', $rReqPath)) {
+		$rPortalBase = preg_replace('#/server/[^/]+$#', '/', $rReqPath);
+		$rQuery = $_SERVER['QUERY_STRING'] ?? '';
+		header('Location: ' . $rPortalBase . 'portal.php' . ($rQuery !== '' ? '?' . $rQuery : ''), true, 302);
+		exit;
+	}
+}
+
+// 6c. Subscriber Activation Portal (public access, no admin/reseller session required)
+if ($scope === 'portal') {
+	WebApiBootstrap::init('portal');
+	$portalController = new PortalController();
+	$portalController->index();
+	exit;
+}
+
+// 7. Scope bootstrap — working directory + session/functions files
+$adminDir = ($scope === 'admin') ? MAIN_HOME . 'Public/Views/admin/' : MAIN_HOME . $scope . '/';
+@chdir(is_dir($adminDir) ? $adminDir : MAIN_HOME);
+
+if (in_array($scope, ['player', 'player_v2'], true)) {
+	// 'resize' must NOT be here: it has to run through the scope bootstrap so the
+	// image-resize endpoint stays behind an authenticated player session rather
+	// than becoming a public fetch endpoint.
+	$noBootstrapPages = ['login', 'logout'];
+} else {
+	$noBootstrapPages = ['login', 'setup', 'database', 'index', 'session'];
+}
+
+// 7a. Страницы без bootstrap (имеют свой)
+// ВАЖНО: НЕ загружаем includes/admin.php — require_once пропустит повторную
+// загрузку в legacy-файлах и переменные ($db и др.) не будут определены.
+if (in_array($pageName, $noBootstrapPages, true)) {
+	$router = Router::getInstance();
+	require_once __DIR__ . '/routes/' . $scope . '.php';
+	$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+	if ($router->dispatch($pageName, $method)) {
+		exit;
+	}
+	ErrorResponder::emit(ErrorResponder::respondPage(404, '404 Not Found'));
+}
+
+// 7b. Bootstrap the request scope: session lifecycle → framework + user context.
+// Replaces the former per-scope <scope>_session.php + <scope>_functions.php
+// includes; unknown scopes (e.g. ministra) fall back to admin.
+ScopeBootstrapFactory::create($scope)->boot();
+
+// 8. Загрузка маршрутов
+$router = Router::getInstance();
+$routesDir = __DIR__ . '/routes/';
+
+$routeFile = $routesDir . $scope . '.php';
+if (file_exists($routeFile)) {
+	require_once $routeFile;
+}
+
+// API-маршруты (общие для admin и reseller)
+$apiRouteFile = $routesDir . 'api.php';
+if (file_exists($apiRouteFile)) {
+	require_once $apiRouteFile;
+}
+
+// 9. Module web boot (M-1)
+if (in_array($scope, ['admin', 'reseller'], true) && class_exists(ModuleLoader::class)) {
+	$moduleLoader = new ModuleLoader();
+	$router->beginModuleRegistration();
+	$moduleLoader->loadAll();
+	$moduleLoader->bootAll(XC_Bootstrap::getContainer(), $router);
+	$router->endModuleRegistration();
+
+	$routeCollisions = $router->drainRouteCollisions();
+	if (!empty($routeCollisions)) {
+		$isDevelopment = defined('DEVELOPMENT') ? (bool) constant('DEVELOPMENT') : false;
+		if ($isDevelopment) {
+			$collisionKeys = [];
+			foreach ($routeCollisions as $routeCollision) {
+				$collisionKeys[] = $routeCollision['type'] . ':' . $routeCollision['key'];
+			}
+
+			$collisionMessage = 'Module route collisions detected (core priority preserved): ' . implode(', ', $collisionKeys);
+			error_log($collisionMessage);
+
+			trigger_error($collisionMessage, E_USER_WARNING);
+		}
+	}
+}
+
+// 10. Dispatch
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// Module API routes take priority over legacy AjaxController.
+// dispatchApi must run BEFORE dispatch('api') because dispatch() exits inside AjaxController.
+if ($pageName === 'api' && !empty($_REQUEST['action'])) {
+	$action = $_REQUEST['action'];
+	// The admin action trail: a signed-in admin's Ajax action, unless it only reads.
+	if ($scope === 'admin' && isset($_SESSION['hash']) && !in_array($action, AdminAudit::PANEL_READS, true)) {
+		AdminAudit::start('panel', (string) $action, $GLOBALS['rUserInfo'] ?? ['id' => $_SESSION['hash']], $_REQUEST);
+	}
+	if ($router->dispatchApi($action)) {
+		exit;
+	}
+}
+
+if ($router->dispatch($pageName, $method)) {
+	exit;
+}
+
+// 11. 404: the error page for a browser asking for a page, else what it always was.
+if (ErrorResponder::wantsHtml()) {
+	ErrorResponder::emit(ErrorResponder::respondPage(404));
+}
+http_response_code(404);
+
+if (function_exists('generate404')) {
+	generate404();
+} else {
+	echo '404 Not Found';
+}

@@ -1,0 +1,122 @@
+<?php
+
+namespace XcVm\Public\Controllers\Reseller;
+
+use XcVm\Core\Auth\ApiTokens;
+use XcVm\Core\Auth\TwoFactor;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Localization\Translator;
+use XcVm\Domain\User\ResellerAPI;
+
+/**
+ * ResellerPostController — POST form handler for reseller panel.
+ *
+ * Migrated from reseller/post.php.
+ * Handles: edit_profile, twofactor, api_tokens, line, mag, enigma, ticket, user.
+ *
+ * Called via: POST post?action=line (or via submitForm/callbackForm JS).
+ *
+ * @see Views/layouts/reseller/footer.php (JS functions: submitForm/callbackForm)
+ *
+ * @package XC_VM_Public_Controllers_Reseller
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class ResellerPostController extends BaseResellerController {
+	public function index() {
+		session_start();
+		session_write_close();
+
+		$rAction = RequestManager::get('action') ?? '';
+		$rData = RequestManager::getAll();
+		unset($rData['action']);
+
+		if (count($rData) === 0) {
+			$rData = json_decode(file_get_contents('php://input'), true);
+		}
+
+		if (!$rData) {
+			echo json_encode(['result' => false]);
+			exit();
+		}
+
+		$language = Translator::class;
+
+		switch ($rAction) {
+			case 'api_tokens':
+				// The signed-in reseller's own API tokens (Views/layouts/profile_api_tokens.php).
+				echo json_encode(ApiTokens::manage((int) ResellerAPI::$rUserInfo['id'], $rData, false));
+				exit();
+
+			case 'twofactor':
+				// The signed-in reseller's own second factor (Views/layouts/profile_2fa.php).
+				echo json_encode(TwoFactor::manage((int) ResellerAPI::$rUserInfo['id'], $rData));
+				exit();
+
+			case 'edit_profile':
+				$rReturn = ResellerAPI::editResellerProfile($rData);
+				setcookie('hue', $rData['hue'], time() + 315360000);
+				setcookie('theme', $rData['theme'], time() + 315360000);
+				$language::setLanguage($rData['lang'] ?? 'en');
+
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'edit_profile?status=' . intval($rReturn['status']), 'status' => $rReturn['status'], 'reload' => true]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			case 'line':
+				$rReturn = ResellerAPI::processLine($rData);
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'lines?status=' . intval($rReturn['status']), 'status' => $rReturn['status']]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			case 'mag':
+				$rReturn = ResellerAPI::processMAG($rData);
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'mags?status=' . intval($rReturn['status']), 'status' => $rReturn['status']]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			case 'enigma':
+				$rReturn = ResellerAPI::processEnigma($rData);
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'enigmas?status=' . intval($rReturn['status']), 'status' => $rReturn['status']]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			case 'ticket':
+				$rReturn = ResellerAPI::submitTicket($rData);
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'ticket_view?id=' . intval($rReturn['data']['insert_id']) . '&status=' . intval($rReturn['status']), 'status' => $rReturn['status']]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			case 'user':
+				$rReturn = ResellerAPI::processUser($rData);
+				if ($rReturn['status'] == STATUS_SUCCESS) {
+					echo json_encode(['result' => true, 'location' => 'users?status=' . intval($rReturn['status']), 'status' => $rReturn['status']]);
+					exit();
+				}
+				echo json_encode(['result' => false, 'data' => $rReturn['data'], 'status' => $rReturn['status']]);
+				exit();
+
+			default:
+				echo json_encode(['result' => false, 'error' => 'Unknown action']);
+				exit();
+		}
+	}
+}

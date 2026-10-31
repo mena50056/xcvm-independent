@@ -1,0 +1,196 @@
+<?php
+
+namespace XcVm\Streaming\Delivery;
+
+use XcVm\Core\Cluster\ArtefactStage;
+use XcVm\Core\Cluster\ReplicaSections;
+use XcVm\Core\Cluster\ViewerKey;
+use XcVm\Domain\Server\ProxyRoute;
+use XcVm\Domain\Stream\ConnectionTracker;
+use XcVm\Streaming\Auth\StreamAuth;
+use XcVm\Streaming\Balancer\ProxySelector;
+
+/**
+ * OffAirHandler — off air handler
+ *
+ * @package XC_VM_Streaming_Delivery
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class OffAirHandler {
+	/** The live stream this request serves, when known (live.php sets it). */
+	private static ?int $rHlsStreamID = null;
+
+	/**
+	 * Name the live stream this request is for, so an off-air HLS playlist served
+	 * in its place can tell HlsSequence — the next live playlist then numbers its
+	 * segments above the loop the player was shown.
+	 *
+	 * @param int $rStreamID Stream id.
+	 */
+	public static function forStream(int $rStreamID): void {
+		self::$rHlsStreamID = $rStreamID;
+	}
+
+	/**
+	 * The file to play for an off-air token's `video_path`, which names the
+	 * video by its path on the server that minted the token (MAIN): this
+	 * node's own file there, as before, or else the verified copy MAIN
+	 * granted this node over the cluster API (ArtefactStage::placeOffAir),
+	 * found by the path's file name, as the `cluster` section names it.
+	 *
+	 * @param string $rPath The token's `video_path`.
+	 */
+	public static function localVideo(string $rPath): string {
+		return ArtefactStage::offAirVideo($rPath);
+	}
+
+	/**
+	 * The file to play for an off-air token. The token names the video
+	 * (`off_air`, a ReplicaSections::OFF_AIR name), and this node finds it
+	 * from its own settings (the replica's on a CONFIG node): its own file,
+	 * or the copy MAIN granted it. A token from an older MAIN names only
+	 * MAIN's path (`video_path`).
+	 *
+	 * @param array<string, mixed> $rTokenData
+	 */
+	public static function tokenVideo(array $rTokenData): string {
+		$rKey = ReplicaSections::OFF_AIR[(string) ($rTokenData['off_air'] ?? '')] ?? null;
+		$rPath = $rKey !== null ? (string) self::getOffAirVideo($rKey) : '';
+		return self::localVideo($rPath !== '' ? $rPath : (string) ($rTokenData['video_path'] ?? ''));
+	}
+
+	public static function getOffAirVideo($rPathKey) {
+		global $rSettings;
+		// lb-settings: connected_video_path, not_on_air_video_path, banned_video_path, expired_video_path, expiring_video_path
+		if (!isset($rSettings[$rPathKey]) || 0 >= strlen($rSettings[$rPathKey])) {
+			switch ($rPathKey) {
+				case 'connected_video_path':
+					if (file_exists(VIDEO_PATH . 'connected.ts')) {
+						return VIDEO_PATH . 'connected.ts';
+					}
+					break;
+				case 'expired_video_path':
+					if (file_exists(VIDEO_PATH . 'expired.ts')) {
+						return VIDEO_PATH . 'expired.ts';
+					}
+					break;
+				case 'banned_video_path':
+					if (file_exists(VIDEO_PATH . 'banned.ts')) {
+						return VIDEO_PATH . 'banned.ts';
+					}
+					break;
+				case 'not_on_air_video_path':
+					if (file_exists(VIDEO_PATH . 'offline.ts')) {
+						return VIDEO_PATH . 'offline.ts';
+					}
+					break;
+				case 'expiring_video_path':
+					if (file_exists(VIDEO_PATH . 'expiring.ts')) {
+						return VIDEO_PATH . 'expiring.ts';
+					}
+					break;
+			}
+		} else {
+			// lb-settings: connected_video_path, not_on_air_video_path, banned_video_path, expired_video_path, expiring_video_path
+			return $rSettings[$rPathKey];
+		}
+	}
+
+	/**
+	 * Show the "not on air" video for a server-side stream — the common case of
+	 * showVideoServer() with the not-on-air option/path keys and the line's ISP.
+	 *
+	 * @param string   $rExtension   Requested container.
+	 * @param array    $rUserInfo    Line row.
+	 * @param string   $rIP          Client IP.
+	 * @param string   $rCountryCode GeoIP country code.
+	 * @param int|null $rServerID    Serving server id.
+	 * @param int|null $rProxyID     Proxy id.
+	 * @return void
+	 */
+	public static function showNotOnAir(string $rExtension, array $rUserInfo, string $rIP, string $rCountryCode, ?int $rServerID = null, ?int $rProxyID = null) {
+		self::showVideoServer("show_not_on_air_video", "not_on_air_video_path", $rExtension, $rUserInfo, $rIP, $rCountryCode, $rUserInfo["con_isp_name"], $rServerID, $rProxyID);
+	}
+
+	public static function showVideoServer($rShowOptionKey, $rVideoPathKey, $rExtension, $rUserInfo, $rIP, $rCountryCode, $rISP, $rServerID = null, $rProxyID = null) {
+		global $rSettings, $rServers;
+		$rVideoPath = self::getOffAirVideo($rVideoPathKey);
+		// lb-settings: show_connected_video, show_not_on_air_video, show_banned_video, show_expired_video, show_expiring_video
+		if (!(!$rUserInfo['is_restreamer'] && $rSettings[$rShowOptionKey] && (string) $rVideoPath !== '')) {
+			switch ($rShowOptionKey) {
+				case 'show_expired_video':
+					generateError('EXPIRED');
+					break;
+				case 'show_banned_video':
+					generateError('BANNED');
+					break;
+				case 'show_not_on_air_video':
+					generateError('STREAM_OFFLINE');
+					break;
+				case 'show_expiring_video':
+					// A notice, not a refusal: with no clip to show, the line plays on.
+					return;
+				default:
+					generate404();
+					break;
+			}
+		}
+		if (!$rServerID) {
+			$rServerID = StreamAuth::checkAccess($rUserInfo, $rIP, $rCountryCode, $rISP);
+		}
+		if (!$rServerID) {
+			$rServerID = SERVER_ID;
+		}
+		$rOriginatorID = null;
+		if ($rServers[$rServerID]['enable_proxy'] && (!$rUserInfo['is_restreamer'] || !$rSettings['restreamer_bypass_proxy'])) {
+			$rProxies = ConnectionTracker::getProxies($rServerID);
+			$rProxyID = ProxySelector::availableProxy(array_keys($rProxies), $rCountryCode, $rUserInfo['con_isp_name']);
+			if (!$rProxyID) {
+				if ($rShowOptionKey == 'show_expiring_video') {
+					// No proxy to show the notice through: the line plays on.
+					return;
+				}
+				generate404();
+			}
+			$rOriginatorID = $rServerID;
+			$rServerID = $rProxyID;
+		}
+		if ($rServers[$rServerID]['random_ip'] && 0 < count($rServers[$rServerID]['domains']['urls'])) {
+			$rURL = $rServers[$rServerID]['domains']['protocol'] . '://' . $rServers[$rServerID]['domains']['urls'][array_rand($rServers[$rServerID]['domains']['urls'])] . ':' . $rServers[$rServerID]['domains']['port'];
+		} else {
+			$rURL = rtrim($rServers[$rServerID]['site_url'], '/');
+		}
+		if ($rOriginatorID && !$rServers[$rOriginatorID]['is_main']) {
+			$rURL .= '/' . ProxyRoute::segment((int) $rServerID, (int) $rOriginatorID, $rServers);
+		}
+		// The video by name, which the playing node finds for itself.
+		// ponytail: video_path is for nodes from before off_air; drop it once none is left.
+		$rTokenData = ['expires' => time() + 10, 'video_path' => $rVideoPath];
+		$rName = array_search($rVideoPathKey, ReplicaSections::OFF_AIR, true);
+		if ($rName !== false) {
+			$rTokenData['off_air'] = $rName;
+		}
+		$rToken = ViewerKey::mint(json_encode($rTokenData), $rServers, (int) ($rOriginatorID ?: $rServerID), $rSettings);
+		if ($rExtension == 'm3u8') {
+			if (self::$rHlsStreamID !== null) {
+				HlsSequence::markOffAir(self::$rHlsStreamID);
+			}
+			$segmentDuration = HlsSequence::SEG;
+			$sequence = intval(time() / $segmentDuration);
+			$rM3U8 = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA-SEQUENCE:{$sequence}\n#EXT-X-ALLOW-CACHE:NO\n#EXT-X-TARGETDURATION:{$segmentDuration}\n#EXT-X-PLAYLIST-TYPE:EVENT\n";
+			for ($i = 0; $i < 3; $i++) {
+				$rM3U8 .= "#EXTINF:{$segmentDuration}.0,\n" . $rURL . '/auth/' . $rToken . "\n";
+			}
+			header('Content-Type: application/x-mpegurl');
+			header('Content-Length: ' . strlen($rM3U8));
+			echo $rM3U8;
+			exit();
+		}
+		header('Location: ' . $rURL . '/auth/' . $rToken);
+		exit();
+	}
+}

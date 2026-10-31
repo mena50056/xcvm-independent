@@ -1,0 +1,52 @@
+<?php
+
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Core\Diagnostics\DiagnosticsService;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Domain\Server\ServerRepository;
+use XcVm\Domain\Stream\StreamRepository;
+
+/**
+ * ProcessMonitorController — Process Monitor.
+ *
+ * @renders Views/admin/process_monitor.php
+ *
+ * @package XC_VM_Public_Controllers_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class ProcessMonitorController extends BaseAdminController {
+	public function index() {
+		global $rServers;
+
+		$this->requirePermission();
+
+		if (!RequestManager::has('server') || !isset($rServers[RequestManager::get('server')])) {
+			RequestManager::update('server', SERVER_ID);
+		}
+
+		if (RequestManager::has('clear')) {
+			ServerRepository::freeTemp(RequestManager::get('server'));
+			header('Location: ./process_monitor?server=' . RequestManager::get('server'));
+			exit();
+		}
+
+		if (RequestManager::has('clear_s')) {
+			ServerRepository::freeStreams(RequestManager::get('server'));
+			header('Location: ./process_monitor?server=' . RequestManager::get('server'));
+			exit();
+		}
+
+		$rStreams = StreamRepository::getPIDs(RequestManager::get('server')) ?: [];
+		$rFS = ServerRepository::getFreeSpace(RequestManager::get('server')) ?: [];
+		$rProcesses = DiagnosticsService::getPIDs(RequestManager::get('server')) ?: [];
+		$rStatus = ['D' => 'Uninterruptible Sleep', 'I' => 'Idle', 'R' => 'Running', 'S' => 'Interruptible Sleep', 'T' => 'Stopped', 'W' => 'Paging', 'X' => 'Dead', 'Z' => 'Zombie'];
+
+		$this->setTitle('Process Monitor');
+		$this->render('process_monitor', ['rStreams' => $rStreams, 'rFS' => $rFS, 'rProcesses' => $rProcesses, 'rStatus' => $rStatus]);
+	}
+}

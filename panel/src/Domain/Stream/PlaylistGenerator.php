@@ -1,0 +1,535 @@
+<?php
+
+namespace XcVm\Domain\Stream;
+
+use XcVm\Core\Config\DomainResolver;
+use XcVm\Core\Util\Encryption;
+use XcVm\Core\Util\ImageUtils;
+use XcVm\Infrastructure\Database\DatabaseAware;
+
+/**
+ * PlaylistGenerator — playlist generator
+ *
+ * @package XC_VM_Domain_Stream
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class PlaylistGenerator {
+	use DatabaseAware;
+
+	/**
+	 * Generate a playlist (M3U) for a user/device.
+	 *
+	 * Builds the channel/VOD list honoring the user's bouquets, output format,
+	 * type filter and proxy/caching options.
+	 *
+	 * @param array       $rUserInfo  Authenticated user row.
+	 * @param string      $rDeviceKey Device/output key.
+	 * @param string      $rOutputKey Stream container/output format (default 'ts').
+	 * @param string[]|null $rTypeKey Content type filter list, or null for all.
+	 * @param bool        $rNoCache   Bypass any cached playlist.
+	 * @param bool        $rProxy     Generate proxied URLs.
+	 * @return string|false The generated playlist contents, or false on failure.
+	 */
+	public static function generate(array $rUserInfo, string $rDeviceKey, string $rOutputKey = 'ts', ?array $rTypeKey = null, bool $rNoCache = false, bool $rProxy = false) {
+		global $rSettings, $rServers;
+		$db = self::db();
+		$rCategories = CategoryService::getFromDatabase();
+		$rCached = $rSettings['enable_cache'];
+		if (empty($rDeviceKey)) {
+			return false;
+		}
+
+		if ($rOutputKey == 'mpegts') {
+			$rOutputKey = 'ts';
+		}
+		if ($rOutputKey == 'hls') {
+			$rOutputKey = 'm3u8';
+		}
+
+		if (empty($rOutputKey)) {
+			$db->query('SELECT t1.output_ext FROM `output_formats` t1 INNER JOIN `output_devices` t2 ON t2.default_output = t1.access_output_id AND `device_key` = ?', $rDeviceKey);
+		} else {
+			$db->query('SELECT t1.output_ext FROM `output_formats` t1 WHERE `output_key` = ?', $rOutputKey);
+		}
+
+		if ($db->num_rows() <= 0) {
+			return false;
+		}
+
+		$rOutputExt = $db->get_col();
+		$rEncryptPlaylist = ($rUserInfo['is_restreamer'] ? $rSettings['encrypt_playlist_restreamer'] : $rSettings['encrypt_playlist']);
+		if ($rUserInfo['is_stalker']) {
+			$rEncryptPlaylist = false;
+		}
+
+		$rDomainName = DomainResolver::resolve(SERVER_ID);
+		if (!$rDomainName) {
+			exit();
+		}
+
+		if (!$rProxy) {
+			$rRTMPRows = [];
+			if ($rOutputKey == 'rtmp') {
+				$db->query('SELECT t1.id,t2.server_id FROM `streams` t1 INNER JOIN `streams_servers` t2 ON t2.stream_id = t1.id WHERE t1.rtmp_output = 1');
+				$rRTMPRows = $db->get_rows(true, 'id', false, 'server_id');
+			}
+		} else {
+			if ($rOutputKey == 'rtmp') {
+				$rOutputKey = 'ts';
+			}
+			$rRTMPRows = [];
+		}
+
+		if (empty($rOutputExt)) {
+			$rOutputExt = 'ts';
+		}
+
+		// The stored list's name covers everything the list is built from: the line,
+		// the request (host and scheme are in the domain name) and what a token is
+		// minted from. A change to what generate() reads of the line or the request
+		// must join it, and so must HOST if ServerRepository::getPublicURL() (the
+		// image URLs, via ImageUtils::validateURL) ever reads the request's host.
+		$rCacheName = hash('sha256', serialize([$rUserInfo['id'], $rUserInfo['username'], $rUserInfo['password'], $rUserInfo['access_token'], $rUserInfo['bouquet'], $rUserInfo['is_restreamer'], $rUserInfo['is_stalker'], $rUserInfo['force_server_id'], $rUserInfo['custom_data'] ?? null, $rUserInfo['bouquet_order_custom'] ?? 0, $rDeviceKey, $rOutputKey, $rTypeKey, $rProxy, $rDomainName, $rEncryptPlaylist, $rSettings['live_streaming_pass'], defined('OPENSSL_EXTRA') ? OPENSSL_EXTRA : null, !empty($rSettings['secure_stream_tokens'])]));
+
+		$db->query('SELECT t1.*,t2.* FROM `output_devices` t1 LEFT JOIN `output_formats` t2 ON t2.access_output_id = t1.default_output WHERE t1.device_key = ? LIMIT 1', $rDeviceKey);
+		if ($db->num_rows() <= 0) {
+			return false;
+		}
+		$rDeviceInfo = $db->get_row();
+		if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+			$rFilename = str_replace('{USERNAME}', $rUserInfo['access_token'], $rDeviceInfo['device_filename']);
+		} else {
+			$rFilename = str_replace('{USERNAME}', $rUserInfo['username'], $rDeviceInfo['device_filename']);
+		}
+
+		// One handle: cron:tmp may remove the file between a test by name and the read.
+		$rHit = (0 < $rSettings['cache_playlists'] && !$rNoCache) ? @fopen(PLAYLIST_PATH . $rCacheName, 'r') : false;
+		if ($rHit) {
+			header('Content-Description: File Transfer');
+			header('Content-Type: audio/mpegurl');
+			header('Expires: 0');
+			header('Cache-Control: must-revalidate');
+			header('Pragma: public');
+			header('Content-Disposition: attachment; filename="' . $rFilename . '"');
+			header('Content-Length: ' . fstat($rHit)['size']);
+			fpassthru($rHit);
+			exit();
+		}
+
+		$rData = '';
+		$rSeriesAllocation = $rSeriesEpisodes = $rSeriesInfo = [];
+		$rUserInfo['episode_ids'] = [];
+		if (count($rUserInfo['series_ids']) > 0) {
+			if ($rCached) {
+				foreach ($rUserInfo['series_ids'] as $rSeriesID) {
+					$__raw_series = @file_get_contents(SERIES_TMP_PATH . 'series_' . intval($rSeriesID));
+					$rSeriesInfo[$rSeriesID] = ($__raw_series !== false ? igbinary_unserialize($__raw_series) : []);
+					$__raw_episodes = @file_get_contents(SERIES_TMP_PATH . 'episodes_' . intval($rSeriesID));
+					$rSeriesData = ($__raw_episodes !== false ? igbinary_unserialize($__raw_episodes) : []);
+					if (!is_array($rSeriesData)) {
+						$rSeriesData = [];
+					}
+					foreach ($rSeriesData as $rSeasonID => $rEpisodes) {
+						foreach ($rEpisodes as $rEpisode) {
+							$rSeriesEpisodes[$rEpisode['stream_id']] = [$rSeasonID, $rEpisode['episode_num']];
+							$rSeriesAllocation[$rEpisode['stream_id']] = $rSeriesID;
+							$rUserInfo['episode_ids'][] = $rEpisode['stream_id'];
+						}
+					}
+				}
+			} else {
+				$db->query('SELECT * FROM `streams_series` WHERE `id` IN (' . implode(',', $rUserInfo['series_ids']) . ')');
+				$rSeriesInfo = $db->get_rows(true, 'id');
+				$db->query('SELECT stream_id, series_id, season_num, episode_num FROM `streams_episodes` WHERE series_id IN (' . implode(',', $rUserInfo['series_ids']) . ') ORDER BY FIELD(series_id,' . implode(',', $rUserInfo['series_ids']) . '), season_num ASC, episode_num ASC');
+				foreach ($db->get_rows(true, 'series_id', false) as $rSeriesID => $rEpisodes) {
+					foreach ($rEpisodes as $rEpisode) {
+						$rSeriesEpisodes[$rEpisode['stream_id']] = [$rEpisode['season_num'], $rEpisode['episode_num']];
+						$rSeriesAllocation[$rEpisode['stream_id']] = $rSeriesID;
+						$rUserInfo['episode_ids'][] = $rEpisode['stream_id'];
+					}
+				}
+			}
+		}
+
+		if (count($rUserInfo['episode_ids']) > 0) {
+			$rUserInfo['channel_ids'] = array_merge($rUserInfo['channel_ids'], $rUserInfo['episode_ids']);
+		}
+
+		$rChannelIDs = [];
+		$rAdded = false;
+		if ($rTypeKey) {
+			foreach ($rTypeKey as $rType) {
+				switch ($rType) {
+					case 'live':
+					case 'created_live':
+						if (!$rAdded) {
+							$rChannelIDs = array_merge($rChannelIDs, $rUserInfo['live_ids']);
+							$rAdded = true;
+						}
+						break;
+					case 'movie':
+						$rChannelIDs = array_merge($rChannelIDs, $rUserInfo['vod_ids']);
+						break;
+					case 'radio_streams':
+						$rChannelIDs = array_merge($rChannelIDs, $rUserInfo['radio_ids']);
+						break;
+					case 'series':
+						$rChannelIDs = array_merge($rChannelIDs, $rUserInfo['episode_ids']);
+						break;
+				}
+			}
+		} else {
+			$rChannelIDs = $rUserInfo['channel_ids'];
+		}
+
+		if (\XcVm\Domain\Bouquet\ResellerBouquetPolicy::hasCustomOrder($rUserInfo) || in_array($rSettings['channel_number_type'], ['bouquet_new', 'manual'])) {
+			$rChannelIDs = StreamSorter::sortChannels($rChannelIDs, $rUserInfo);
+		}
+
+		unset($rUserInfo['live_ids'], $rUserInfo['vod_ids'], $rUserInfo['radio_ids'], $rUserInfo['episode_ids'], $rUserInfo['channel_ids']);
+
+		header('Content-Description: File Transfer');
+		header('Content-Type: application/octet-stream');
+		header('Expires: 0');
+		header('Cache-Control: must-revalidate');
+		header('Pragma: public');
+		if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+			header('Content-Disposition: attachment; filename="' . str_replace('{USERNAME}', $rUserInfo['access_token'], $rDeviceInfo['device_filename']) . '"');
+		} else {
+			header('Content-Disposition: attachment; filename="' . str_replace('{USERNAME}', $rUserInfo['username'], $rDeviceInfo['device_filename']) . '"');
+		}
+
+		// Written beside its name by this request alone and renamed when complete: a
+		// download its client abandons leaves nothing (cron:tmp removes the rest).
+		$rOutputFile = null;
+		$rOutputPath = PLAYLIST_PATH . '.' . $rCacheName . '.' . getmypid() . '.tmp';
+		if (self::mayCache($rSettings['cache_playlists'], @disk_free_space(PLAYLIST_PATH))) {
+			$rOutputFile = @fopen($rOutputPath, 'w') ?: null;
+			if ($rOutputFile) {
+				register_shutdown_function(static function () use ($rOutputPath): void {
+					@unlink($rOutputPath);
+				});
+			}
+		}
+
+		if ($rDeviceKey == 'starlivev5') {
+			$rOutput = [];
+			$rOutput['iptvstreams_list'] = ['@version' => 1, 'group' => ['name' => 'IPTV', 'channel' => []]];
+			foreach (array_chunk($rChannelIDs, 1000) as $rBlockIDs) {
+				if ($rSettings['playlist_from_mysql'] || !$rCached) {
+					$rOrder = 'FIELD(`t1`.`id`,' . implode(',', $rBlockIDs) . ')';
+					$db->query('SELECT t1.id,t1.channel_id,t1.year,t1.movie_properties,t1.stream_icon,t1.custom_sid,t1.category_id,t1.stream_display_name,t2.type_output,t2.type_key,t1.target_container,t2.live FROM `streams` t1 INNER JOIN `streams_types` t2 ON t2.type_id = t1.type WHERE `t1`.`id` IN (' . implode(',', array_map('intval', $rBlockIDs)) . ') ORDER BY ' . $rOrder . ';');
+					$rRows = $db->get_rows();
+				} else {
+					$rRows = [];
+					foreach ($rBlockIDs as $rID) {
+						$__raw_s = @file_get_contents(STREAMS_TMP_PATH . 'stream_' . intval($rID));
+						$__tmp_s = ($__raw_s !== false ? igbinary_unserialize($__raw_s) : null);
+						if (is_array($__tmp_s) && isset($__tmp_s['info'])) {
+							$rRows[] = $__tmp_s['info'];
+						}
+					}
+				}
+				foreach ($rRows as $rChannelInfo) {
+					// normalize keys to avoid undefined index warnings
+					$rChannelInfo['movie_properties'] = $rChannelInfo['movie_properties'] ?? null;
+					$rChannelInfo['type_key'] = $rChannelInfo['type_key'] ?? null;
+					$rChannelInfo['stream_display_name'] = $rChannelInfo['stream_display_name'] ?? '';
+					$rChannelInfo['year'] = $rChannelInfo['year'] ?? null;
+					$rChannelInfo['live'] = $rChannelInfo['live'] ?? 0;
+					$rChannelInfo['category_id'] = $rChannelInfo['category_id'] ?? null;
+					$rChannelInfo['id'] = $rChannelInfo['id'] ?? null;
+					$rChannelInfo['target_container'] = $rChannelInfo['target_container'] ?? null;
+					$rChannelInfo['stream_icon'] = $rChannelInfo['stream_icon'] ?? null;
+					$rChannelInfo['custom_sid'] = $rChannelInfo['custom_sid'] ?? null;
+					if (!$rTypeKey || in_array($rChannelInfo['type_output'], $rTypeKey)) {
+						if (!$rChannelInfo['target_container']) {
+							$rChannelInfo['target_container'] = 'mp4';
+						}
+						$rProperties = (!is_array($rChannelInfo['movie_properties']) ? json_decode($rChannelInfo['movie_properties'] ?? '[]', true) : $rChannelInfo['movie_properties']);
+						if ($rChannelInfo['type_key'] == 'series') {
+							$rSeriesID = $rSeriesAllocation[$rChannelInfo['id']] ?? null;
+							$rChannelInfo['live'] = 0;
+							$__season = $rSeriesEpisodes[$rChannelInfo['id']][0] ?? 0;
+							$__episode = $rSeriesEpisodes[$rChannelInfo['id']][1] ?? 0;
+							$rChannelInfo['stream_display_name'] = ($rSeriesInfo[$rSeriesID]['title'] ?? '') . ' S' . sprintf('%02d', $__season) . 'E' . sprintf('%02d', $__episode);
+							$rChannelInfo['movie_properties'] = ['movie_image' => (!empty($rProperties['movie_image']) ? $rProperties['movie_image'] : ($rSeriesInfo[$rSeriesID]['cover'] ?? null))];
+							$rChannelInfo['type_output'] = 'series';
+							$rChannelInfo['category_id'] = $rSeriesInfo[$rSeriesID]['category_id'] ?? null;
+						} else {
+							$rChannelInfo['stream_display_name'] = StreamSorter::formatTitle($rChannelInfo['stream_display_name'], $rChannelInfo['year']);
+						}
+						if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+							$rURL = $rDomainName . $rChannelInfo['type_output'] . '/' . $rUserInfo['access_token'] . '/';
+							if ($rChannelInfo['live'] == 0) {
+								$rURL .= $rChannelInfo['id'] . '.' . $rChannelInfo['target_container'];
+							} else {
+								$rURL .= ($rSettings['cloudflare'] && $rOutputExt == 'ts') ? $rChannelInfo['id'] : ($rChannelInfo['id'] . '.' . $rOutputExt);
+							}
+						} else {
+							if ($rEncryptPlaylist) {
+								$rEncData = $rChannelInfo['type_output'] . '/' . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/';
+								if ($rChannelInfo['live'] == 0) {
+									$rEncData .= $rChannelInfo['id'] . '/' . $rChannelInfo['target_container'];
+								} else {
+									$rEncData .= ($rSettings['cloudflare'] && $rOutputExt == 'ts') ? $rChannelInfo['id'] : ($rChannelInfo['id'] . '/' . $rOutputExt);
+								}
+								$rToken = Encryption::mintToken($rEncData, $rSettings['live_streaming_pass'], OPENSSL_EXTRA, !empty($rSettings['secure_stream_tokens']));
+								$rURL = $rDomainName . 'play/' . $rToken . self::encryptedPlaySuffix($rChannelInfo, $rSettings, $rOutputExt);
+							} else {
+								$rURL = $rDomainName . $rChannelInfo['type_output'] . '/' . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/';
+								if ($rChannelInfo['live'] == 0) {
+									$rURL .= $rChannelInfo['id'] . '.' . $rChannelInfo['target_container'];
+								} else {
+									$rURL .= ($rSettings['cloudflare'] && $rOutputExt == 'ts') ? $rChannelInfo['id'] : ($rChannelInfo['id'] . '.' . $rOutputExt);
+								}
+							}
+						}
+						$rIcon = ($rChannelInfo['live'] == 0 ? (!empty($rProperties['movie_image']) ? $rProperties['movie_image'] : null) : $rChannelInfo['stream_icon']);
+						$rOutput['iptvstreams_list']['group']['channel'][] = ['name' => $rChannelInfo['stream_display_name'], 'icon' => ImageUtils::validateURL($rIcon), 'stream_url' => $rURL, 'stream_type' => 0];
+					}
+				}
+			}
+			$rData = json_encode((object) $rOutput);
+			self::cachePut($rOutputFile, $rOutputPath, $rData);
+			echo $rData;
+		} else {
+			if (!empty($rDeviceInfo['device_header'])) {
+				$epgUrl = $rDomainName . 'epg/' . $rUserInfo['username'] . '/' . $rUserInfo['password'];
+				$isM3UFormat = (strpos($rDeviceInfo['device_header'], '#EXTM3U') !== false);
+				if ($isM3UFormat && strpos($rDeviceInfo['device_header'], 'x-tvg-url') === false) {
+					$rDeviceInfo['device_header'] = str_replace('#EXTM3U', '#EXTM3U x-tvg-url="' . $epgUrl . '"', $rDeviceInfo['device_header']);
+				}
+				$rAppend = ($isM3UFormat ? "\n" . '#EXT-X-SESSION-DATA:DATA-ID="com.xc_vm.' . str_replace('.', '_', XC_VM_VERSION) . '"' : '');
+				$rData = str_replace(['&lt;', '&gt;'], ['<', '>'], str_replace(['{BOUQUET_NAME}', '{USERNAME}', '{PASSWORD}', '{SERVER_URL}', '{OUTPUT_KEY}'], [$rSettings['server_name'], $rUserInfo['username'], $rUserInfo['password'], $rDomainName, $rOutputKey], $rDeviceInfo['device_header'] . $rAppend)) . "\n";
+				self::cachePut($rOutputFile, $rOutputPath, $rData);
+				echo $rData;
+			}
+
+			if (!empty($rDeviceInfo['device_conf'])) {
+				if (preg_match('/\{URL\#(.*?)\}/', $rDeviceInfo['device_conf'], $rMatches)) {
+					$rCharts = str_split($rMatches[1]);
+					$rPattern = $rMatches[0];
+				} else {
+					$rCharts = [];
+					$rPattern = '{URL}';
+				}
+
+				$rCustomLiveCfg   = \XcVm\Domain\Stream\CategoryTemplateService::getCustomCategoryConfig($rUserInfo['custom_data'] ?? null, 'live');
+				$rCustomVodCfg    = \XcVm\Domain\Stream\CategoryTemplateService::getCustomCategoryConfig($rUserInfo['custom_data'] ?? null, 'movie');
+				$rCustomSeriesCfg = \XcVm\Domain\Stream\CategoryTemplateService::getCustomCategoryConfig($rUserInfo['custom_data'] ?? null, 'series');
+				$rCustomRadioCfg  = \XcVm\Domain\Stream\CategoryTemplateService::getCustomCategoryConfig($rUserInfo['custom_data'] ?? null, 'radio');
+
+				foreach (array_chunk($rChannelIDs, 1000) as $rBlockIDs) {
+					if ($rSettings['playlist_from_mysql'] || !$rCached) {
+						$rOrder = 'FIELD(`t1`.`id`,' . implode(',', $rBlockIDs) . ')';
+						$db->query('SELECT t1.id,t1.channel_id,t1.year,t1.movie_properties,t1.stream_icon,t1.custom_sid,t1.category_id,t1.stream_display_name,t2.type_output,t2.type_key,t1.target_container,t2.live,t1.tv_archive_duration,t1.tv_archive_server_id FROM `streams` t1 INNER JOIN `streams_types` t2 ON t2.type_id = t1.type WHERE `t1`.`id` IN (' . implode(',', array_map('intval', $rBlockIDs)) . ') ORDER BY ' . $rOrder . ';');
+						$rRows = $db->get_rows();
+					} else {
+						$rRows = [];
+						foreach ($rBlockIDs as $rID) {
+							$__raw_s = @file_get_contents(STREAMS_TMP_PATH . 'stream_' . intval($rID));
+							$__tmp_s = ($__raw_s !== false ? igbinary_unserialize($__raw_s) : null);
+							if (is_array($__tmp_s) && isset($__tmp_s['info'])) {
+								$rRows[] = $__tmp_s['info'];
+							}
+						}
+					}
+
+					foreach ($rRows as $rChannel) {
+						// normalize keys to avoid undefined index warnings
+						$rChannel['movie_properties'] = $rChannel['movie_properties'] ?? null;
+						$rChannel['type_key'] = $rChannel['type_key'] ?? null;
+						$rChannel['stream_display_name'] = $rChannel['stream_display_name'] ?? '';
+						$rChannel['year'] = $rChannel['year'] ?? null;
+						$rChannel['live'] = $rChannel['live'] ?? 0;
+						$rChannel['category_id'] = $rChannel['category_id'] ?? null;
+						$rChannel['id'] = $rChannel['id'] ?? null;
+						$rChannel['target_container'] = $rChannel['target_container'] ?? null;
+						$rChannel['stream_icon'] = $rChannel['stream_icon'] ?? null;
+						$rChannel['custom_sid'] = $rChannel['custom_sid'] ?? null;
+						if ($rTypeKey && !in_array($rChannel['type_output'], $rTypeKey)) {
+							continue;
+						}
+						if (!$rChannel['target_container']) {
+							$rChannel['target_container'] = 'mp4';
+						}
+						$rConfig = $rDeviceInfo['device_conf'];
+						if ($rDeviceInfo['device_key'] == 'm3u_plus') {
+							if (!$rChannel['live']) {
+								$rConfig = str_replace('tvg-id="{CHANNEL_ID}" ', '', $rConfig);
+							}
+							if (!$rEncryptPlaylist) {
+								$rConfig = str_replace('xc_vm-id="{XC_VM_ID}" ', '', $rConfig);
+							}
+							if (0 < $rChannel['tv_archive_server_id'] && 0 < $rChannel['tv_archive_duration']) {
+								$rConfig = str_replace('#EXTINF:-1 ', '#EXTINF:-1 timeshift="' . intval($rChannel['tv_archive_duration']) . '" ', $rConfig);
+							}
+						}
+
+						$rProperties = (!is_array($rChannel['movie_properties']) ? json_decode($rChannel['movie_properties'] ?? '[]', true) : $rChannel['movie_properties']);
+						if ($rChannel['type_key'] == 'series') {
+							$rSeriesID = $rSeriesAllocation[$rChannel['id']] ?? null;
+							$rChannel['live'] = 0;
+							$__season = $rSeriesEpisodes[$rChannel['id']][0] ?? 0;
+							$__episode = $rSeriesEpisodes[$rChannel['id']][1] ?? 0;
+							$rChannel['stream_display_name'] = ($rSeriesInfo[$rSeriesID]['title'] ?? '') . ' S' . sprintf('%02d', $__season) . 'E' . sprintf('%02d', $__episode);
+							$rChannel['movie_properties'] = ['movie_image' => (!empty($rProperties['movie_image']) ? $rProperties['movie_image'] : ($rSeriesInfo[$rSeriesID]['cover'] ?? null))];
+							$rChannel['type_output'] = 'series';
+							$rChannel['category_id'] = $rSeriesInfo[$rSeriesID]['category_id'] ?? null;
+						} else {
+							$rChannel['stream_display_name'] = StreamSorter::formatTitle($rChannel['stream_display_name'], $rChannel['year']);
+						}
+
+						if ($rChannel['type_key'] == 'series') {
+							$rCurrentCustomCfg = $rCustomSeriesCfg;
+						} elseif ($rChannel['type_key'] == 'radio' || $rChannel['type_output'] == 'radio') {
+							$rCurrentCustomCfg = $rCustomRadioCfg;
+						} elseif ($rChannel['live'] == 1) {
+							$rCurrentCustomCfg = $rCustomLiveCfg;
+						} else {
+							$rCurrentCustomCfg = $rCustomVodCfg;
+						}
+
+						$rIcon = '';
+						if ($rChannel['live'] == 0) {
+							if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+								$rURL = $rDomainName . $rChannel['type_output'] . '/' . $rUserInfo['access_token'] . '/' . $rChannel['id'] . '.' . $rChannel['target_container'];
+							} elseif ($rEncryptPlaylist) {
+								$rEncData = $rChannel['type_output'] . '/' . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/' . $rChannel['id'] . '/' . $rChannel['target_container'];
+								$rToken = Encryption::mintToken($rEncData, $rSettings['live_streaming_pass'], OPENSSL_EXTRA, !empty($rSettings['secure_stream_tokens']));
+								$rURL = $rDomainName . 'play/' . $rToken . '.' . $rChannel['target_container'];
+							} else {
+								$rURL = $rDomainName . $rChannel['type_output'] . '/' . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/' . $rChannel['id'] . '.' . $rChannel['target_container'];
+							}
+							if (!empty($rProperties['movie_image'])) {
+								$rIcon = $rProperties['movie_image'];
+							}
+						} else {
+							if ($rOutputKey != 'rtmp' || !array_key_exists($rChannel['id'], $rRTMPRows)) {
+								if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+									if ($rSettings['cloudflare'] && $rOutputExt == 'ts') {
+										$rURL = $rDomainName . $rChannel['type_output'] . '/' . $rUserInfo['access_token'] . '/' . $rChannel['id'];
+									} else {
+										$rURL = $rDomainName . $rChannel['type_output'] . '/' . $rUserInfo['access_token'] . '/' . $rChannel['id'] . '.' . $rOutputExt;
+									}
+								} elseif ($rEncryptPlaylist) {
+									$rEncData = $rChannel['type_output'] . '/' . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/' . $rChannel['id'];
+									$rToken = Encryption::mintToken($rEncData, $rSettings['live_streaming_pass'], OPENSSL_EXTRA, !empty($rSettings['secure_stream_tokens']));
+									if ($rSettings['cloudflare'] && $rOutputExt == 'ts') {
+										$rURL = $rDomainName . 'play/' . $rToken;
+									} else {
+										$rURL = $rDomainName . 'play/' . $rToken . '.' . $rOutputExt;
+									}
+								} else {
+									if ($rSettings['cloudflare'] && $rOutputExt == 'ts') {
+										$rURL = $rDomainName . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/' . $rChannel['id'];
+									} else {
+										$rURL = $rDomainName . $rUserInfo['username'] . '/' . $rUserInfo['password'] . '/' . $rChannel['id'] . '.' . $rOutputExt;
+									}
+								}
+							} else {
+								$rAvailableServers = array_keys($rRTMPRows[$rChannel['id']]);
+								if (in_array($rUserInfo['force_server_id'], $rAvailableServers)) {
+									$rServerID = $rUserInfo['force_server_id'];
+								} else {
+									$rServerID = ($rSettings['rtmp_random'] == 1 ? $rAvailableServers[array_rand($rAvailableServers, 1)] : $rAvailableServers[0]);
+								}
+								if (strlen((string) ($rUserInfo['access_token'] ?? '')) == 32) {
+									$rURL = $rServers[$rServerID]['rtmp_server'] . $rChannel['id'] . '?token=' . $rUserInfo['access_token'];
+								} elseif ($rEncryptPlaylist) {
+									$rEncData = $rUserInfo['username'] . '/' . $rUserInfo['password'];
+									$rToken = Encryption::mintToken($rEncData, $rSettings['live_streaming_pass'], OPENSSL_EXTRA, !empty($rSettings['secure_stream_tokens']));
+									$rURL = $rServers[$rServerID]['rtmp_server'] . $rChannel['id'] . '?token=' . $rToken;
+								} else {
+									$rURL = $rServers[$rServerID]['rtmp_server'] . $rChannel['id'] . '?username=' . $rUserInfo['username'] . '&password=' . $rUserInfo['password'];
+								}
+							}
+							$rIcon = $rChannel['stream_icon'];
+						}
+
+						$rESRID = ($rChannel['live'] == 1 ? 1 : 4097);
+						$rSID = (!empty($rChannel['custom_sid']) ? $rChannel['custom_sid'] : ':0:1:0:0:0:0:0:0:0:');
+						$rCategoryIDs = json_decode((string) $rChannel['category_id'], true);
+						if (empty($rCategoryIDs)) {
+							$rCategoryIDs = [0];
+						}
+						foreach ($rCategoryIDs as $rCategoryID) {
+							if (!empty($rCurrentCustomCfg['hide_ids']) && in_array((int) $rCategoryID, $rCurrentCustomCfg['hide_ids'], true)) {
+								continue;
+							}
+							if (isset($rCategories[$rCategoryID])) {
+								$catDisplayName = $rCategories[$rCategoryID]['category_name'];
+								if (isset($rCurrentCustomCfg['renamed'][(string) $rCategoryID]) && trim((string) $rCurrentCustomCfg['renamed'][(string) $rCategoryID]) !== '') {
+									$catDisplayName = (string) $rCurrentCustomCfg['renamed'][(string) $rCategoryID];
+								}
+								$rData = str_replace(['&lt;', '&gt;'], ['<', '>'], str_replace([$rPattern, '{ESR_ID}', '{SID}', '{CHANNEL_NAME}', '{CHANNEL_ID}', '{XC_VM_ID}', '{CATEGORY}', '{CHANNEL_ICON}'], array_map('strval', [str_replace($rCharts, array_map('urlencode', $rCharts), $rURL), $rESRID, $rSID, $rChannel['stream_display_name'], $rChannel['channel_id'], $rChannel['id'], $catDisplayName, ImageUtils::validateURL($rIcon)]), $rConfig)) . "\r\n";
+							} else {
+								$rData = str_replace(['&lt;', '&gt;'], ['<', '>'], str_replace([$rPattern, '{ESR_ID}', '{SID}', '{CHANNEL_NAME}', '{CHANNEL_ID}', '{XC_VM_ID}', '{CHANNEL_ICON}'], array_map('strval', [str_replace($rCharts, array_map('urlencode', $rCharts), $rURL), $rESRID, $rSID, $rChannel['stream_display_name'], $rChannel['channel_id'], $rChannel['id'], ImageUtils::validateURL($rIcon)]), $rConfig)) . "\r\n";
+								$rData = str_replace(' group-title="{CATEGORY}"', '', $rData);
+							}
+							self::cachePut($rOutputFile, $rOutputPath, $rData);
+							echo $rData;
+							if (stripos($rDeviceInfo['device_conf'], '{CATEGORY}') === false) {
+								break;
+							}
+						}
+					}
+				}
+
+				$rData = trim(str_replace(['&lt;', '&gt;'], ['<', '>'], $rDeviceInfo['device_footer']));
+				self::cachePut($rOutputFile, $rOutputPath, $rData);
+				echo $rData;
+			}
+		}
+
+		if ($rOutputFile) {
+			fclose($rOutputFile);
+			if (!@rename($rOutputPath, PLAYLIST_PATH . $rCacheName)) {
+				@unlink($rOutputPath);
+			}
+		}
+		exit();
+	}
+
+	/** Free space below which no list is stored: a subscriber can make one stored list per `key` they ask for. */
+	private const CACHE_MIN_FREE = 2 * 1024 ** 3;
+
+	/** Whether to store this list: "Cache Playlists for" is a number of seconds, and the disk keeps its floor. */
+	private static function mayCache(mixed $rTTL, int|float|false $rFree): bool {
+		return 0 < (int) $rTTL && $rFree !== false && self::CACHE_MIN_FREE < $rFree;
+	}
+
+	/**
+	 * Add $rData to the stored copy; a short write (a full disk) drops the copy, so a
+	 * cut-off list never takes the final name.
+	 *
+	 * @param resource|null $rOutputFile
+	 */
+	private static function cachePut(&$rOutputFile, string $rOutputPath, string $rData): void {
+		if ($rOutputFile && @fwrite($rOutputFile, $rData) !== strlen($rData)) {
+			fclose($rOutputFile);
+			@unlink($rOutputPath);
+			$rOutputFile = null;
+		}
+	}
+
+	/**
+	 * The path suffix for an encrypted /play/<token> URL: the VOD container, or
+	 * the live output extension — omitted only for the Cloudflare TS case, where
+	 * the bare token is rewritten to a .ts stream. Pure.
+	 *
+	 * @param array $rChannelInfo Channel row (live flag, target_container).
+	 * @param array $rSettings    Server settings (cloudflare flag).
+	 */
+	private static function encryptedPlaySuffix(array $rChannelInfo, array $rSettings, string $rOutputExt): string {
+		if ($rChannelInfo['live'] == 0) {
+			return '.' . $rChannelInfo['target_container'];
+		}
+		return ($rSettings['cloudflare'] && $rOutputExt == 'ts') ? '' : ('.' . $rOutputExt);
+	}
+}

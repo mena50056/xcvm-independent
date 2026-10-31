@@ -1,0 +1,139 @@
+<?php
+
+use XcVm\Core\Config\OpensslExtra;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Database\DatabaseHandler;
+use XcVm\Domain\Cluster\NonceStore;
+use XcVm\Domain\Security\BlocklistService;
+use XcVm\Domain\Server\ProxyIdentity;
+use XcVm\Domain\Server\ProxyKey;
+use XcVm\Domain\Server\ServerRepository;
+use XcVm\Infrastructure\Database\DatabaseFactory;
+
+/**
+ * Proxy API handler
+ *
+ * @package XC_VM_Web_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+set_time_limit(0);
+$rSignals = [];
+$db = new DatabaseHandler();
+DatabaseFactory::set($db);
+
+// A proxy's signed request (ProxyKey, D8): the posted server_id's key, its
+// generation read here rather than from a cache an install may be ahead of.
+$rSigned = null;
+$rAuth = $_SERVER['HTTP_X_XCVM_PROXY_AUTH'] ?? null;
+if (is_string($rAuth)) {
+	$db->query('SELECT `id`, `server_type`, `proxy_key_gen`, `proxy_signed` FROM `servers` WHERE `id` = ?;', intval($_POST['server_id'] ?? 0));
+	$rClaimed = $db->num_rows() === 1 ? $db->get_row() : null;
+	$rSigned = ProxyKey::admit($rClaimed, $rAuth, (string) file_get_contents('php://input'), (int) floor(microtime(true) * 1000), static fn(string $rNode, string $rNonce, int $rTsMs): bool => NonceStore::claim($rNode, $rNonce, $rTsMs));
+	$rServerIDRequest = $rSigned['id'] ?? null;
+	if ($rSigned !== null && empty($rClaimed['proxy_signed'])) {
+		// From now on this proxy is heard signed only.
+		$db->query('UPDATE `servers` SET `proxy_signed` = 1 WHERE `id` = ?;', $rSigned['id']);
+	}
+} else {
+	// Unsigned: the reporting proxy is the one whose address the request comes
+	// from, and a posted server_id naming any other server is refused (Phase 0),
+	// never a proxy that has signed a request, so a forged one is not heard.
+	$rServerIDRequest = BlocklistService::isProxy($_SERVER['REMOTE_ADDR'])
+		? ProxyIdentity::resolve(BlocklistService::getProxyIPs(), $_SERVER['REMOTE_ADDR'], $_POST['server_id'] ?? null)
+		: null;
+	if ($rServerIDRequest !== null) {
+		$db->query('SELECT `proxy_signed` FROM `servers` WHERE `id` = ?;', $rServerIDRequest);
+		if (!empty(($db->get_row() ?: [])['proxy_signed'])) {
+			$rServerIDRequest = null;
+		}
+	}
+}
+
+if ($rServerIDRequest !== null) {
+	$rServers = ServerRepository::getAll();
+	$rStats = $_POST['stats'];
+	$db->query('SELECT `bytes_sent_total`, `bytes_received_total`, `time` FROM `servers_stats` WHERE `server_id` = ? ORDER BY `id` DESC LIMIT 1;', $rServerIDRequest);
+
+	if ($db->num_rows() == 1) {
+		$rRow = $db->get_row();
+		// Clamp to >= 1s: two samples in the same second (or a backward clock) would
+		// otherwise divide by zero / a negative interval.
+		$rTimeSince = max(1, time() - $rRow['time']);
+		$rStats['bytes_sent'] = ($rStats['bytes_sent_total'] - $rRow['bytes_sent_total']) / $rTimeSince;
+		$rStats['bytes_received'] = ($rStats['bytes_received_total'] - $rRow['bytes_received_total']) / $rTimeSince;
+	}
+
+	// Telemetry only: whitelist_ips feeds the /api allowlist and is admin-maintained.
+	$rStats['ips_seen'] = ProxyIdentity::seenAddresses($_POST['addresses'] ?? null);
+	$rHardware = ['total_ram' => $rStats['total_mem'], 'total_used' => $rStats['total_mem_used'], 'cores' => $rStats['cpu_cores'], 'threads' => $rStats['cpu_cores'], 'kernel' => $rStats['kernel'], 'total_running_streams' => $rStats['total_running_streams'], 'cpu_name' => $rStats['cpu_name'], 'cpu_usage' => $rStats['cpu'], 'network_speed' => $rStats['network_speed'], 'bytes_sent' => $rStats['bytes_sent'], 'bytes_received' => $rStats['bytes_received']];
+	$rPing = (pingserver($rServers[$rServerIDRequest]['server_ip'], $rServers[$rServerIDRequest]['http_broadcast_port']) ?: 0);
+
+	if ($rPing < 0) {
+		$rPing = 0;
+	}
+
+	if (SettingsManager::get('redis_handler')) {
+		$rConnections = $rServers[$rServerIDRequest]['connections'];
+		$rUsers = $rServers[$rServerIDRequest]['users'];
+		$rAllUsers = 0;
+
+		foreach (array_keys($rServers) as $rServer) {
+			if ($rServers[$rServer]['server_online']) {
+				$rAllUsers += $rServers[$rServer]['users'];
+			}
+		}
+	} else {
+		$db->query('SELECT COUNT(*) AS `count` FROM `lines_live` WHERE `proxy_id` = ? AND `hls_end` = 0;', $rServerIDRequest);
+		$rConnections = intval($db->get_row()['count']);
+		$db->query('SELECT `activity_id` FROM `lines_live` WHERE `proxy_id` = ? AND `hls_end` = 0 GROUP BY `user_id`;', $rServerIDRequest);
+		$rUsers = intval($db->num_rows());
+		$db->query('SELECT `activity_id` FROM `lines_live` WHERE `hls_end` = 0 GROUP BY `user_id`;');
+		$rAllUsers = intval($db->num_rows());
+	}
+
+	$db->query('INSERT INTO `servers_stats`(`server_id`, `cpu`, `cpu_cores`, `cpu_avg`, `total_mem`, `total_mem_free`, `total_mem_used`, `total_mem_used_percent`, `total_disk_space`, `uptime`, `total_running_streams`, `bytes_sent`, `bytes_received`, `bytes_sent_total`, `bytes_received_total`, `cpu_load_average`, `connections`, `total_users`, `users`, `time`) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);', $rServerIDRequest, $rStats['cpu'], $rStats['cpu_cores'], $rStats['cpu_avg'], $rStats['total_mem'], $rStats['total_mem_free'], $rStats['total_mem_used'], $rStats['total_mem_used_percent'], $rStats['total_disk_space'], $rStats['uptime'], $rStats['total_running_streams'], $rStats['bytes_sent'], $rStats['bytes_received'], $rStats['bytes_sent_total'], $rStats['bytes_received_total'], $rStats['cpu_load_average'], $rConnections, $rAllUsers, $rUsers, time());
+	$db->query('UPDATE `servers` SET `connections` = ?, `users` = ?, `ping` = ?,`server_hardware` = ?, `interfaces` = ?, `watchdog_data` = ?, `last_check_ago` = ? WHERE `id` = ?', $rConnections, $rUsers, $rPing, json_encode($rHardware), json_encode($rStats['interfaces']), json_encode($rStats, JSON_PARTIAL_OUTPUT_ON_ERROR), time(), $rServerIDRequest);
+
+	// A proxy is never sent OPENSSL_EXTRA: those rows are an LB's, carrying the
+	// main's value, and must not be handed out here.
+	if ($db->query("SELECT `signal_id`, `custom_data` FROM `signals` WHERE `server_id` = ? AND `custom_data` <> '' AND `custom_data` NOT LIKE ? ORDER BY signal_id ASC;", $rServerIDRequest, '%"action":"' . OpensslExtra::SIGNAL_ACTION . '"%')) {
+		if (0 < $db->num_rows()) {
+			foreach ($db->get_rows() as $rRow) {
+				$rData = json_decode($rRow['custom_data'], true);
+				$db->query('DELETE FROM `signals` WHERE `signal_id` = ?;', $rRow['signal_id']);
+				$rSignals[] = $rData;
+			}
+		}
+
+		// A signed request gets a signed answer, bound to its nonce.
+		echo $rSigned !== null ? ProxyKey::answer($rSigned['key'], $rSigned['id'], $rSigned['nonce'], $rSignals) : json_encode($rSignals);
+
+		exit();
+	}
+
+	exit();
+} else {
+	generate404();
+}
+
+function pingServer($rIP, $rPort) {
+	$rStartTime = microtime(true);
+	// A proxy whose port does not answer is a ping of -1, not a warning: with
+	// debug_show_errors on, a warning printed here went out ahead of the answer,
+	// which the proxy then could not read (nor verify, signed).
+	$rSocket = @fsockopen($rIP, $rPort, $rErrNo, $rErrStr, 3);
+	$rStopTime = microtime(true);
+
+	if (!$rSocket) {
+		$rStatus = -1;
+	} else {
+		fclose($rSocket);
+		$rStatus = floor(($rStopTime - $rStartTime) * 1000);
+	}
+
+	return $rStatus;
+}

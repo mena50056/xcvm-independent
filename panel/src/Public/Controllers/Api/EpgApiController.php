@@ -1,0 +1,142 @@
+<?php
+
+namespace XcVm\Public\Controllers\Api;
+
+use XcVm\Core\Auth\BruteforceGuard;
+use XcVm\Core\Config\Maintenance;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Error\ErrorResponder;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\GeoIP;
+use XcVm\Core\Util\NetworkUtils;
+use XcVm\Domain\Bouquet\BouquetService;
+
+/**
+ * EpgApiController — epg api controller
+ *
+ * @package XC_VM_Public_Controllers_Api
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class EpgApiController extends BaseApiController {
+	protected $downloadType = 'epg';
+
+	public function index() {
+		set_time_limit(0);
+		header('Access-Control-Allow-Origin: *');
+		$rRequestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+		$rLegacyAction = strtolower(explode('.', ltrim((string) $rRequestPath, '/'))[0] ?? '');
+
+		if ($rLegacyAction == 'xmltv' && !SettingsManager::get('legacy_xmltv')) {
+			$this->deny = false;
+			generateError('LEGACY_EPG_DISABLED');
+		}
+
+		$rIP = NetworkUtils::getUserIP();
+		$rCountry = GeoIP::getCountry($rIP);
+		$rCountryCode = (is_array($rCountry) && isset($rCountry['country']['iso_code']) ? $rCountry['country']['iso_code'] : null);
+		$rUserAgent = (empty($_SERVER['HTTP_USER_AGENT']) ? '' : htmlentities(trim($_SERVER['HTTP_USER_AGENT'])));
+		$rGZ = !empty(RequestManager::get('gzip')) && intval(RequestManager::get('gzip')) == 1;
+		$rUsername = RequestManager::get('username') ?? '';
+
+		$rUserInfo = $this->authenticate($rIP);
+
+		if (!$rUserInfo) {
+			$rPassword = RequestManager::get('password');
+			BruteforceGuard::checkBruteforce(null, null, $rUsername, false, is_string($rPassword) ? $rPassword : null);
+			generateError('INVALID_CREDENTIALS');
+		}
+
+		$this->deny = false;
+		$this->userInfo = $rUserInfo;
+		ini_set('memory_limit', -1);
+
+		if (Maintenance::active(SettingsManager::getAll())) {
+			Maintenance::refuse(SettingsManager::getAll());
+		}
+
+		if (!$rUserInfo['is_restreamer'] && SettingsManager::get('disable_xmltv')) {
+			generateError('EPG_DISABLED');
+		}
+
+		if ($rUserInfo['is_restreamer'] && SettingsManager::get('disable_xmltv_restreamer')) {
+			generateError('EPG_DISABLED');
+		}
+
+		$this->validateUser($rUserInfo, $rUserAgent, $rIP, $rCountryCode);
+
+		$rBouquets = [];
+
+		// The bouquets there are, read once: they were read again for each of the line's.
+		$rKnown = BouquetService::getAll();
+		foreach ($rUserInfo['bouquet'] as $rBouquetID) {
+			if (in_array($rBouquetID, array_keys($rKnown))) {
+				$rBouquets[] = $rBouquetID;
+			}
+		}
+
+		sort($rBouquets);
+		// The name EpgCronJob::buildXmltv() writes the set's file under.
+		$rBouquetGroup = hash('sha256', implode('_', $rBouquets));
+
+		if (file_exists(EPG_PATH . 'epg_' . $rBouquetGroup . '.xml')) {
+			$rFile = EPG_PATH . 'epg_' . $rBouquetGroup . '.xml';
+		} else {
+			$rFile = EPG_PATH . 'epg_all.xml';
+		}
+
+		$rFilename = 'epg.xml';
+
+		if ($rGZ) {
+			$rFile .= '.gz';
+			$rFilename .= '.gz';
+		}
+
+		if (!file_exists($rFile)) {
+			generateError('EPG_FILE_MISSING');
+		}
+
+		if (NetworkUtils::startDownload('epg', $rUserInfo, getmypid(), intval(SettingsManager::get('max_simultaneous_downloads')))) {
+			$this->downloading = true;
+			header('Content-disposition: attachment; filename="' . $rFilename . '"');
+
+			if ($rGZ) {
+				header('Content-Type: application/octet-stream');
+				header('Content-Transfer-Encoding: Binary');
+			} else {
+				header('Content-Type: application/xml; charset=utf-8');
+			}
+
+			$this->readChunked($rFile);
+		} else {
+			// The address opened in a browser: a page that says why. A player
+			// keeps the bare status (and debug mode its own page).
+			if (ErrorResponder::wantsHtml() && !SettingsManager::get('debug_show_errors')) {
+				ErrorResponder::emit(ErrorResponder::respondPage(429, '', ''));
+			}
+			generateError('DOWNLOAD_LIMIT_REACHED', false);
+			http_response_code(429);
+			exit();
+		}
+
+		exit();
+	}
+
+	private function readChunked($rFilename) {
+		$rHandle = fopen($rFilename, 'rb');
+
+		if ($rHandle !== false) {
+			while (!feof($rHandle)) {
+				$rBuffer = fread($rHandle, 1048576);
+				echo $rBuffer;
+				ob_flush();
+				flush();
+			}
+
+			fclose($rHandle);
+		}
+	}
+}

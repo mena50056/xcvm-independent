@@ -1,0 +1,157 @@
+# Generating SSL Certificate for Nginx in XC_VM
+
+This guide explains how to create a self-signed SSL certificate to enable secure HTTPS connections for the built-in Nginx server in the XC_VM project.
+
+> **Note:** A fresh install already generates a **unique** self-signed certificate
+> automatically (the installer runs `openssl` and writes `server.key`/`server.crt`
+> into `bin/nginx/conf/` before Nginx starts), and `CertbotCronJob` later replaces
+> it with a real Let's Encrypt certificate. Follow this guide only to **regenerate
+> or replace** the certificate manually.
+>
+> The Let's Encrypt certificate is requested only for the host names in the
+> server's domain list (**Domain Names** on the main server's form, **Domains &
+> IP's** on a load balancer's or proxy's). Addresses, names with an underscore and
+> wildcards are left out of the request. An entry written as a URL
+> (`http://name/`) is requested by its host name.
+>
+> A load balancer, or an older install, that still has the placeholder key from
+> the archive gets its own key and certificate at its next start
+> (`console.php startup`, which then reloads Nginx). The placeholder key is in the
+> repository, so every node using it shared one private key. A key you put there
+> yourself is never replaced.
+>
+> The `ssl.conf` that ships allows TLS 1.2 and 1.3 only. A node still running the
+> earlier shipped `ssl.conf` (SSLv3, TLS 1.1 and 1.2) gets the new one at the same
+> start. An `ssl.conf` you edited, or one certbot wrote, is kept as it is.
+
+---
+
+## Overview
+
+**SSL (Secure Sockets Layer)** encrypts the connection between client and server, ensuring data confidentiality and user trust.  
+This tutorial shows how to create a **self-signed SSL certificate** for the embedded **Nginx** server in the **XC_VM** project.
+
+---
+
+## Configuration Location
+
+All SSL-related files (key, certificate, and config) are stored in:
+
+```bash
+/home/xc_vm/bin/nginx/conf
+```
+
+Navigate to this directory before proceeding:
+
+```bash
+cd /home/xc_vm/bin/nginx/conf
+```
+
+---
+
+## Step 1. Generate Private Key
+
+Generate a **2048-bit RSA private key**:
+
+```bash
+openssl genrsa -out server.key 2048
+```
+
+After execution, the file `server.key` will appear — this is your **private key**.  
+Keep it **strictly confidential** — it is used to sign the SSL certificate.
+
+---
+
+## Step 2. Create server.cnf Configuration File
+
+Create a configuration file containing certificate parameters:
+
+```bash
+cat > server.cnf << EOF
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = RU
+ST = Moscow
+L = Moscow
+O = XC_VM
+OU = XC_VM
+CN = XC_VM
+
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = XC_VM
+EOF
+```
+
+**Parameter explanation:**
+
+| Field | Value | Purpose |
+| --- | --- | --- |
+| `C` | RU | Country |
+| `ST` | Moscow | State/Province |
+| `L` | Moscow | City/Locality |
+| `O` | XC_VM | Organization |
+| `OU` | XC_VM | Organizational Unit |
+| `CN` | XC_VM | Common Name (primary hostname) |
+| `DNS.1` | XC_VM | Subject Alternative Name (SAN) |
+
+> **Tip:** For real domain names, replace `DNS.1 = XC_VM` with your actual domain (e.g., `DNS.1 = panel.example.com`) to avoid browser warnings.
+
+---
+
+## Step 3. Generate Self-Signed SSL Certificate
+
+Generate the certificate using the private key and configuration file:
+
+```bash
+openssl req -new -x509 -key server.key -out server.crt -days 3650 -config server.cnf
+```
+
+**Explanation:**
+
+- `-new -x509` — creates a new self-signed certificate
+- `-days 3650` — certificate validity period (10 years)
+- `-config server.cnf` — uses the custom configuration
+- Result: `server.crt` file containing the public certificate
+
+---
+
+## Final Files
+
+After completing all steps, the following files should be present in `/home/xc_vm/bin/nginx/conf`:
+
+| File | Purpose |
+| --- | --- |
+| `server.key` | Private key |
+| `server.crt` | Self-signed SSL certificate |
+| `server.cnf` | Certificate configuration file |
+
+---
+
+## Result
+
+Your **XC_VM Nginx server** is now accessible via **HTTPS** using the newly created self-signed certificate.  
+Browsers will display a “not trusted” warning — this is expected behavior for self-signed certificates.
+
+---
+
+## Notes
+
+- Self-signed certificates are suitable **for internal use or testing only**.
+- For public-facing domains, use certificates from trusted CAs (e.g., [Let's Encrypt](https://letsencrypt.org/)).
+- If you change the Domain/hostname (`CN` or `DNS.1`), you **must regenerate** the certificate.
+- To inspect the generated certificate:
+
+```bash
+openssl x509 -in server.crt -text -noout
+```
+
+---

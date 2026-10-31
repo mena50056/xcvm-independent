@@ -1,0 +1,116 @@
+<?php
+
+namespace XcVm\Infrastructure\Database;
+
+use XcVm\Core\Database\DatabaseHandler;
+use XcVm\Core\Database\LazyDatabaseHandler;
+
+/**
+ * DatabaseFactory — создание, хранение и закрытие глобального подключения к БД.
+ *
+ * Singleton-реестр: entry points вызывают set($db), потребители — get().
+ *
+ * @package XC_VM_Infrastructure_Database
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class DatabaseFactory {
+	/** @var DatabaseHandler|null */
+	private static $instance;
+
+	/**
+	 * Сохраняет экземпляр DatabaseHandler в singleton-реестре.
+	 */
+	public static function set(DatabaseHandler $db): void {
+		self::$instance = $db;
+	}
+
+	/**
+	 * Возвращает текущий DatabaseHandler.
+	 */
+	public static function get(): ?DatabaseHandler {
+		return self::$instance;
+	}
+
+	/**
+	 * Создаёт DatabaseHandler из config.ini и кладёт в global $db + singleton.
+	 */
+	public static function connect() {
+		global $db;
+
+		if (is_object($db) && method_exists($db, 'ping') && $db->ping()) {
+			self::$instance = $db;
+			return;
+		}
+
+		if (is_object($db)) {
+			$db->close_mysql();
+			$db = null;
+		}
+
+		$db = new DatabaseHandler();
+		self::$instance = $db;
+	}
+
+	/**
+	 * A new handler, connected now, kept as the process's handle (the caller
+	 * keeps it in its own $db): what the stream and web API endpoints used to
+	 * build with `new DatabaseHandler()`. Every eager connect starts here or
+	 * in the boot's DatabaseStage (ArchitectureTest), and each one passes
+	 * ConnectAudit::guard(): a node in cluster mode 2 is refused.
+	 *
+	 * @throws \XcVm\Core\Cluster\LbDatabaseAccessException on a node in cluster mode 2 (api)
+	 */
+	public static function open(): DatabaseHandler {
+		self::$instance = new DatabaseHandler();
+		return self::$instance;
+	}
+
+	/**
+	 * Like connect(), but the handler opens its connection only when first
+	 * used (LazyDatabaseHandler). For the streaming endpoints, where many
+	 * requests end without a query.
+	 */
+	public static function connectLazy() {
+		global $db;
+
+		if (is_object($db) && method_exists($db, 'ping') && $db->ping()) {
+			self::$instance = $db;
+			return;
+		}
+
+		if (is_object($db)) {
+			$db->close_mysql();
+			$db = null;
+		}
+
+		$db = new LazyDatabaseHandler();
+		self::$instance = $db;
+	}
+
+	/**
+	 * Закрывает глобальное подключение к БД.
+	 */
+	public static function close() {
+		global $db;
+		if (is_object($db)) {
+			$db->close_mysql();
+			$db = null;
+		}
+		self::$instance = null;
+	}
+
+	/**
+	 * Clears the singleton registry without closing the connection.
+	 *
+	 * Test seam for deterministic per-test state: unlike close(), it does not
+	 * touch the global $db or call close_mysql(), so it is safe with the fake
+	 * DatabaseHandler subtypes tests inject.
+	 */
+	public static function reset(): void {
+		self::$instance = null;
+	}
+}

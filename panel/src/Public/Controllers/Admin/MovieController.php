@@ -1,0 +1,100 @@
+<?php
+
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Core\Http\RequestManager;
+use XcVm\Domain\Stream\CategoryService;
+use XcVm\Domain\Stream\StreamConfigRepository;
+use XcVm\Domain\Stream\StreamRepository;
+
+/**
+ * MovieController — редактирование/добавление фильма.
+ *
+ * @renders Views/admin/movie.php
+ *
+ * @package XC_VM_Public_Controllers_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class MovieController extends BaseAdminController {
+	public function index() {
+		$this->requirePermission();
+
+		global $db, $rServers;
+
+		$rCategories = CategoryService::getAllByType('movie');
+		$rTranscodeProfiles = StreamConfigRepository::getTranscodeProfiles();
+
+		if (RequestManager::has('id')) {
+			$rMovie = StreamRepository::getById(RequestManager::get('id'));
+			if (!$rMovie || $rMovie['type'] != 2) {
+				$this->redirect('movies');
+				return;
+			}
+		}
+
+		$rServerTree = [
+			['id' => 'source', 'parent' => '#', 'text' => "<span class='badge bg-success'>Active</span>", 'icon' => 'icon-base ti tabler-player-play', 'state' => ['opened' => true]],
+			['id' => 'offline', 'parent' => '#', 'text' => "<span class='badge bg-secondary'>Offline</span>", 'icon' => 'icon-base ti tabler-player-stop', 'state' => ['opened' => true]],
+		];
+		$activeStreamingServers = [];
+		$rMovie = null;
+		$rStreamSys = [];
+		$rMovieSource = [''];
+		$rSource = '';
+		$rPathSources = '';
+
+		if (RequestManager::has('id')) {
+			// The movie as stored: the form escapes what it prints and posts it back,
+			// so text read through the row cleaner ('&lt;' for '<') would be saved escaped.
+			$db->query('SELECT * FROM `streams` WHERE `id` = ?;', intval(RequestManager::get('id')));
+			$rMovie = $db->get_raw_row();
+			if (!$rMovie || $rMovie['type'] != 2) {
+				$this->redirect('movies');
+				return;
+			}
+			$rMovie['properties'] = json_decode($rMovie['movie_properties'], true);
+			$rStreamSys = StreamRepository::getSystemRows(RequestManager::get('id'));
+
+			$streamSourceJson = $rMovie['stream_source'] ?? '';
+			$rMovieSource = json_decode($streamSourceJson, true);
+			if (!is_array($rMovieSource)) {
+				$rMovieSource = [''];
+			}
+			// The source as it is stored, "s:<server>:<path>" for a file on a server
+			// (what the file browser writes in the field). The form showed the path
+			// alone, url-decoded, and posted that back: a saved edit lost the
+			// movie's server, and a `+` in its file name became a space.
+			$rSource = $rMovieSource[0] ?? '';
+			$rPathSources = $rSource;
+
+			foreach ($rServers as $rServer) {
+				if (($rServer['direct_source'] ?? 0) == 0 && ($rServer['stream_status'] ?? 0) == 1) {
+					$activeStreamingServers[] = intval($rServer['id']);
+				}
+				if (isset($rStreamSys[intval($rServer['id'])])) {
+					$rParent = 'source';
+				} else {
+					$rParent = 'offline';
+				}
+				$rServerTree[] = ['id' => $rServer['id'], 'parent' => $rParent, 'text' => $rServer['server_name'], 'icon' => 'icon-base ti tabler-server', 'state' => ['opened' => true]];
+			}
+		} else {
+			foreach ($rServers as $rServer) {
+				$rServerTree[] = ['id' => $rServer['id'], 'parent' => 'offline', 'text' => $rServer['server_name'], 'icon' => 'icon-base ti tabler-server', 'state' => ['opened' => true]];
+			}
+		}
+
+		// The load-balancer server tree on this form is driven by jstree.
+		$GLOBALS['xmNewuiVendors'] = array_values(array_unique(array_merge(
+			(array) ($GLOBALS['xmNewuiVendors'] ?? []),
+			['jstree']
+		)));
+
+		$this->setTitle('Movie');
+		$this->render('movie', ['rCategories' => $rCategories, 'rTranscodeProfiles' => $rTranscodeProfiles, 'rMovie' => $rMovie, 'rServerTree' => $rServerTree, 'activeStreamingServers' => $activeStreamingServers, 'rStreamSys' => $rStreamSys, 'rMovieSource' => $rMovieSource, 'rSource' => $rSource, 'rPathSources' => $rPathSources]);
+	}
+}

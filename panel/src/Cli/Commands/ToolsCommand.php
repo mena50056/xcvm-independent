@@ -1,0 +1,619 @@
+<?php
+
+namespace XcVm\Cli\Commands;
+
+use XcVm\Cli\CommandInterface;
+use XcVm\Cli\CronJobs\RootSignalsCronJob;
+use XcVm\Core\Auth\AuthRepository;
+use XcVm\Core\Auth\TwoFactor;
+use XcVm\Core\Backup\BackupService;
+use XcVm\Core\Cluster\BlocklistChanges;
+use XcVm\Core\Cluster\NodeRole;
+use XcVm\Core\Cluster\ReplicaStreamCache;
+use XcVm\Core\Cluster\SignalDispatcher;
+use XcVm\Core\Config\NginxPortsFile;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Events\EventDispatcher;
+use XcVm\Core\Events\Stream\StreamsDeletedEvent;
+use XcVm\Core\Util\Encryption;
+use XcVm\Core\Util\ImageUtils;
+use XcVm\Domain\Bouquet\BouquetService;
+use XcVm\Domain\Server\ServerRepository;
+use XcVm\Infrastructure\Database\DatabaseAware;
+
+/**
+ * ToolsCommand — tools command
+ *
+ * @package XC_VM_CLI_Commands
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class ToolsCommand implements CommandInterface {
+	use DatabaseAware;
+
+	public function getName(): string {
+		return 'tools';
+	}
+
+	public function getDescription(): string {
+		return 'Utilities: images, duplicates, bouquets, rescue, recaptcha, access, ports, migration, user, mysql, database, flush';
+	}
+
+	public function execute(array $rArgs): int {
+		register_shutdown_function(function () {
+			self::db()->close_mysql();
+		});
+
+		$rMethod = (!empty($rArgs[0]) ? $rArgs[0] : null);
+		$rUser = posix_getpwuid(posix_geteuid())['name'];
+
+		$rRootMethods = ['rescue', 'recaptcha', 'access', 'ports', 'migration', 'user', 'mysql', 'database', 'flush', 'twofactor'];
+		$rUserMethods = ['images', 'duplicates', 'bouquets'];
+
+		// No or unknown subcommand → show the full help to any user (root or xc_vm)
+		if ($rMethod === null || (!in_array($rMethod, $rRootMethods, true) && !in_array($rMethod, $rUserMethods, true))) {
+			$this->printUsage();
+			return 1;
+		}
+
+		// root-only subcommands
+		if (in_array($rMethod, $rRootMethods, true)) {
+			if ($rUser !== 'root') {
+				echo "Please run as root!\n";
+				return 1;
+			}
+
+			$rServers = ServerRepository::getAll();
+
+			switch ($rMethod) {
+				case 'rescue':
+					return $this->processRescue($rServers);
+				case 'recaptcha':
+					return $this->processRecaptcha();
+				case 'access':
+					return $this->processAccess($rServers);
+				case 'ports':
+					return $this->processPorts($rServers);
+				case 'migration':
+					return $this->processMigration($rArgs, $rServers);
+				case 'user':
+					return $this->processUser();
+				case 'mysql':
+					return $this->processMysql($rServers);
+				case 'database':
+					return $this->processDatabase($rArgs);
+				case 'flush':
+					return $this->processFlush();
+				case 'twofactor':
+					return $this->processTwoFactor((string) ($rArgs[1] ?? ''));
+			}
+		}
+
+		// xc_vm subcommands
+		if ($rUser !== 'xc_vm') {
+			echo "Please run as XC_VM!\n";
+			return 1;
+		}
+
+		switch ($rMethod) {
+			case 'images':
+				$this->processImages();
+				break;
+			case 'duplicates':
+				$this->processDuplicates();
+				break;
+			case 'bouquets':
+				$this->processBouquets();
+				break;
+			default:
+				$this->printUsage();
+				return 1;
+		}
+
+		return 0;
+	}
+
+	/**
+	 * Restore a backup into xc_vm_migrate, whatever database the dump names,
+	 * and make sure something arrived there.
+	 *
+	 * @param string $rFile The .sql backup.
+	 * @return bool
+	 */
+	private function restoreMigrationBackup(string $rFile): bool {
+		$rCopy    = (string) tempnam(sys_get_temp_dir(), 'xc_migrate_');
+		$rDropped = self::stripDatabaseSwitches($rFile, $rCopy);
+		if ($rDropped === null) {
+			@unlink($rCopy);
+			echo "Error: Cannot copy {$rFile} for the restore (read or write failed; is the temp directory full?).\n";
+			return false;
+		}
+		if ($rDropped > 0) {
+			echo "Ignored {$rDropped} USE / CREATE DATABASE statement(s): the backup is restored into xc_vm_migrate.\n";
+		}
+		$rRestored = \XC_VM::db_restore($rCopy, 'xc_vm_migrate');
+		@unlink($rCopy);
+		if (!$rRestored) {
+			echo "Error: Restore failed. Check the SQL file and database credentials.\n";
+			return false;
+		}
+		if ($this->migrationTableCount() === 0) {
+			echo "Error: xc_vm_migrate is still empty after the restore: the file holds no tables, or its statements failed.\n";
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Copy a .sql dump without its `USE` and `CREATE DATABASE` statements.
+	 * mysql honours them over the database named on its command line, so a
+	 * dump made with --databases / --all-databases would restore into its
+	 * original database (the live panel's, when that is `xc_vm`) and leave
+	 * xc_vm_migrate empty while reporting success.
+	 *
+	 * @param string $rSource The dump.
+	 * @param string $rTarget Where the copy goes.
+	 * @return int|null Statements left out, or null when the copy is not complete
+	 *                  (a file can't be opened, read or written).
+	 */
+	public static function stripDatabaseSwitches(string $rSource, string $rTarget): ?int {
+		$rIn  = @fopen($rSource, 'rb');
+		$rOut = @fopen($rTarget, 'wb');
+		if ($rIn === false || $rOut === false) {
+			return null;
+		}
+		$rDropped = 0;
+		$rCopied  = true;
+		while ($rCopied && ($rLine = fgets($rIn)) !== false) {
+			if (preg_match('/^\s*(USE\s|CREATE\s+DATABASE\b)/i', $rLine)) {
+				$rDropped++;
+				continue;
+			}
+			$rCopied = @fwrite($rOut, $rLine) === strlen($rLine);
+		}
+		// A truncated copy (disk full, read error) would restore part of the backup.
+		$rCopied = $rCopied && feof($rIn);
+		fclose($rIn);
+		$rCopied = fclose($rOut) && $rCopied;
+		return $rCopied ? $rDropped : null;
+	}
+
+	/** Tables in xc_vm_migrate. */
+	private function migrationTableCount(): int {
+		$db = self::db();
+		$db->query("SELECT COUNT(*) AS `count` FROM `information_schema`.`tables` WHERE `table_schema` = 'xc_vm_migrate';");
+		return (int) ($db->get_row()['count'] ?? 0);
+	}
+
+	private function processMigration(array $rArgs, array $rServers): int {
+		$db = self::db();
+		// Re-join the argument tail so an unquoted path with spaces still resolves
+		$database = (count($rArgs) > 1 ? implode(' ', array_slice($rArgs, 1)) : null);
+
+		// Validate the backup file BEFORE wiping the migration database
+		if ($database !== null) {
+			if (!is_file($database)) {
+				echo "Error: File not found: {$database}\n";
+				echo "If the path contains spaces, wrap it in quotes.\n";
+				return 1;
+			}
+			if (strtolower(pathinfo($database, PATHINFO_EXTENSION)) !== 'sql') {
+				echo "Error: File must have .sql extension\n";
+				return 1;
+			}
+		}
+
+		$db->query('DROP DATABASE IF EXISTS `xc_vm_migrate`;');
+		$db->query('CREATE DATABASE IF NOT EXISTS `xc_vm_migrate`;');
+		echo "Migration database has been cleared.\n";
+
+		foreach ($rServers as $rServer) {
+			BackupService::grantPrivileges($rServer['server_ip']);
+		}
+
+		if ($database !== null) {
+			echo 'Restoring: ' . $database . "\n";
+			if (!$this->restoreMigrationBackup($database)) {
+				return 1;
+			}
+			echo "Restore completed. You can now run: /home/xc_vm/console.php migrate\n\n";
+		} else {
+			echo "You can restore a database to it using:\n";
+			echo "  mariadb -h 127.0.0.1 -P <port> -u <username> -p'<password>' xc_vm_migrate < backup.sql\n";
+		}
+
+		return 0;
+	}
+
+	private function processUser(): int {
+		$db = self::db();
+		$rUsername = 'admin_' . bin2hex(random_bytes(4));
+		$rPassword = bin2hex(random_bytes(8));
+		$rHash = crypt($rPassword, sprintf('$6$rounds=%d$%s$', 20000, 'xc_vm'));
+		$db->query(
+			"INSERT INTO `users`(`username`, `password`, `email`, `ip`, `date_registered`, `last_login`, `member_group_id`, `status`) VALUES(?, ?, '', '', ?, ?, 1, 1);",
+			$rUsername,
+			$rHash,
+			time(),
+			time()
+		);
+		echo "Rescue admin user created:\n";
+		echo "  Username: {$rUsername}\n";
+		echo "  Password: {$rPassword}\n\n";
+		echo "Please change the password and delete this user when done.\n";
+		return 0;
+	}
+
+	private function processMysql(array $rServers): int {
+		foreach ($rServers as $rServerID => $rServer) {
+			echo 'Granting privileges to: ' . $rServer['server_ip'] . " (ID: {$rServerID})\n";
+			if (!BackupService::grantPrivileges($rServer['server_ip'])) {
+				echo "  not granted: a node in cluster mode 2 or with a revoked grant holds none, or the extension refused\n";
+			}
+		}
+		echo "\nMySQL privileges have been reauthorised for all servers.\n";
+		return 0;
+	}
+
+	private function processDatabase(array $rArgs): int {
+		if (empty($rArgs[1]) || $rArgs[1] !== '--confirm') {
+			echo "WARNING: This will erase ALL data and restore a blank database!\n";
+			echo "To confirm, run: sudo console.php tools database --confirm\n";
+			return 1;
+		}
+		$rDatabaseFile = MAIN_HOME . 'bin/install/database.sql';
+		if (!file_exists($rDatabaseFile)) {
+			echo "Error: Database file not found: {$rDatabaseFile}\n";
+			return 1;
+		}
+		echo "Restoring blank database...\n";
+		shell_exec('sudo mariadb -u root xc_vm < ' . escapeshellarg($rDatabaseFile));
+		echo "Blank database has been restored.\n";
+		return 0;
+	}
+
+	/** Turn off the second factor of an admin or reseller locked out of it (Core\Auth\TwoFactor). */
+	private function processTwoFactor(string $rUsername): int {
+		$db = self::db();
+		$db->query('SELECT `id` FROM `users` WHERE `username` = ?;', $rUsername);
+		$rRow = $db->num_rows() === 1 ? $db->get_raw_row() : null;
+		if ($rUsername === '' || !$rRow) {
+			echo "Usage: console.php tools twofactor <username>  (no such user)\n";
+			return 1;
+		}
+		TwoFactor::disable((int) $rRow['id']);
+		echo "Two-factor sign-in turned off for {$rUsername}. If the user's group requires it, the next sign-in sets it up again.\n";
+		return 0;
+	}
+
+	private function processFlush(): int {
+		$db = self::db();
+		echo "Flushing iptables rules...\n";
+		// The panel's own blocks only, as the Flush button's root action does.
+		(new RootSignalsCronJob())->unblockAll();
+		exec('sudo iptables-save && sudo ip6tables-save');
+		$db->query('TRUNCATE `blocked_ips`;');
+		BlocklistChanges::reset('ip', $db);
+		echo "All blocked IPs have been flushed (iptables + database).\n";
+		return 0;
+	}
+
+	private function printUsage(): void {
+		echo "Usage: console.php tools <subcommand>\n\n";
+		echo "Subcommands (run as xc_vm):\n";
+		echo "  images      Download missing stream/movie/series images from TMDB\n";
+		echo "  duplicates  Find and remove duplicate VOD streams\n";
+		echo "  bouquets    Clean stale references from bouquets\n\n";
+		echo "Subcommands (run as root):\n";
+		echo "  rescue      Create temporary rescue access code\n";
+		echo "  recaptcha   Disable reCAPTCHA to restore admin panel login\n";
+		echo "  access      Regenerate nginx access code configs and reload\n";
+		echo "  ports       Regenerate nginx port configs and reload\n";
+		echo "  migration   Clear migration database and optionally restore .sql backup\n";
+		echo "  user        Create a rescue admin user for the admin panel\n";
+		echo "  mysql       Reauthorise load balancers on MySQL\n";
+		echo "  database    Restore blank XC_VM database (requires --confirm)\n";
+		echo "  flush       Flush all blocked IPs (iptables + database)\n";
+		echo "  twofactor <username>  Turn off a user's two-factor sign-in (lost authenticator)\n";
+	}
+
+	private function processRecaptcha(): int {
+		$db = self::db();
+		$db->query('UPDATE `settings` SET `recaptcha_enable` = 0;');
+		// SettingsManager is always autoloadable (Composer PSR-4).
+		SettingsManager::clearCache();
+		echo "reCAPTCHA has been disabled. You can now log in to the admin panel.\n";
+		echo "Re-enable it in Settings once outbound access to google.com is restored.\n";
+		return 0;
+	}
+
+	private function processRescue(array $rServers): int {
+		$db = self::db();
+		$db->query("DELETE FROM `access_codes` WHERE `code` = 'rescue';");
+		$db->query("INSERT INTO `access_codes`(`code`, `type`, `enabled`, `groups`) VALUES('rescue', 0, 1, '[1]');");
+		echo "A rescue access code has been created.\nPlease ensure you delete this after you're done with it.\n";
+		echo 'Access: http://' . $rServers[SERVER_ID]['server_ip'] . ':' . $rServers[SERVER_ID]['http_broadcast_port'] . "/rescue/\n\n";
+		AuthRepository::updateCodes();
+		shell_exec('sudo ' . MAIN_HOME . 'service reload 2>/dev/null');
+		return 0;
+	}
+
+	private function processAccess(array $rServers): int {
+		echo "Generating access code configuration...\n\n";
+		AuthRepository::updateCodes();
+		shell_exec('sudo ' . MAIN_HOME . 'service reload 2>/dev/null');
+
+		foreach (AuthRepository::getAllCodes(0) as $rCode) {
+			echo 'http://' . $rServers[SERVER_ID]['server_ip'] . ':' . $rServers[SERVER_ID]['http_broadcast_port'] . '/' . $rCode['code'] . "/\n";
+		}
+		echo "\n";
+		return 0;
+	}
+
+	private function processPorts(array $rServers): int {
+		echo "Generating port configuration...\n\n";
+		$rConfig = [
+			'http' => array_unique(array_merge(
+				[$rServers[SERVER_ID]['http_broadcast_port']],
+				(explode(',', $rServers[SERVER_ID]['http_ports_add']))
+			)),
+			'https' => array_unique(array_merge(
+				[$rServers[SERVER_ID]['https_broadcast_port']],
+				(explode(',', $rServers[SERVER_ID]['https_ports_add']))
+			)),
+			'rtmp' => $rServers[SERVER_ID]['rtmp_port'],
+		];
+
+		foreach ($rConfig as $rKey => $rPorts) {
+			if ($rKey === 'http') {
+				$rListen = [];
+				foreach ($rPorts as $rPort) {
+					if (is_numeric($rPort) && 80 <= $rPort && $rPort <= 65535) {
+						$rListen[] = 'listen ' . intval($rPort) . ';';
+					}
+				}
+				NginxPortsFile::write(MAIN_HOME . 'bin/nginx/conf/ports/http.conf', implode(' ', $rListen));
+				file_put_contents(MAIN_HOME . 'bin/nginx_rtmp/conf/live.conf', 'on_play http://127.0.0.1:' . intval($rPorts[0]) . '/stream/rtmp; on_publish http://127.0.0.1:' . intval($rPorts[0]) . '/stream/rtmp; on_play_done http://127.0.0.1:' . intval($rPorts[0]) . '/stream/rtmp;');
+			} elseif ($rKey === 'https') {
+				$rListen = [];
+				foreach ($rPorts as $rPort) {
+					if (is_numeric($rPort) && 80 <= $rPort && $rPort <= 65535) {
+						$rListen[] = 'listen ' . intval($rPort) . ' ssl;';
+					}
+				}
+				NginxPortsFile::write(MAIN_HOME . 'bin/nginx/conf/ports/https.conf', implode(' ', $rListen));
+			} elseif ($rKey === 'rtmp') {
+				file_put_contents(MAIN_HOME . 'bin/nginx_rtmp/conf/port.conf', 'listen ' . intval($rPorts) . ';');
+			}
+		}
+
+		if (count($rConfig['http']) > 0) {
+			echo 'HTTP Ports: ' . implode(', ', $rConfig['http']) . "\n";
+		}
+		if (count($rConfig['https']) > 0) {
+			echo 'SSL Ports: ' . implode(', ', $rConfig['https']) . "\n";
+		}
+		if (!empty($rConfig['rtmp'])) {
+			echo 'RTMP Port: ' . $rConfig['rtmp'] . "\n";
+		}
+
+		shell_exec('sudo ' . MAIN_HOME . 'service reload 2>/dev/null');
+		echo "\n";
+		return 0;
+	}
+
+	private function processImages(): void {
+		if (NodeRole::refusesConnects()) {
+			$rImages = [];
+			if (!ReplicaStreamCache::owned()) {
+				echo "Image restoration waits for the local stream replica.\n";
+				return;
+			}
+			foreach (ReplicaStreamCache::index() as $rID => $_) {
+				$rStream = ReplicaStreamCache::get((int) $rID)['stream'] ?? [];
+				$rProperties = json_decode((string) ($rStream['movie_properties'] ?? ''), true);
+				foreach ([$rStream['stream_icon'] ?? null, $rProperties['movie_image'] ?? null, $rProperties['cover_big'] ?? null, $rProperties['backdrop_path'][0] ?? null] as $rImage) {
+					if (is_string($rImage) && str_starts_with($rImage, 's:')) {
+						$rImages[] = $rImage;
+					}
+				}
+			}
+			$this->restoreImageReferences($rImages);
+			return;
+		}
+		$db = self::db();
+		$rImages = [];
+		$db->query('SELECT COUNT(*) AS `count` FROM `streams`;');
+		$rCount = $db->get_row()['count'];
+		if ($rCount > 0) {
+			$rSteps = range(0, $rCount, 1000);
+			if ($rSteps === []) {
+				$rSteps = [0];
+			}
+			foreach ($rSteps as $rStep) {
+				try {
+					$db->query('SELECT `stream_icon`, `movie_properties` FROM `streams` LIMIT ' . $rStep . ', 1000;');
+					$rResults = $db->get_rows();
+					foreach ($rResults as $rResult) {
+						$rProperties = json_decode($rResult['movie_properties'], true);
+						if (!empty($rResult['stream_icon']) && substr($rResult['stream_icon'], 0, 2) == 's:') {
+							$rImages[] = $rResult['stream_icon'];
+						}
+						if (!empty($rProperties['movie_image']) && substr($rProperties['movie_image'], 0, 2) == 's:') {
+							$rImages[] = $rProperties['movie_image'];
+						}
+						if (!empty($rProperties['cover_big']) && substr($rProperties['cover_big'], 0, 2) == 's:') {
+							$rImages[] = $rProperties['cover_big'];
+						}
+						if (!empty($rProperties['backdrop_path'][0]) && substr($rProperties['backdrop_path'][0], 0, 2) == 's:') {
+							$rImages[] = $rProperties['backdrop_path'][0];
+						}
+					}
+				} catch (\Exception $e) {
+					echo 'Error: ' . $e . "\n";
+				}
+			}
+		}
+		$db->query('SELECT COUNT(*) AS `count` FROM `streams_series`;');
+		$rCount = $db->get_row()['count'];
+		if ($rCount > 0) {
+			$rSteps = range(0, $rCount, 1000);
+			if ($rSteps === []) {
+				$rSteps = [0];
+			}
+			foreach ($rSteps as $rStep) {
+				try {
+					$db->query('SELECT `cover`, `cover_big` FROM `streams_series` LIMIT ' . $rStep . ', 1000;');
+					$rResults = $db->get_rows();
+					foreach ($rResults as $rResult) {
+						if (!empty($rResult['cover']) && substr($rResult['cover'], 0, 2) == 's:') {
+							$rImages[] = $rResult['cover'];
+						}
+						if (!empty($rResult['cover_big']) && substr($rResult['cover_big'], 0, 2) == 's:') {
+							$rImages[] = $rResult['cover_big'];
+						}
+					}
+				} catch (\Exception $e) {
+					echo 'Error: ' . $e . "\n";
+				}
+			}
+		}
+		$this->restoreImageReferences($rImages);
+	}
+
+	/** @param list<string> $rImages */
+	private function restoreImageReferences(array $rImages): void {
+		$rImages = array_unique($rImages);
+		foreach ($rImages as $rImage) {
+			$rSplit = explode(':', $rImage, 3);
+			if (intval($rSplit[1]) == SERVER_ID) {
+				$rImageSplit = explode('/', $rSplit[2]);
+				$rPathInfo = pathinfo($rImageSplit[count($rImageSplit) - 1]);
+				$rImage = $rPathInfo['filename'];
+				// Hashed filenames (long URLs) are not reversible — skip them.
+				if (strncmp($rImage, 'h_', 2) === 0) {
+					continue;
+				}
+				$rOriginalURL = Encryption::decrypt($rImage, SettingsManager::get('live_streaming_pass'), OPENSSL_EXTRA);
+				if (!empty($rOriginalURL) && substr($rOriginalURL, 0, 4) == 'http') {
+					if (!file_exists(IMAGES_PATH . $rPathInfo['basename'])) {
+						echo 'Downloading: ' . $rOriginalURL . "\n";
+						ImageUtils::downloadImage($rOriginalURL);
+					}
+				}
+			}
+		}
+	}
+
+	private function processDuplicates(): void {
+		$db = self::db();
+		$rGroups = $rStreamIDs = [];
+		$db->query('SELECT `a`.`id`, `a`.`stream_source` FROM `streams` `a` INNER JOIN (SELECT  `stream_source`, COUNT(*) `totalCount` FROM `streams` WHERE `type` IN (2,5) GROUP BY `stream_source`) `b` ON `a`.`stream_source` = `b`.`stream_source` WHERE `b`.`totalCount` > 1;');
+		foreach ($db->get_rows() as $rRow) {
+			$rGroups[md5($rRow['stream_source'])][] = $rRow['id'];
+		}
+		foreach ($rGroups as $rGroupIDs) {
+			array_shift($rGroupIDs);
+			foreach ($rGroupIDs as $rStreamID) {
+				$rStreamIDs[] = intval($rStreamID);
+			}
+		}
+		if (count($rStreamIDs) > 0) {
+			foreach (array_chunk($rStreamIDs, 100) as $rChunk) {
+				$this->deleteStreams($rChunk);
+			}
+		}
+	}
+
+	private function processBouquets(): void {
+		$db = self::db();
+		// Every delete starts a scan, and each holds every bouquet in turn: one scan runs and one waits for it
+		// (five minutes, then it goes on, as a writer does in BouquetService::lock()). A scan that finds one
+		// waiting leaves it the work: that one starts later than this one was asked for.
+		if ($db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.bouquet_scan_next'), 0);") && (string) $db->get_col() === '0') {
+			return;
+		}
+		$db->query("SELECT GET_LOCK(CONCAT(DATABASE(), '.bouquet_scan'), 300);");
+		$db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.bouquet_scan_next'));");
+		try {
+			$rColumns = ['bouquet_channels', 'bouquet_movies', 'bouquet_radios', 'bouquet_series'];
+			$db->query('SELECT `id` FROM `bouquets` ORDER BY `bouquet_order` ASC;');
+			foreach (($db->get_rows() ?: []) as $rRow) {
+				// The lists are read and written back whole: the bouquet is held from the read to the write (BouquetService::lock()).
+				BouquetService::lock(intval($rRow['id']));
+				try {
+					$rBouquet = BouquetService::getById(intval($rRow['id']));
+					if (!$rBouquet) {
+						continue;
+					}
+					$rLists = [];
+					foreach ($rColumns as $rColumn) {
+						$rLists[$rColumn] = [];
+						$rIDs = json_decode((string) $rBouquet[$rColumn], true);
+						foreach ((is_array($rIDs) ? $rIDs : []) as $rID) {
+							if (0 < intval($rID)) {
+								$rLists[$rColumn][] = intval($rID);
+							}
+						}
+					}
+					// What exists is asked with the bouquet held: an item made since the scan began is in its list by now, and stays.
+					// ponytail: so the bouquet is held as long as the lookup takes, eight of lock()'s ten seconds at a million ids. Ask before taking it and re-ask only the ids that came since, if a bouquet ever grows near that.
+					$rExisting = [];
+					foreach (['streams' => array_merge($rLists['bouquet_channels'], $rLists['bouquet_movies'], $rLists['bouquet_radios']), 'streams_series' => $rLists['bouquet_series']] as $rTable => $rIDs) {
+						$rExisting[$rTable] = [];
+						if (0 < count($rIDs)) {
+							if (!$db->query('SELECT `id` FROM `' . $rTable . '` WHERE `id` IN (' . implode(',', $rIDs) . ');')) {
+								// What exists is not known: the bouquet stays as it is.
+								continue 2;
+							}
+							foreach (($db->get_rows() ?: []) as $rFound) {
+								$rExisting[$rTable][intval($rFound['id'])] = true;
+							}
+						}
+					}
+					$UpdateData = [];
+					foreach ($rColumns as $rColumn) {
+						$rExist = $rExisting[$rColumn == 'bouquet_series' ? 'streams_series' : 'streams'];
+						$UpdateData[] = json_encode(array_values(array_filter($rLists[$rColumn], static fn(int $rID): bool => isset($rExist[$rID]))));
+					}
+					// Written only when a list changes.
+					if ($UpdateData !== [$rBouquet['bouquet_channels'], $rBouquet['bouquet_movies'], $rBouquet['bouquet_radios'], $rBouquet['bouquet_series']]) {
+						$db->query('UPDATE `bouquets` SET `bouquet_channels` = ?, `bouquet_movies` = ?, `bouquet_radios` = ?, `bouquet_series` = ? WHERE `id` = ?;', $UpdateData[0], $UpdateData[1], $UpdateData[2], $UpdateData[3], $rBouquet['id']);
+					}
+				} finally {
+					BouquetService::unlock(intval($rRow['id']));
+				}
+			}
+		} finally {
+			$db->query("SELECT RELEASE_LOCK(CONCAT(DATABASE(), '.bouquet_scan'));");
+		}
+	}
+
+	private function deleteStreams($rIDs): bool {
+		$db = self::db();
+		$db->query('DELETE FROM `lines_logs` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `mag_claims` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams` WHERE `id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_episodes` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_errors` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_logs` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_options` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_stats` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `watch_refresh` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		EventDispatcher::dispatch(new StreamsDeletedEvent($rIDs));
+		$db->query('DELETE FROM `lines_live` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `recordings` WHERE `created_id` IN (' . implode(',', $rIDs) . ') OR `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('UPDATE `lines_activity` SET `stream_id` = 0 WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('SELECT `server_id` FROM `streams_servers` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_servers` WHERE `stream_id` IN (' . implode(',', $rIDs) . ');');
+		$db->query('DELETE FROM `streams_servers` WHERE `parent_id` IS NOT NULL AND `parent_id` > 0 AND `parent_id` NOT IN (SELECT `id` FROM `servers` WHERE `server_type` = 0);');
+		SignalDispatcher::cache(intval(SERVER_ID), ['type' => 'update_streams', 'id' => $rIDs], false, false, $db);
+		foreach (array_keys(ServerRepository::getAll()) as $rServerID) {
+			SignalDispatcher::cache(intval($rServerID), ['type' => 'delete_vods', 'id' => $rIDs], false, false, $db);
+		}
+		return true;
+	}
+}

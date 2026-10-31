@@ -1,0 +1,7 @@
+{
+  "repository": "mena50056/xcvm-independent",
+  "private": true,
+  "supported_platform": "ubuntu-22.04-amd64",
+  "release": "v0.1.0-lab.1",
+  "experimental": true
+}

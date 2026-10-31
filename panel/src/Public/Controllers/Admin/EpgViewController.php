@@ -1,0 +1,88 @@
+<?php
+
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Http\RequestManager;
+
+/**
+ * Контроллер просмотра TV Guide (admin/epg_view.php)
+ *
+ * @renders Views/admin/epg_view.php
+ *
+ * @package XC_VM_Public_Controllers_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class EpgViewController extends BaseAdminController {
+	public function index() {
+		global $db, $rMobile;
+
+		$this->requirePermission();
+
+		if ($rMobile) {
+			header('Location: dashboard');
+			exit;
+		}
+
+		$rPageInt = max(intval(RequestManager::get('page')), 1);
+		$rLimit = max(intval(RequestManager::get('entries')), SettingsManager::get('default_entries'));
+		$rStart = ($rPageInt - 1) * $rLimit;
+		$rWhere = $rWhereV = [];
+		$rWhere[] = '`type` = 1 AND `epg_id` IS NOT NULL AND `channel_id` IS NOT NULL';
+
+		if (RequestManager::has('category') && intval(RequestManager::get('category')) > 0) {
+			$rWhere[] = "JSON_CONTAINS(`category_id`, ?, '\$')";
+			$rWhereV[] = json_encode(intval(RequestManager::get('category')));
+		}
+
+		if (!empty(RequestManager::get('search'))) {
+			$rWhere[] = '(`stream_display_name` LIKE ? OR `id` LIKE ?)';
+			$rWhereV[] = '%' . RequestManager::get('search') . '%';
+			$rWhereV[] = RequestManager::get('search');
+		}
+
+		$rWhereString = (count($rWhere) > 0) ? 'WHERE ' . implode(' AND ', $rWhere) : '';
+
+		$rOrderBy = '`stream_display_name` ASC';
+		$rOrder = ['name' => '`stream_display_name` ASC', 'added' => '`added` DESC'];
+		if (!empty(RequestManager::get('sort')) && isset($rOrder[RequestManager::get('sort')])) {
+			$rOrderBy = $rOrder[RequestManager::get('sort')];
+		} else {
+			// Honour the configured "Channel Sorting Type" like the playlists and
+			// the reseller guide do: manual => the `order` column, otherwise the
+			// cached bouquet channel order. Without this the guide fell back to
+			// alphabetical and ignored the manual order entirely.
+			$rChannelOrder = [];
+			if (file_exists(CACHE_TMP_PATH . 'channel_order')) {
+				$rChannelOrder = igbinary_unserialize(file_get_contents(CACHE_TMP_PATH . 'channel_order')) ?: [];
+			}
+			if (SettingsManager::get('channel_number_type') != 'manual' && count($rChannelOrder) > 0) {
+				$rOrderBy = 'FIELD(`id`,' . implode(',', array_map('intval', $rChannelOrder)) . ')';
+			} else {
+				$rOrderBy = '`order` ASC';
+			}
+		}
+
+		$rStreamIDs = [];
+		$db->query('SELECT COUNT(`id`) AS `count` FROM `streams` ' . $rWhereString . ';', ...$rWhereV);
+		$rCount = $db->get_row()['count'];
+		$db->query('SELECT `id` FROM `streams` ' . $rWhereString . ' ORDER BY ' . $rOrderBy . ' LIMIT ' . $rStart . ', ' . $rLimit . ';', ...$rWhereV);
+
+		foreach ($db->get_rows() as $rRow) {
+			$rStreamIDs[] = $rRow['id'];
+		}
+		$rPages = ceil($rCount / $rLimit);
+		$rPagination = [];
+
+		foreach (range(max($rPageInt - 2, 1), min($rPageInt + 2, $rPages)) as $i) {
+			$rPagination[] = $i;
+		}
+
+		$this->setTitle('TV Guide');
+		$this->render('epg_view', ['rPageInt' => $rPageInt, 'rLimit' => $rLimit, 'rStart' => $rStart, 'rStreamIDs' => $rStreamIDs, 'rCount' => $rCount, 'rPages' => $rPages, 'rPagination' => $rPagination, 'rWhereString' => $rWhereString, 'rOrderBy' => $rOrderBy]);
+	}
+}

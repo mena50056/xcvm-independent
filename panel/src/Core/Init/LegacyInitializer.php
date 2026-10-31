@@ -1,0 +1,260 @@
+<?php
+
+namespace XcVm\Core\Init;
+
+use XcVm\Core\Cache\FileCache;
+use XcVm\Core\Cluster\ReplicaApply;
+use XcVm\Core\Cluster\ReplicaBoot;
+use XcVm\Core\Config\ConfigReader;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Config\SettingsRepository;
+use XcVm\Core\Container\ServiceContainer;
+use XcVm\Core\Http\Request;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Validation\InputValidator;
+use XcVm\Domain\Bouquet\BouquetService;
+use XcVm\Domain\Server\ServerRepository;
+use XcVm\Domain\Stream\CategoryService;
+use XcVm\Infrastructure\Cache\CacheReader;
+use XcVm\Infrastructure\Database\DatabaseFactory;
+use XcVm\Streaming\Codec\FfmpegPaths;
+
+/**
+ * LegacyInitializer — legacy initializer
+ *
+ * @package XC_VM_Core_Init
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class LegacyInitializer {
+	/**
+	 * Bootstrap the admin/core request context.
+	 *
+	 * Sanitizes superglobals, builds the request, defines SERVER_ID, loads
+	 * settings/servers (optionally from cache), resolves ffmpeg paths,
+	 * regenerates cron and exports globals/container bindings.
+	 *
+	 * @param bool $rUseCache Load settings from cache instead of the database.
+	 * @return void
+	 */
+	public static function initCore(bool $rUseCache = false) {
+		if (!empty($_GET)) {
+			InputValidator::cleanGlobals($_GET);
+		}
+		if (!empty($_POST)) {
+			InputValidator::cleanGlobals($_POST);
+		}
+		if (!empty($_SESSION)) {
+			InputValidator::cleanGlobals($_SESSION);
+		}
+		if (!empty($_COOKIE)) {
+			InputValidator::cleanGlobals($_COOKIE);
+		}
+
+		$rInput = @InputValidator::parseIncomingRecursively($_GET, []);
+		RequestManager::set(@InputValidator::parseIncomingRecursively($_POST, $rInput));
+
+		if (!defined("SERVER_ID")) {
+			define("SERVER_ID", intval(ConfigReader::get("server_id")));
+		}
+
+		if ($rUseCache) {
+			SettingsManager::set(FileCache::getCache("settings") ?: []);
+		} else {
+			SettingsManager::set(SettingsRepository::getAll());
+		}
+
+		if (!empty(SettingsManager::get("default_timezone"))) {
+			date_default_timezone_set(SettingsManager::get("default_timezone"));
+		}
+
+		if (SettingsManager::get("on_demand_wait_time") == 0) {
+			SettingsManager::update("on_demand_wait_time", 15);
+		}
+
+		// A string: a node that boots from its replica before an apply built
+		// the settings has none yet (cluster:apply at boot).
+		FfmpegPaths::resolve(
+			(string) SettingsManager::get("ffmpeg_cpu"),
+			SettingsManager::get("ffmpeg_gpu"),
+		);
+
+		if (!$rUseCache) {
+			ServerRepository::getAll();
+			self::generateCron();
+		}
+
+		self::exportGlobals();
+		self::syncCoreContainer();
+	}
+
+	/**
+	 * Regenerate the xc_vm user crontab from the `crontab` table, or on a node
+	 * whose replica owns it from the replica's crontab section
+	 * (ReplicaApply::crontabText; null leaves the crontab as it is). A process
+	 * booted from the replica (ReplicaBoot) never reads the table, but in
+	 * mode 1 (ReplicaBoot::hybrid): there the replica's jobs come first, and
+	 * the table is read on the lazy handle's first use, counted, only while
+	 * the replica does not own them.
+	 *
+	 * Runs once per boot (guarded by a marker file in TMP_PATH).
+	 *
+	 * @return bool True if the crontab was regenerated, false if skipped.
+	 */
+	private static function generateCron() {
+		global $db;
+		if (file_exists(TMP_PATH . "crontab")) {
+			return false;
+		}
+
+		$rCrontab = ReplicaApply::crontabText(ReplicaBoot::active() && !ReplicaBoot::hybrid() ? null : $db);
+		if ($rCrontab === null) {
+			return false;
+		}
+
+		// `crontab -u xc_vm <file>` replaces that crontab whole. No `crontab -r`
+		// first: it removes the crontab of whoever boots, root's included.
+		$rTempName = tempnam("/tmp", "crontab");
+		$rHandle = fopen($rTempName, "w");
+		fwrite($rHandle, $rCrontab . "\n");
+		fclose($rHandle);
+		shell_exec("crontab -u xc_vm " . $rTempName);
+		@unlink($rTempName);
+		@file_put_contents(TMP_PATH . "crontab", "1", LOCK_EX);
+		return true;
+	}
+
+	/**
+	 * Bootstrap the streaming request context.
+	 *
+	 * Sanitizes superglobals, builds the request, loads cached settings/servers
+	 * and blocklists, resolves ffmpeg paths, connects the database and syncs the
+	 * streaming container bindings.
+	 *
+	 * On a node that boots from its replica (ReplicaBoot::now: mode 1 with the
+	 * CONFIG flow on, or mode 2, once an apply built the caches) the database
+	 * handle is lazy: a request that needs no query opens nothing, and one
+	 * that does connects at its first query, counted by ConnectAudit at that
+	 * query's site (mode 1) or refused there (mode 2). Its settings and
+	 * servers are the caches here in every mode.
+	 *
+	 * @return void
+	 */
+	public static function initStreaming() {
+		if (!empty($_GET)) {
+			Request::cleanGlobals($_GET);
+		}
+		if (!empty($_POST)) {
+			Request::cleanGlobals($_POST);
+		}
+		if (!empty($_SESSION)) {
+			Request::cleanGlobals($_SESSION);
+		}
+		if (!empty($_COOKIE)) {
+			Request::cleanGlobals($_COOKIE);
+		}
+
+		$rInput = @Request::parseIncomingRecursively($_GET, []);
+		$GLOBALS["rRequest"] = @Request::parseIncomingRecursively($_POST, $rInput);
+
+		if (!defined("SERVER_ID")) {
+			define("SERVER_ID", intval(ConfigReader::get("server_id")));
+		}
+
+		if (!$GLOBALS["rSettings"]) {
+			$GLOBALS["rSettings"] = CacheReader::get("settings");
+		}
+
+		if (!empty($GLOBALS["rSettings"]["default_timezone"])) {
+			date_default_timezone_set($GLOBALS["rSettings"]["default_timezone"]);
+		}
+
+		if ($GLOBALS["rSettings"]["on_demand_wait_time"] == 0) {
+			$GLOBALS["rSettings"]["on_demand_wait_time"] = 15;
+		}
+
+		FfmpegPaths::resolve(
+			$GLOBALS["rSettings"]["ffmpeg_cpu"],
+			$GLOBALS["rSettings"]["ffmpeg_gpu"] ?? null,
+		);
+
+		$GLOBALS["rCached"] = CacheReader::isReady($GLOBALS["rSettings"]);
+		$GLOBALS["rServers"] = CacheReader::get("servers") ?: [];
+		$GLOBALS["rBlockedUA"] = CacheReader::get("blocked_ua") ?: [];
+		$GLOBALS["rBlockedISP"] = CacheReader::get("blocked_isp") ?: [];
+		$GLOBALS["rBlockedIPs"] = CacheReader::get("blocked_ips") ?: [];
+		$GLOBALS["rBlockedServers"] = CacheReader::get("blocked_servers") ?: [];
+		$GLOBALS["rAllowedIPs"] = CacheReader::get("allowed_ips") ?: [];
+		$GLOBALS["rProxies"] = CacheReader::get("proxy_servers") ?: [];
+		// Not the bouquets: every bouquet's stream list is megabytes to decode,
+		// and only the scripts that sign a viewer in (auth, probe, rtmp) read
+		// them. They load the map themselves; a segment or a key request, the
+		// bulk of the traffic, paid for it on every hit.
+		$GLOBALS["rSegmentSettings"] = [
+			"seg_time" => intval($GLOBALS["rSettings"]["seg_time"]),
+			"seg_list_size" => intval($GLOBALS["rSettings"]["seg_list_size"]),
+		];
+		if (ReplicaBoot::now()) {
+			DatabaseFactory::connectLazy();
+		} else {
+			DatabaseFactory::connect();
+		}
+
+		// Синхронизация singleton-менеджеров для классов, мигрированных с CU
+		SettingsManager::set($GLOBALS["rSettings"]);
+		RequestManager::set($GLOBALS["rRequest"]);
+
+		// FFmpeg paths — export to globals (streaming context)
+		$GLOBALS["rFFPROBE"] = FfmpegPaths::probe();
+		$GLOBALS["rFFMPEG_CPU"] = FfmpegPaths::cpu();
+		$GLOBALS["rFFMPEG_GPU"] = FfmpegPaths::gpu();
+
+		self::syncStreamingContainer();
+	}
+
+	/**
+	 * Export the singleton managers to legacy superglobals.
+	 */
+	public static function exportGlobals(): void {
+		$GLOBALS["rSettings"] = SettingsManager::getAll();
+		$GLOBALS["rRequest"] = RequestManager::getAll();
+		$GLOBALS["rServers"] = ServerRepository::getAll();
+		$GLOBALS["rFFPROBE"] = FfmpegPaths::probe();
+		$GLOBALS["rFFMPEG_CPU"] = FfmpegPaths::cpu();
+		$GLOBALS["rFFMPEG_GPU"] = FfmpegPaths::gpu();
+	}
+
+	/**
+	 * Populate the DI container with core-context services. A process booted
+	 * from the node replica (ReplicaBoot) takes the bouquets and categories
+	 * caches as they are: no section carries them yet.
+	 *
+	 * @return void
+	 */
+	private static function syncCoreContainer() {
+		$rContainer = ServiceContainer::getInstance();
+		$rReplica = ReplicaBoot::active();
+		$rContainer->set("core.request", RequestManager::getAll());
+		$rContainer->set("core.config", ConfigReader::getAll());
+		$rContainer->set("core.settings", SettingsManager::getAll());
+		$rContainer->set("core.servers", ServerRepository::getAll());
+		$rContainer->set("core.bouquets", $rReplica ? ReplicaBoot::cached("bouquets") : BouquetService::getAll());
+		$rContainer->set("core.categories", $rReplica ? ReplicaBoot::cached("categories") : CategoryService::getFromDatabase());
+	}
+
+	/**
+	 * Populate the DI container with streaming-context services.
+	 *
+	 * @return void
+	 */
+	private static function syncStreamingContainer() {
+		$rContainer = ServiceContainer::getInstance();
+		$rContainer->set("streaming.request", $GLOBALS["rRequest"]);
+		$rContainer->set("streaming.config", ConfigReader::getAll());
+		$rContainer->set("streaming.settings", $GLOBALS["rSettings"]);
+		$rContainer->set("streaming.servers", $GLOBALS["rServers"]);
+	}
+}

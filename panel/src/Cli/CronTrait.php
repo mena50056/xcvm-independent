@@ -1,0 +1,96 @@
+<?php
+
+namespace XcVm\Cli;
+
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Process\ProcessManager;
+
+/**
+ * Общий функционал для cron-задач.
+ *
+ * Выносит повторяющийся boilerplate: проверка пользователя, cron lock,
+ * shutdown handler (закрытие БД + удаление lock-файла).
+ *
+ * @package XC_VM_CLI
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+trait CronTrait {
+	/** @var string|null Путь к lock-файлу */
+	protected $rIdentifier;
+
+	/**
+	 * Проверить что процесс запущен от пользователя xc_vm.
+	 */
+	protected function assertRunAsXcVm(): bool {
+		if ((posix_getpwuid(posix_geteuid())['name'] ?? null) !== (defined('XCVM_INDEPENDENT_LAB') ? 'xcvm_lab' : 'xc_vm')) {
+			echo "Please run as XC_VM!\n";
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Проверить что процесс запущен от root.
+	 */
+	protected function assertRunAsRoot(): bool {
+		if ((posix_getpwuid(posix_geteuid())['name'] ?? null) !== 'root') {
+			echo "Please run as root!\n";
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Установить заголовок процесса + time limit.
+	 */
+	protected function setProcessTitle(string $rTitle): void {
+		set_time_limit(0);
+		cli_set_process_title($rTitle);
+	}
+
+	/**
+	 * Получить cron lock (уникальный файл в CRONS_TMP_PATH).
+	 * Если lock уже занят — выходит с кодом 0.
+	 */
+	protected function acquireCronLock(int $rLimit = 0): void {
+		ProcessManager::exitIfCronLockHeld(ProcessManager::legacyCronLockPath(static::class, SettingsManager::get('live_streaming_pass')));
+		// The lock is this run's to remove (registerShutdown) only once it has
+		// it: a run turned away here exits and leaves the holder's lock alone.
+		$rIdentifier = ProcessManager::cronLockPath(static::class);
+		ProcessManager::acquireCronLock($rIdentifier, $rLimit);
+		$this->rIdentifier = $rIdentifier;
+	}
+
+	/**
+	 * Зарегистрировать shutdown handler: закрытие БД + удаление lock.
+	 */
+	protected function registerShutdown(): void {
+		$rIdentifier = &$this->rIdentifier;
+		register_shutdown_function(static function () use (&$rIdentifier) {
+			global $db;
+			if (isset($db) && is_object($db)) {
+				$db->close_mysql();
+			}
+			if (!empty($rIdentifier) && file_exists($rIdentifier)) {
+				@unlink($rIdentifier);
+			}
+		});
+	}
+
+	/**
+	 * Стандартная инициализация cron-задачи.
+	 *
+	 * @param string $rTitle Заголовок процесса (например 'XC_VM[Activity]')
+	 * @param int $rLimit Seconds after which a run still holding the lock is
+	 *                    ended by the next run, which takes its place; 0: never.
+	 */
+	protected function initCron(string $rTitle, int $rLimit = 0): void {
+		$this->registerShutdown();
+		$this->setProcessTitle($rTitle);
+		$this->acquireCronLock($rLimit);
+	}
+}

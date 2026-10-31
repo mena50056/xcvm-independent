@@ -1,0 +1,183 @@
+#!/usr/bin/python3
+import os, sys, hashlib, time
+
+rBaseDir = os.path.dirname(os.path.realpath(__file__)) + "/"
+rPHPDir = rBaseDir + "bin/php/bin/php"
+rConsole = rBaseDir + "console.php"
+LOG_FILE = rBaseDir + "update.log"
+
+# Paths excluded during update (binaries, user data, per-server config).
+# These are removed from the temp copy before overwriting the live installation.
+#
+# NOTE on bin/nginx: the whole directory used to be excluded, which also froze
+# the canonical bin/nginx/conf/nginx.conf — so structural changes shipped in a
+# release (e.g. the /xc_fanout/ internal locations added in 2.4.0) never reached
+# updated servers and broke live delivery. nginx.conf is fully generic: every
+# server-specific setting lives in an `include` (ports/, codes/, ssl.conf,
+# custom.conf, balance.conf, realip_*, limit*). So we now update nginx.conf and
+# the other canonical statics (mime.types, fastcgi_params, …) while STILL
+# preserving the nginx binary and every per-server include below.
+UPDATE_EXCLUDE_DIRS = [
+    "bin/ffmpeg_bin",
+    "bin/nginx_rtmp",
+    "bin/php",
+    "bin/bin_version.json",               # the installed runtime bundle's release (update_binaries.sh writes it)
+    "bin/redis",
+    # Not bin/install: it ships the installers a load balancer install sends
+    # (install_xcvm_core.sh, update_binaries.sh), and MAIN's own files there
+    # (<id>.json, <id>.install, proxy.tar.gz) are not in the archive, so the
+    # copy below leaves them.
+    "bin/maxmind",
+    "bin/certbot",
+    "content",
+    "backups",
+    "tmp",
+    "config",
+    "signals",
+    # nginx: keep the binary + per-server config, refresh the canonical statics.
+    "bin/nginx/sbin",                     # compiled nginx binary (never shipped in the app archive)
+    "bin/nginx/modules",
+    "bin/nginx/logs",
+    "bin/nginx/conf/ports",               # per-server listen ports
+    "bin/nginx/conf/servers",             # per-server upstream/proxy configs
+    "bin/nginx/conf/codes",               # per-server admin access codes
+    "bin/nginx/conf/ssl.conf",            # per-server SSL (Certbot / status)
+    "bin/nginx/conf/server.crt",          # per-server certificate
+    "bin/nginx/conf/server.key",          # per-server key
+    "bin/nginx/conf/custom.conf",         # operator custom config
+    "bin/nginx/conf/balance.conf",        # LB upstream (startup)
+    "bin/nginx/conf/limit.conf",          # tuned per node (empty on LBs)
+    "bin/nginx/conf/limit_queue.conf",
+    "bin/nginx/conf/realip_cdn.conf",     # CDN / real-ip, adjusted per deployment
+    "bin/nginx/conf/realip_cloudflare.conf",
+    "bin/nginx/conf/realip_xc_vm.conf",
+    "bin/nginx/conf/gzip.conf",
+]
+
+
+def log_msg(level, message):
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = "[%s] [%s] %s" % (timestamp, level, message)
+    print(line, flush=True)
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def md5(rFilename):
+    rMD5 = hashlib.md5()
+    with open(rFilename, "rb") as rFile:
+        for rChunk in iter(lambda: rFile.read(4096), b""):
+            rMD5.update(rChunk)
+    return rMD5.hexdigest()
+
+
+def doUpdate(rFilename):
+    import tempfile
+
+    rTmpDir = tempfile.mkdtemp(prefix="xc_vm_update_")
+    # mkdtemp makes the dir 0700; the copy below is `cp -a <tmp>/. <base>`,
+    # which stamps this dir's OWN mode onto the install root. A full archive
+    # carries a 0755 `./` entry that resets it, but a delta that lacks one
+    # would leave 0700 and lock the xc_vm user out of root:xc_vm-owned
+    # /home/xc_vm on MAIN. Force 0755 so the staging mode can never leak.
+    os.chmod(rTmpDir, 0o755)
+    log_msg("INFO", "Temporary directory created: %s" % rTmpDir)
+    rCopying = False
+
+    try:
+        log_msg("INFO", "Stopping xc_vm service...")
+        os.system("sudo systemctl stop xc_vm")
+
+        log_msg("INFO", "Extracting archive...")
+        if os.system('sudo tar -zxf "%s" -C "%s"' % (rFilename, rTmpDir)) != 0:
+            raise RuntimeError("extracting the archive failed (disk full?); nothing was changed")
+
+        log_msg("INFO", "Removing excluded directories from temp copy...")
+        for rExclude in UPDATE_EXCLUDE_DIRS:
+            rPath = os.path.join(rTmpDir, rExclude)
+            if os.path.exists(rPath):
+                os.system('sudo rm -rf "%s"' % rPath)
+
+        # Protect update.log from being overwritten by archive contents
+        rUpdateLog = os.path.join(rTmpDir, "update.log")
+        if os.path.exists(rUpdateLog):
+            os.remove(rUpdateLog)
+
+        # Back up the live nginx.conf before overwriting it (it is no longer
+        # excluded). If the release's nginx.conf fails validation below we
+        # restore this copy, so a bad config can never take the node offline.
+        rNginxConf = rBaseDir + "bin/nginx/conf/nginx.conf"
+        rNginxBak = rNginxConf + ".preupdate"
+        if os.path.exists(rNginxConf):
+            os.system('sudo cp -a "%s" "%s"' % (rNginxConf, rNginxBak))
+
+        # A failed copy still copied what it could and gave the directories the
+        # archive's owner: the ownership and the nginx.conf check below run
+        # either way, so the service can start on what is there.
+        log_msg("INFO", "Copying files to live installation...")
+        rCopying = True
+        rCopied = os.system('sudo cp -a "%s/." "%s"' % (rTmpDir, rBaseDir)) == 0
+
+        log_msg("INFO", "Fixing file permissions...")
+        os.system('sudo chown -R xc_vm:xc_vm "%s"' % rBaseDir)
+
+        # Validate the (possibly refreshed) nginx.conf before the restart. On
+        # failure roll it back to the pre-update copy so nginx still starts.
+        rNginxBin = rBaseDir + "bin/nginx/sbin/nginx"
+        if os.path.exists(rNginxBak) and os.path.exists(rNginxBin):
+            if os.system('sudo -u xc_vm "%s" -t' % rNginxBin) != 0:
+                log_msg("ERROR", "Updated nginx.conf failed 'nginx -t' — restoring previous nginx.conf")
+                os.system('sudo cp -a "%s" "%s"' % (rNginxBak, rNginxConf))
+                os.system('sudo chown xc_vm:xc_vm "%s"' % rNginxConf)
+        if os.path.exists(rNginxBak):
+            os.system('sudo rm -f "%s"' % rNginxBak)
+
+        if not rCopied:
+            raise RuntimeError("copying the files failed: the installation is partly updated")
+
+        log_msg("INFO", "Running post-update...")
+        os.system('sudo %s %s update "post-update"' % (rPHPDir, rConsole))
+
+        log_msg("INFO", "Starting xc_vm service...")
+        os.system("sudo systemctl start xc_vm")
+
+        log_msg("INFO", "System update completed successfully")
+    except Exception as e:
+        log_msg("ERROR", "Update failed: %s" % str(e))
+        if not rCopying:
+            # Nothing was copied: post-update on the unchanged installation puts
+            # the server back online (it was set to updating) at its release.
+            # Without the archive, which post-update would take installers from.
+            if os.path.exists(rFilename):
+                os.remove(rFilename)
+            os.system('sudo %s %s update "post-update"' % (rPHPDir, rConsole))
+        # A partly copied one stays "updating" in the panel, which is what it is.
+        log_msg("INFO", "Starting xc_vm service...")
+        os.system("sudo systemctl start xc_vm")
+    finally:
+        log_msg("INFO", "Cleaning up temporary files...")
+        os.system('sudo rm -rf "%s"' % rTmpDir)
+        if os.path.exists(rFilename):
+            os.remove(rFilename)
+
+    return True
+
+
+if __name__ == "__main__":
+    try:
+        rFilename = sys.argv[1]
+        rMD5 = sys.argv[2]
+    except:
+        print("Please run the update from the XC_VM Admin Interface.")
+        sys.exit(1)
+
+    log_msg("INFO", "Verifying archive MD5...")
+    if md5(rFilename) == rMD5:
+        log_msg("INFO", "MD5 verified OK")
+        doUpdate(rFilename)
+    else:
+        log_msg("ERROR", "CRC ERROR — archive MD5 mismatch")
+    sys.exit(1)

@@ -1,0 +1,116 @@
+<?php
+
+namespace XcVm\Core\Config;
+
+use XcVm\Core\Cluster\SettingsAudit;
+
+/**
+ * SettingsManager — singleton-хранилище настроек приложения.
+ *
+ * Entry points вызывают set(), потребители — getAll() или get().
+ *
+ * On a cluster node in mode 1 or 2, a read through the getters of a key the
+ * node replica does not carry is counted (SettingsAudit).
+ *
+ * @package XC_VM_Core_Config
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class SettingsManager {
+	/** @var array */
+	private static $settings = [];
+
+	/**
+	 * Сохраняет весь массив настроек.
+	 */
+	public static function set(array $settings): void {
+		self::$settings = $settings;
+	}
+
+	/**
+	 * Возвращает весь массив настроек.
+	 */
+	public static function getAll(): array {
+		return self::$settings;
+	}
+
+	/**
+	 * Возвращает значение по ключу.
+	 *
+	 * @return mixed
+	 */
+	public static function get(string $key, mixed $default = null) {
+		SettingsAudit::read($key);
+		return self::$settings[$key] ?? $default;
+	}
+
+	/**
+	 * Обновляет отдельный ключ настроек.
+	 */
+	public static function update(string $key, $value): void {
+		self::$settings[$key] = $value;
+	}
+
+	/**
+	 * Проверяет наличие ключа в настройках.
+	 */
+	public static function has(string $key): bool {
+		SettingsAudit::read($key);
+		return array_key_exists($key, self::$settings);
+	}
+
+	/**
+	 * Возвращает значение как bool.
+	 *
+	 * Повторяет PHP-truthiness существующих проверок `if (getAll()['key'])`:
+	 * '0' и '' → false, '1' и любое непустое значение → true.
+	 *
+	 * @param bool   $default Значение, если ключ отсутствует.
+	 */
+	public static function getBool(string $key, bool $default = false): bool {
+		SettingsAudit::read($key);
+		return array_key_exists($key, self::$settings) ? (bool) self::$settings[$key] : $default;
+	}
+
+	/**
+	 * Возвращает значение как int.
+	 */
+	public static function getInt(string $key, int $default = 0): int {
+		SettingsAudit::read($key);
+		return array_key_exists($key, self::$settings) ? (int) self::$settings[$key] : $default;
+	}
+
+	/**
+	 * Возвращает значение как строку.
+	 */
+	public static function getString(string $key, string $default = ''): string {
+		SettingsAudit::read($key);
+		return array_key_exists($key, self::$settings) ? (string) self::$settings[$key] : $default;
+	}
+
+	/**
+	 * Возвращает значение как массив.
+	 *
+	 * JSON-поля декодируются в массивы ещё в SettingsRepository, поэтому здесь
+	 * достаточно проверить тип; для скаляров/null возвращается $default.
+	 */
+	public static function getArray(string $key, array $default = []): array {
+		SettingsAudit::read($key);
+		$rValue = self::$settings[$key] ?? null;
+		return is_array($rValue) ? $rValue : $default;
+	}
+
+	/**
+	 * Delete the cached settings file so the next read reloads from source.
+	 *
+	 * @return void
+	 */
+	public static function clearCache() {
+		if (file_exists(CACHE_TMP_PATH . 'settings')) {
+			unlink(CACHE_TMP_PATH . 'settings');
+		}
+	}
+}

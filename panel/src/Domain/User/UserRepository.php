@@ -1,0 +1,680 @@
+<?php
+
+namespace XcVm\Domain\User;
+
+use XcVm\Core\Auth\Authenticator;
+use XcVm\Core\Cache\FileCache;
+use XcVm\Core\Util\GeoIP;
+use XcVm\Domain\Bouquet\BouquetService;
+use XcVm\Domain\Security\BlocklistService;
+use XcVm\Domain\Stream\ConnectionTracker;
+use XcVm\Infrastructure\Cache\CacheReader;
+use XcVm\Infrastructure\Database\DatabaseAware;
+use XcVm\Infrastructure\Signal\SignalQueue;
+
+/**
+ * UserRepository — user repository
+ *
+ * @package XC_VM_Domain_User
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class UserRepository {
+	use DatabaseAware;
+
+	/**
+	 * Whether a freshly looked-up ISP should be written back to the line: only
+	 * when an ISP was actually detected ($rConIspName non-empty) and it differs
+	 * from the stored isp_desc while the line is not already flagged in
+	 * violation. Guards the persist step against a GeoIP lookup miss, which
+	 * would otherwise read the undefined isp_asn key and store a null ISP.
+	 *
+	 * @param string|null $rConIspName Detected ISP name (null/'' on a miss).
+	 * @param int         $rIspViolate Current isp_violate flag.
+	 * @param string|null $rIspDesc    ISP currently stored on the line.
+	 */
+	public static function ispChanged(?string $rConIspName, int $rIspViolate, ?string $rIspDesc): bool {
+		return !empty($rConIspName)
+			&& $rIspViolate == 0
+			&& strtolower($rConIspName) != strtolower((string) $rIspDesc);
+	}
+
+	/**
+	 * The name a line's username and password are looked up by in the lines
+	 * cache (`line_c_<key>`): a hash of the two, with the first one's length,
+	 * so no two pairs share a name. It was the pair itself joined by `_`:
+	 * every password stood in a file name (and in the log line of a write
+	 * that failed), `a_b` + `c` named the same file as `a` + `b_c`, and a
+	 * pair with a `/` or a long one had no entry at all.
+	 *
+	 * @param bool $rCaseSensitive The `case_sensitive_line` setting.
+	 */
+	public static function credentialKey(bool $rCaseSensitive, string $rUsername, string $rPassword): string {
+		if (!$rCaseSensitive) {
+			$rUsername = strtolower($rUsername);
+			$rPassword = strtolower($rPassword);
+		}
+		return hash('sha256', strlen($rUsername) . ':' . $rUsername . $rPassword);
+	}
+
+	/** The name the lookup had before credentialKey(): still read until the next cache pass has renamed every line's. */
+	public static function legacyCredentialKey(bool $rCaseSensitive, string $rUsername, string $rPassword): string {
+		return $rCaseSensitive ? $rUsername . '_' . $rPassword : strtolower($rUsername) . '_' . strtolower($rPassword);
+	}
+
+	/**
+	 * Load the raw line row for a streaming request from cache files or the DB,
+	 * resolving credentials (32-char access token, username+password, or id).
+	 * `$rUserID` is resolved in place (by reference) so the caller's cached
+	 * re-verification sees the same value the original inline code did.
+	 *
+	 * @param mixed       $db        Database handler.
+	 * @param bool        $rCached   Whether to read from the file cache.
+	 * @param array       $rSettings Settings (case_sensitive_line).
+	 * @param int|null    $rUserID   Line id; resolved from a token/cache file when absent.
+	 * @param string|null $rUsername Username or access token.
+	 * @param string|null $rPassword Password.
+	 * @return array|false The line row, or false when it cannot be resolved.
+	 */
+	private static function loadUserRow(mixed $db, bool $rCached, array $rSettings, ?int &$rUserID, ?string $rUsername, ?string $rPassword) {
+		if ($rCached) {
+			if (empty($rPassword) && empty($rUserID) && strlen($rUsername) == 32) {
+				$rKey = $rSettings['case_sensitive_line'] ? $rUsername : strtolower($rUsername);
+				$rTokenPath = LINES_TMP_PATH . 'line_t_' . $rKey;
+				$rUserID = file_exists($rTokenPath) ? intval(file_get_contents($rTokenPath)) : 0;
+			} elseif (!empty($rUsername) && !empty($rPassword)) {
+				$rSensitive = !empty($rSettings['case_sensitive_line']);
+				$rCachePath = LINES_TMP_PATH . 'line_c_' . self::credentialKey($rSensitive, $rUsername, $rPassword);
+				if (!file_exists($rCachePath)) {
+					// An entry from before the names were hashed, until the next cache pass renames it.
+					$rCachePath = LINES_TMP_PATH . 'line_c_' . self::legacyCredentialKey($rSensitive, $rUsername, $rPassword);
+				}
+				$rUserID = file_exists($rCachePath) ? intval(file_get_contents($rCachePath)) : 0;
+			}
+
+			if ($rUserID) {
+				$rInfoPath = LINES_TMP_PATH . 'line_i_' . $rUserID;
+				if (file_exists($rInfoPath)) {
+					$cachedData = @igbinary_unserialize(file_get_contents($rInfoPath));
+					if (is_array($cachedData)) {
+						return $cachedData;
+					}
+				}
+			}
+			// Cache miss: fall through to database lookup below
+		}
+
+		if (empty($rPassword) && empty($rUserID) && strlen($rUsername) == 32) {
+			$db->query('SELECT * FROM `lines` WHERE `is_mag` = 0 AND `is_e2` = 0 AND `access_token` = ? AND LENGTH(`access_token`) = 32', $rUsername);
+		} elseif (!empty($rUsername) && !empty($rPassword)) {
+			$db->query('SELECT `lines`.*, `mag_devices`.`token` AS `mag_token` FROM `lines` LEFT JOIN `mag_devices` ON `mag_devices`.`user_id` = `lines`.`id` WHERE `username` = ? AND `password` = ? LIMIT 1', $rUsername, $rPassword);
+		} elseif (!empty($rUserID)) {
+			$db->query('SELECT `lines`.*, `mag_devices`.`token` AS `mag_token` FROM `lines` LEFT JOIN `mag_devices` ON `mag_devices`.`user_id` = `lines`.`id` WHERE `id` = ?', $rUserID);
+		} else {
+			return false;
+		}
+
+		if (0 < $db->num_rows()) {
+			$row = $db->get_row();
+			$rUserID = (int) ($row['id'] ?? 0);
+			if ($rCached && $rUserID > 0) {
+				FileCache::writeAtomic(LINES_TMP_PATH . 'line_i_' . $rUserID, igbinary_serialize($row));
+				if (!empty($row['username']) && !empty($row['password'])) {
+					FileCache::writeAtomic(LINES_TMP_PATH . 'line_c_' . self::credentialKey(!empty($rSettings['case_sensitive_line']), (string) $row['username'], (string) $row['password']), (string) $rUserID);
+				}
+				if (!empty($row['access_token'])) {
+					FileCache::writeAtomic(LINES_TMP_PATH . 'line_t_' . $row['access_token'], (string) $rUserID);
+				}
+			}
+			return $row;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Re-verify cached credentials against the loaded row: the access token must
+	 * match for a 32-char token lookup, or username+password for a credential
+	 * lookup. Any other case (e.g. an id lookup) needs no re-check.
+	 *
+	 * @param array       $rUserInfo Loaded line row.
+	 * @param int|null    $rUserID   Resolved line id.
+	 * @param string|null $rUsername Username or access token.
+	 * @param string|null $rPassword Password.
+	 * @return bool True when the credentials are valid.
+	 */
+	private static function verifyCachedCredentials(array $rUserInfo, ?int $rUserID, ?string $rUsername, ?string $rPassword): bool {
+		if (empty($rPassword) && empty($rUserID) && strlen($rUsername) == 32) {
+			return $rUsername == $rUserInfo['access_token'];
+		}
+		if (!empty($rUsername) && !empty($rPassword)) {
+			return $rUsername == $rUserInfo['username'] && $rPassword == $rUserInfo['password'];
+		}
+		return true;
+	}
+
+	/**
+	 * Decode the JSON line fields (allowed_ips/ua/bouquet/allowed_outputs) into
+	 * arrays and normalise them. Pure.
+	 *
+	 * @param array $rUserInfo Raw line row.
+	 * @return array The row with decoded array fields.
+	 */
+	private static function decodeUserFields(array $rUserInfo): array {
+		$rUserInfo['allowed_ips'] = array_filter(array_map('trim', self::decodeJsonField($rUserInfo, 'allowed_ips')));
+		$rUserInfo['allowed_ua'] = array_filter(array_map('trim', self::decodeJsonField($rUserInfo, 'allowed_ua')));
+		$rUserInfo['bouquet'] = array_map('intval', self::decodeJsonField($rUserInfo, 'bouquet'));
+		$rUserInfo['allowed_outputs'] = array_map('intval', self::decodeJsonField($rUserInfo, 'allowed_outputs'));
+		return $rUserInfo;
+	}
+
+	/**
+	 * Decode one JSON line field to an array, tolerating an already-decoded
+	 * array, a null/missing column or malformed JSON (all → []). Pure.
+	 *
+	 * @param array $rRow Raw line row.
+	 */
+	private static function decodeJsonField(array $rRow, string $rKey): array {
+		$rValue = $rRow[$rKey] ?? null;
+		if (is_array($rValue)) {
+			return $rValue;
+		}
+		$rDecoded = json_decode((string) ($rValue ?? ''), true);
+		return is_array($rDecoded) ? $rDecoded : [];
+	}
+
+	/**
+	 * The output-format keys a line may use, filtered by its allowed_outputs.
+	 *
+	 * @param mixed $db              Database handler.
+	 * @param bool  $rCached         Read the format list from the file cache.
+	 * @param array $rAllowedOutputs Access-output ids the line is allowed.
+	 * @return array<int,string> Output keys.
+	 */
+	private static function resolveOutputFormats($db, $rCached, array $rAllowedOutputs): array {
+		$rRows = null;
+		if ($rCached && defined('CACHE_TMP_PATH') && is_file(CACHE_TMP_PATH . 'output_formats')) {
+			$cachedContent = @file_get_contents(CACHE_TMP_PATH . 'output_formats');
+			if ($cachedContent !== false && $cachedContent !== '') {
+				$unserialized = @igbinary_unserialize($cachedContent);
+				if (is_array($unserialized)) {
+					$rRows = $unserialized;
+				}
+			}
+		}
+
+		if (!is_array($rRows)) {
+			$db->query('SELECT `access_output_id`, `output_key` FROM `output_formats`;');
+			$rRows = $db->get_rows() ?: [];
+			if (defined('CACHE_TMP_PATH') && is_dir(CACHE_TMP_PATH)) {
+				$cacheFile = CACHE_TMP_PATH . 'output_formats';
+				$tmpFile = $cacheFile . '.' . getmypid() . '.tmp';
+				if (@file_put_contents($tmpFile, igbinary_serialize($rRows), LOCK_EX) !== false) {
+					@rename($tmpFile, $cacheFile);
+				}
+			}
+		}
+
+		$rFormats = [];
+		foreach ($rRows as $rRow) {
+			if (in_array(intval($rRow['access_output_id']), $rAllowedOutputs, true)) {
+				$rFormats[] = $rRow['output_key'];
+			}
+		}
+		return $rFormats;
+	}
+
+	/**
+	 * Aggregate the stream/series/vod/live/radio ids reachable through a line's
+	 * bouquets, keyed as they are stored on the user row. Pure.
+	 *
+	 * @param array $rBouquet  The line's bouquet ids.
+	 * @param array $rBouquets Bouquet map (id => ['streams','series','channels','movies','radios']).
+	 * @return array{channel_ids:int[],series_ids:int[],vod_ids:int[],live_ids:int[],radio_ids:int[]}
+	 */
+	private static function aggregateBouquetIds(array $rBouquet, ?array $rBouquets = null): array {
+		$rBouquets = $rBouquets ?? [];
+		$rChannelIDs = $rSeriesIDs = $rVODIDs = $rLiveIDs = $rRadioIDs = [];
+		foreach ($rBouquet as $rID) {
+			$rGroups = is_array($rBouquets[$rID] ?? null) ? $rBouquets[$rID] : [];
+			self::mergeBouquetGroup($rChannelIDs, $rGroups['streams'] ?? null);
+			self::mergeBouquetGroup($rSeriesIDs, $rGroups['series'] ?? null);
+			self::mergeBouquetGroup($rLiveIDs, $rGroups['channels'] ?? null);
+			self::mergeBouquetGroup($rVODIDs, $rGroups['movies'] ?? null);
+			self::mergeBouquetGroup($rRadioIDs, $rGroups['radios'] ?? null);
+		}
+		return [
+			'channel_ids' => array_map('intval', array_unique($rChannelIDs)),
+			'series_ids' => array_map('intval', array_unique($rSeriesIDs)),
+			'vod_ids' => array_map('intval', array_unique($rVODIDs)),
+			'live_ids' => array_map('intval', array_unique($rLiveIDs)),
+			'radio_ids' => array_map('intval', array_unique($rRadioIDs)),
+		];
+	}
+
+	/**
+	 * Append one bouquet group's ids onto an accumulator, ignoring a missing or
+	 * non-array group. Pure.
+	 *
+	 * @param array $rAccumulator Ids collected so far (by reference).
+	 */
+	private static function mergeBouquetGroup(array &$rAccumulator, mixed $rGroup): void {
+		if (is_array($rGroup)) {
+			$rAccumulator = array_merge($rAccumulator, $rGroup);
+		}
+	}
+
+	/**
+	 * The distinct category ids reachable through a line's bouquets. Pure.
+	 *
+	 * @param array $rBouquet     The line's bouquet ids.
+	 * @param array $rCategoryMap Bouquet id => category id list.
+	 * @return array<int,mixed> Distinct category ids.
+	 */
+	private static function resolveCategoryIds(array $rBouquet, array $rCategoryMap): array {
+		$rAllowedCategories = [];
+		foreach ($rBouquet as $rID) {
+			// A bouquet newer than the category map (rebuilt by the heavy cache
+			// pass) has no entry yet: no categories, not an undefined-key warning.
+			$rAllowedCategories = array_merge($rAllowedCategories, ($rCategoryMap[$rID] ?? []) ?: []);
+		}
+		return array_values(array_unique($rAllowedCategories));
+	}
+
+	/**
+	 * Apply the county_override_1st rule: when it is on and the line has no
+	 * forced country yet, resolve one from the client IP and persist it — queued
+	 * via the signal queue in cache mode, or a direct UPDATE otherwise.
+	 *
+	 * @param array  $rUserInfo Line row.
+	 * @param array  $rSettings Settings.
+	 * @param bool   $rCached   Cache mode.
+	 * @param string $rIP       Client IP.
+	 * @param mixed  $db        Database handler.
+	 * @return array The (possibly) updated row.
+	 */
+	private static function applyForcedCountry(array $rUserInfo, array $rSettings, bool $rCached, string $rIP, mixed $db): array {
+		if ($rSettings['county_override_1st'] == 1 && empty($rUserInfo['forced_country']) && !empty($rIP) && $rUserInfo['max_connections'] == 1) {
+			$rUserInfo['forced_country'] = GeoIP::getCountry($rIP)['registered_country']['iso_code'];
+			if ($rCached) {
+				SignalQueue::push('forced_country/' . $rUserInfo['id'], $rUserInfo['forced_country']);
+			} else {
+				$db->query('UPDATE `lines` SET `forced_country` = ? WHERE `id` = ?', $rUserInfo['forced_country'], $rUserInfo['id']);
+			}
+		}
+		return $rUserInfo;
+	}
+
+	/**
+	 * Resolve and apply ISP metadata for the client IP when show_isps is on:
+	 * con_isp_name / isp_asn / isp_violate / isp_is_server, enforcing the ISP
+	 * lock and persisting a changed ISP. Always initialises the three flags.
+	 *
+	 * @param array  $rUserInfo Line row.
+	 * @param array  $rSettings Settings.
+	 * @param bool   $rCached   Cache mode.
+	 * @param string $rIP       Client IP.
+	 * @param mixed  $db        Database handler.
+	 * @return array The updated row.
+	 */
+	private static function applyIspInfo(array $rUserInfo, array $rSettings, bool $rCached, string $rIP, mixed $db): array {
+		$rUserInfo['con_isp_name'] = null;
+		$rUserInfo['isp_asn'] = null;
+		$rUserInfo['isp_violate'] = 0;
+		$rUserInfo['isp_is_server'] = 0;
+
+		if ($rSettings['show_isps'] == 1 && !empty($rIP)) {
+			$rISPLock = GeoIP::getISP($rIP);
+			if (is_array($rISPLock) && !empty($rISPLock['isp'])) {
+				$rUserInfo['con_isp_name'] = $rISPLock['isp'];
+				$rUserInfo['isp_asn'] = $rISPLock['autonomous_system_number'];
+				$rUserInfo['isp_violate'] = GeoIP::isISPBlocked($rUserInfo['con_isp_name'], BlocklistService::getBlockedISP());
+				if ($rSettings['block_svp'] == 1) {
+					$rUserInfo['isp_is_server'] = intval(GeoIP::isASNBlocked($rUserInfo['isp_asn'], BlocklistService::getBlockedServers()));
+				}
+			}
+
+			if (!empty($rUserInfo['con_isp_name']) && $rSettings['enable_isp_lock'] == 1 && $rUserInfo['is_stalker'] == 0 && $rUserInfo['is_isplock'] == 1 && !empty($rUserInfo['isp_desc']) && strtolower($rUserInfo['con_isp_name']) != strtolower($rUserInfo['isp_desc'])) {
+				$rUserInfo['isp_violate'] = 1;
+			}
+
+			if (self::ispChanged($rUserInfo['con_isp_name'], $rUserInfo['isp_violate'], $rUserInfo['isp_desc'])) {
+				if ($rCached) {
+					SignalQueue::push('isp/' . $rUserInfo['id'], json_encode([$rUserInfo['con_isp_name'], $rUserInfo['isp_asn']]));
+				} else {
+					$db->query('UPDATE `lines` SET `isp_desc` = ?, `as_number` = ? WHERE `id` = ?', $rUserInfo['con_isp_name'], $rUserInfo['isp_asn'], $rUserInfo['id']);
+				}
+			}
+		}
+		return $rUserInfo;
+	}
+
+	/**
+	 * Fetch an admin/reseller user matching the given login credentials.
+	 *
+	 * @param string $rUsername Username.
+	 * @param string $rPassword Plain-text password.
+	 * @return array|null The user row, or null if credentials are invalid.
+	 */
+	public static function getAuthUserByCredentials(string $rUsername, string $rPassword) {
+		$db = self::db();
+		$db->query('SELECT `id`, `username`, `password`, `member_group_id`, `status` FROM `users` WHERE `username` = ? LIMIT 1;', $rUsername);
+
+		if ($db->num_rows() == 1) {
+			$rRow = $db->get_row();
+
+			if (Authenticator::checkPassword($rPassword, $rRow['password'])) {
+				return $rRow;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * List resellers under a given owner.
+	 *
+	 * @param int  $rOwner       Owner user id.
+	 * @param bool $rIncludeSelf Include the owner in the result.
+	 * @return array Reseller rows.
+	 */
+	public static function getResellers(int $rOwner, bool $rIncludeSelf = true) {
+		$db = self::db();
+		if ($rIncludeSelf) {
+			$db->query('SELECT `id`, `username` FROM `users` WHERE `owner_id` = ? OR `id` = ? ORDER BY `username` ASC;', $rOwner, $rOwner);
+		} else {
+			$db->query('SELECT `id`, `username` FROM `users` WHERE `owner_id` = ? ORDER BY `username` ASC;', $rOwner);
+		}
+
+		return $db->get_rows(true, 'id');
+	}
+
+	/**
+	 * Get the direct sub-users (reports) of the current user.
+	 *
+	 * @param array $rPermissions Effective permissions.
+	 * @param array $rUserInfo    Current user row.
+	 * @param bool  $rIncludeSelf Include the user themselves.
+	 * @return array Direct report rows.
+	 */
+	public static function getDirectReports(array $rPermissions, array $rUserInfo, bool $rIncludeSelf = true) {
+		$db = self::db();
+		$rUserIDs = $rPermissions['direct_reports'];
+
+		if ($rIncludeSelf) {
+			$rUserIDs[] = $rUserInfo['id'];
+		}
+
+		$rReturn = [];
+
+		if (0 < count($rUserIDs)) {
+			$db->query('SELECT * FROM `users` WHERE `owner_id` IN (' . implode(',', array_map('intval', $rUserIDs)) . ') ORDER BY `username` ASC;');
+
+			if (0 < $db->num_rows()) {
+				foreach ($db->get_rows() as $rRow) {
+					$rReturn[intval($rRow['id'])] = UserCredits::amounts($rRow);
+				}
+			}
+		}
+
+		return $rReturn;
+	}
+
+	/**
+	 * Resolve the parent of a user within the permission scope.
+	 *
+	 * @param array $rPermissions Effective permissions.
+	 * @param array $rUserInfo    Current user row.
+	 * @param int   $rID          Target user id.
+	 * @return int Resolved parent user id.
+	 */
+	public static function getParent(array $rPermissions, array $rUserInfo, int $rID) {
+		if (!isset($rPermissions['users'][$rID]['parent']) || $rPermissions['users'][$rID]['parent'] == 0 || $rPermissions['users'][$rID]['parent'] == $rUserInfo['id']) {
+			return $rID;
+		}
+
+		return self::getParent($rPermissions, $rUserInfo, $rPermissions['users'][$rID]['parent']);
+	}
+
+	/**
+	 * Get all descendant sub-users of a user (full report tree).
+	 *
+	 * @param int $rUser User id.
+	 * @return array Sub-user rows keyed by id.
+	 */
+	public static function getSubUsers($rUser, array &$visited = []) {
+		$db = self::db();
+		$rReturn = [];
+		$rUserInt = (int) $rUser;
+		if (in_array($rUserInt, $visited, true)) {
+			return $rReturn;
+		}
+		$visited[] = $rUserInt;
+
+		$db->query('SELECT `id`, `username` FROM `users` WHERE `owner_id` = ? AND `id` != ?;', $rUserInt, $rUserInt);
+
+		foreach ($db->get_rows() as $rRow) {
+			$subId = (int) $rRow['id'];
+			if (in_array($subId, $visited, true)) {
+				continue;
+			}
+			$rReturn[$subId] = ['username' => $rRow['username'], 'parent' => $rUserInt];
+
+			foreach (self::getSubUsers($subId, $visited) as $rUserID => $rUserData) {
+				$rReturn[$rUserID] = $rUserData;
+			}
+		}
+
+		return $rReturn;
+	}
+
+	/**
+	 * Fetch a line by id.
+	 *
+	 * @param int|string|null $rID Line id. Callers hand over nullable columns (a
+	 *                             device's `pair_id`) and request values; anything
+	 *                             that is not a positive id finds nothing.
+	 * @return array|null The line row, or null if not found.
+	 */
+	public static function getLineById($rID) {
+		if (!is_numeric($rID) || (int) $rID <= 0) {
+			return null;
+		}
+
+		$db = self::db();
+		$db->query('SELECT * FROM `lines` WHERE `id` = ?;', (int) $rID);
+
+		if ($db->num_rows() == 1) {
+			return $db->get_row();
+		}
+		return null;
+	}
+
+	/**
+	 * Fetch a line by username.
+	 *
+	 * @param string $rUsername Line username.
+	 * @return array|null The line row, or null if not found.
+	 */
+	public static function getLineByUsername(string $rUsername) {
+		$db = self::db();
+		$db->query('SELECT * FROM `lines` WHERE `username` = ?;', $rUsername);
+
+		if ($db->num_rows() == 1) {
+			return $db->get_row();
+		}
+		return null;
+	}
+
+	/**
+	 * Fetch a registered (panel) user by id.
+	 *
+	 * @param int $rID User id.
+	 * @return array|null The user row, or null if not found.
+	 */
+	public static function getRegisteredUserById(int $rID) {
+		$db = self::db();
+		$db->query('SELECT * FROM `users` WHERE `id` = ?;', $rID);
+
+		if ($db->num_rows() == 1) {
+			return UserCredits::amounts($db->get_row());
+		}
+		return null;
+	}
+
+	/**
+	 * Alias for getRegisteredUserById.
+	 *
+	 * @param int $rID User id.
+	 * @return array|null
+	 */
+	public static function getUserById(int $rID) {
+		return self::getRegisteredUserById($rID);
+	}
+
+	/**
+	 * List registered users under an owner.
+	 *
+	 * @param int|null $rOwner       Owner id, or null for all.
+	 * @param bool     $rIncludeSelf Include the owner in the result.
+	 * @return array Registered user rows.
+	 */
+	public static function getRegisteredUsers(?int $rOwner = null, bool $rIncludeSelf = true) {
+		$db = self::db();
+		$rReturn = [];
+		$db->query('SELECT * FROM `users` ORDER BY `username` ASC;');
+
+		if (0 < $db->num_rows()) {
+			foreach ($db->get_rows() as $rRow) {
+				if (!$rOwner || $rRow['owner_id'] == $rOwner || $rRow['id'] == $rOwner && $rIncludeSelf) {
+					$rReturn[intval($rRow['id'])] = UserCredits::amounts($rRow);
+				}
+			}
+		}
+
+		if (count($rReturn) == 0) {
+			$rReturn[-1] = [];
+		}
+
+		return $rReturn;
+	}
+
+	/**
+	 * Resolve a streaming user's info (auth + entitlements).
+	 *
+	 * Looks the user up by id or username/password, then assembles their
+	 * bouquets and, optionally, allowed channel ids and active connections.
+	 *
+	 * @param array       $rSettings        Panel settings.
+	 * @param bool        $rCached          Use cached lookups.
+	 * @param array|null  $rBouquets        Bouquet definitions (only used when $rGetChannelIDs).
+	 * @param int|null    $rUserID          User id (when known).
+	 * @param string|null $rUsername        Username (credential lookup).
+	 * @param string|null $rPassword        Password (credential lookup).
+	 * @param bool        $rGetChannelIDs   Include allowed channel ids.
+	 * @param bool        $rGetConnections  Include active connections.
+	 * @param string      $rIP              Client IP.
+	 * @return array|null User info, or null if not found.
+	 */
+	public static function getStreamingUserInfo(array $rSettings, bool $rCached, ?array $rBouquets = null, ?int $rUserID = null, ?string $rUsername = null, ?string $rPassword = null, bool $rGetChannelIDs = false, bool $rGetConnections = false, string $rIP = '') {
+		$db = self::db();
+		$rUserInfo = null;
+
+		if (!($rUserInfo = self::loadUserRow($db, $rCached, $rSettings, $rUserID, $rUsername, $rPassword))) {
+			return null;
+		}
+
+		if ($rCached && !self::verifyCachedCredentials($rUserInfo, $rUserID, $rUsername, $rPassword)) {
+			return null;
+		}
+
+		$rUserInfo = self::applyForcedCountry($rUserInfo, $rSettings, $rCached, $rIP, $db);
+		$rUserInfo = self::decodeUserFields($rUserInfo);
+
+		$rUserInfo['output_formats'] = self::resolveOutputFormats($db, $rCached, $rUserInfo['allowed_outputs']);
+		$rUserInfo = self::applyIspInfo($rUserInfo, $rSettings, $rCached, $rIP, $db);
+
+		if ($rGetChannelIDs) {
+			$rUserInfo = array_merge($rUserInfo, self::aggregateBouquetIds($rUserInfo['bouquet'], self::resolveBouquets($rBouquets)));
+		}
+
+		if ($rGetConnections && !empty($rUserInfo['id'])) {
+			$rUserInfo['active_cons'] = ConnectionTracker::countLineConnections((int) $rUserInfo['id']);
+		}
+
+		// Built by the heavy cache pass; until it exists (a fresh install, a cleared
+		// cache) the line simply has no categories instead of the request failing.
+		$rCategoryMap = @igbinary_unserialize((string) @file_get_contents(CACHE_TMP_PATH . 'category_map'));
+		$rUserInfo['category_ids'] = self::resolveCategoryIds($rUserInfo['bouquet'], is_array($rCategoryMap) ? $rCategoryMap : []);
+		return $rUserInfo;
+	}
+
+	/**
+	 * The bouquet map to aggregate against: the caller-supplied one, or the
+	 * shared cache (falling back to a fresh DB load) when none was passed.
+	 *
+	 * @param array|null $rBouquets Caller-supplied bouquet map, or null to resolve.
+	 * @return array The resolved bouquet map.
+	 */
+	private static function resolveBouquets(?array $rBouquets): array {
+		if ($rBouquets !== null) {
+			return $rBouquets;
+		}
+		return CacheReader::get('bouquets') ?: (BouquetService::getAll() ?: []);
+	}
+
+	/**
+	 * Resolve user info for streaming endpoints (wrapper over getStreamingUserInfo).
+	 *
+	 * @param int|null    $rUserID         User id (when known).
+	 * @param string|null $rUsername       Username (credential lookup).
+	 * @param string|null $rPassword       Password (credential lookup).
+	 * @param bool        $rGetChannelIDs  Include allowed channel ids.
+	 * @param bool        $rGetConnections Include active connections.
+	 * @param string      $rIP             Client IP.
+	 * @return array|null User info, or null if not found.
+	 */
+	public static function getUserInfo(?int $rUserID = null, ?string $rUsername = null, ?string $rPassword = null, bool $rGetChannelIDs = false, bool $rGetConnections = false, string $rIP = '') {
+		global $rSettings;
+		return self::getStreamingUserInfo($rSettings, $rSettings['enable_cache'], BouquetService::getAll(), $rUserID, $rUsername, $rPassword, $rGetChannelIDs, $rGetConnections, $rIP);
+	}
+
+	/**
+	 * Resolve Enigma2 device user info.
+	 *
+	 * @param array $rDevice          Device row (MAC etc.).
+	 * @param bool  $rGetChannelIDs   Include allowed channel ids.
+	 * @param bool  $rGetConnections  Include active connections.
+	 * @return array|null Device user info, or null if not found.
+	 */
+	public static function getE2Info(array $rDevice, bool $rGetChannelIDs = false, bool $rGetConnections = false) {
+		$db = self::db();
+		if (empty($rDevice['device_id'])) {
+			$db->query('SELECT * FROM `enigma2_devices` WHERE `mac` = ?', $rDevice['mac']);
+		} else {
+			$db->query('SELECT * FROM `enigma2_devices` WHERE `device_id` = ?', $rDevice['device_id']);
+		}
+		if (0 >= $db->num_rows()) {
+			return null;
+		}
+		$rReturn = [
+			'enigma2' => $db->get_row(),
+			'user_info' => [],
+			'pair_line_info' => [],
+		];
+
+		if ($rUserInfo = self::getUserInfo($rReturn['enigma2']['user_id'], null, null, $rGetChannelIDs, $rGetConnections)) {
+			$rReturn['user_info'] = $rUserInfo;
+
+			if (!is_null($rReturn['user_info']['pair_id'])
+				&& ($rUserInfo = self::getUserInfo($rReturn['user_info']['pair_id'], null, null, $rGetChannelIDs, $rGetConnections))
+			) {
+				$rReturn['pair_line_info'] = $rUserInfo;
+			}
+		}
+
+		return $rReturn;
+	}
+}

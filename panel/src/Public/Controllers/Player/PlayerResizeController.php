@@ -1,0 +1,51 @@
+<?php
+
+namespace XcVm\Public\Controllers\Player;
+
+use XcVm\Core\Util\ImageResizeService;
+
+/**
+ * PlayerResizeController — Image resize proxy for player panel.
+ *
+ * Migrated from player/resize.php.
+ * Resizes remote/local images and caches the result as PNG.
+ * Requires authenticated player session (bootstrap handles this).
+ *
+ * @package XC_VM_Public_Controllers_Player
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class PlayerResizeController extends BasePlayerController {
+	public function index() {
+		if (session_status() === PHP_SESSION_ACTIVE) {
+			session_write_close();
+		}
+
+		// Sensitive endpoint: it fetches/serves remote images. Require an
+		// authenticated player session (the scope bootstrap populates rUserInfo)
+		// of a line of this panel: a session signed in against an external
+		// server holds no account here.
+		if (!isset($GLOBALS['rUserInfo']) || empty($GLOBALS['rUserInfo']['id']) || !empty($GLOBALS['rUserInfo']['is_external_xc'])) {
+			exit();
+		}
+
+		$cacheDir = defined('IMAGES_PATH')
+			? IMAGES_PATH . 'player/'
+			: (defined('MAIN_HOME') ? MAIN_HOME : '/home/xc_vm/') . 'storage/images/player/';
+
+		if (!is_dir($cacheDir)) {
+			@mkdir($cacheDir, 0775, true);
+		}
+
+		$placeholder = (defined('MAIN_HOME') ? MAIN_HOME : '/home/xc_vm/') . 'Public/assets/player/images/placeholder.png';
+
+		ImageResizeService::serve([
+			'cacheDir'    => $cacheDir,
+			'placeholder' => file_exists($placeholder) ? $placeholder : null,
+			'extraParams' => true,
+		]);
+	}
+}

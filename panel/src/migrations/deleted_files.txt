@@ -1,0 +1,7 @@
+# Files to delete during update (relative to MAIN_HOME)
+# Auto-generated from: git diff 2.7.0..HEAD
+# One file per line. Lines starting with # are comments.
+#
+Infrastructure/ResellerApiDispatcher.php
+Infrastructure/ResellerTableRenderer.php
+vendor/composer/platform_check.php

@@ -1,0 +1,165 @@
+<?php
+
+use XcVm\Public\Controllers\Admin\Ajax\CategoryTemplateAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\ActiveCodeAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\DeviceAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\LineAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\StatsAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\StreamAjaxController;
+use XcVm\Public\Controllers\Reseller\Ajax\UserAjaxController;
+use XcVm\Public\Controllers\Reseller\ResellerActiveCodeController;
+use XcVm\Public\Controllers\Reseller\ResellerActiveCodesBatchController;
+use XcVm\Public\Controllers\Reseller\ResellerActiveCodesController;
+use XcVm\Public\Controllers\Reseller\ResellerApiController;
+use XcVm\Public\Controllers\Reseller\ResellerCategoryTemplateController;
+use XcVm\Public\Controllers\Reseller\ResellerCategoryTemplatesController;
+use XcVm\Public\Controllers\Reseller\ResellerCreatedChannelsController;
+use XcVm\Public\Controllers\Reseller\ResellerDashboardController;
+use XcVm\Public\Controllers\Reseller\ResellerEditProfileController;
+use XcVm\Public\Controllers\Reseller\ResellerEnigmaController;
+use XcVm\Public\Controllers\Reseller\ResellerEnigmasController;
+use XcVm\Public\Controllers\Reseller\ResellerEpgViewController;
+use XcVm\Public\Controllers\Reseller\ResellerEpisodesController;
+use XcVm\Public\Controllers\Reseller\ResellerLineActivityController;
+use XcVm\Public\Controllers\Reseller\ResellerLineController;
+use XcVm\Public\Controllers\Reseller\ResellerLinesController;
+use XcVm\Public\Controllers\Reseller\ResellerLiveConnectionsController;
+use XcVm\Public\Controllers\Reseller\ResellerLoginController;
+use XcVm\Public\Controllers\Reseller\ResellerLogoutController;
+use XcVm\Public\Controllers\Reseller\ResellerMagController;
+use XcVm\Public\Controllers\Reseller\ResellerMagsController;
+use XcVm\Public\Controllers\Reseller\ResellerMoviesController;
+use XcVm\Public\Controllers\Reseller\ResellerPostController;
+use XcVm\Public\Controllers\Reseller\ResellerRadiosController;
+use XcVm\Public\Controllers\Reseller\ResellerResizeController;
+use XcVm\Public\Controllers\Reseller\ResellerSessionController;
+use XcVm\Public\Controllers\Reseller\ResellerStreamsController;
+use XcVm\Public\Controllers\Reseller\ResellerTableController;
+use XcVm\Public\Controllers\Reseller\ResellerTicketController;
+use XcVm\Public\Controllers\Reseller\ResellerTicketsController;
+use XcVm\Public\Controllers\Reseller\ResellerTicketViewController;
+use XcVm\Public\Controllers\Reseller\ResellerUserController;
+use XcVm\Public\Controllers\Reseller\ResellerUserLogsController;
+use XcVm\Public\Controllers\Reseller\ResellerUsersController;
+
+/**
+ * Reseller Routes
+ *
+ * Маршруты панели реселлера.
+ * Файл подключается Front Controller'ом (index.php) при scope = 'reseller'.
+ * Переменная $router (Router::getInstance()) доступна из вызывающего контекста.
+ *
+ * @see public/index.php
+ * @see core/Http/Router.php
+ *
+ * @package XC_VM_Public_Routes
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+// ─── Dashboard & Profile ───────────────────────────
+
+$router->get('dashboard', [ResellerDashboardController::class, 'index']);
+$router->get('edit_profile', [ResellerEditProfileController::class, 'index']);
+$router->get('logout', [ResellerLogoutController::class, 'index']);
+$router->get('session', [ResellerSessionController::class, 'index']);
+
+// ─── Auth & Infrastructure ─────────────────────────────────────
+
+$router->get('login', [ResellerLoginController::class, 'index']);
+$router->post('login', [ResellerLoginController::class, 'index']);
+$router->get('index', [ResellerLoginController::class, 'index']);
+$router->post('post', [ResellerPostController::class, 'index']);
+$router->get('api', [ResellerApiController::class, 'index']);
+$router->post('api', [ResellerApiController::class, 'index']);
+
+// ─── Ajax (api?action=…) ───────────────────────────
+// Each action is a Reseller\Ajax controller; an unknown one falls through to ResellerApiController.
+
+$router->api('dashboard', [StatsAjaxController::class, 'dashboard']);
+$router->api('header_stats', [StatsAjaxController::class, 'headerStats']);
+$router->api('stats', [StatsAjaxController::class, 'stats']);
+$router->api('save_ui_prefs', [StatsAjaxController::class, 'saveUiPrefs']);
+
+$router->api('line', [LineAjaxController::class, 'line']);
+$router->api('line_activity', [LineAjaxController::class, 'lineActivity']);
+$router->api('connections', [LineAjaxController::class, 'connections']);
+$router->api('userlist', [LineAjaxController::class, 'userlist']);
+$router->api('ip_whois', [LineAjaxController::class, 'ipWhois']);
+$router->api('get_package', [LineAjaxController::class, 'getPackage']);
+$router->api('get_package_trial', [LineAjaxController::class, 'getPackageTrial']);
+
+$router->api('mag', [DeviceAjaxController::class, 'mag']);
+$router->api('enigma', [DeviceAjaxController::class, 'enigma']);
+$router->api('send_event', [DeviceAjaxController::class, 'sendEvent']);
+
+$router->api('reg_user', [UserAjaxController::class, 'regUser']);
+$router->api('adjust_credits', [UserAjaxController::class, 'adjustCredits']);
+$router->api('ticket', [UserAjaxController::class, 'ticket']);
+
+$router->api('streamlist', [StreamAjaxController::class, 'streamlist']);
+$router->api('get_epg', [StreamAjaxController::class, 'getEpg']);
+$router->api('get_programme', [StreamAjaxController::class, 'getProgramme']);
+
+$router->api('active_code_details', [ActiveCodeAjaxController::class, 'details']);
+$router->api('active_codes_mass', [ActiveCodeAjaxController::class, 'mass']);
+$router->api('active_codes_batch_action', [ActiveCodeAjaxController::class, 'batchAction']);
+$router->api('active_codes_export_txt', [ActiveCodeAjaxController::class, 'exportTxt']);
+$router->api('generate_active_codes', [ActiveCodeAjaxController::class, 'generate']);
+$router->get('table', [ResellerTableController::class, 'index']);
+$router->post('table', [ResellerTableController::class, 'index']);
+$router->get('resize', [ResellerResizeController::class, 'index']);
+
+// ─── Lines ─────────────────────────────────────────
+
+$router->get('lines', [ResellerLinesController::class, 'index']);
+$router->get('line', [ResellerLineController::class, 'index']);
+$router->get('line_activity', [ResellerLineActivityController::class, 'index']);
+$router->get('live_connections', [ResellerLiveConnectionsController::class, 'index']);
+
+// ─── Smart Activation Codes ─────────────────────────
+
+$router->get('active_codes', [ResellerActiveCodesController::class, 'index']);
+$router->get('active_code', [ResellerActiveCodeController::class, 'index']);
+$router->get('active_codes_batch', [ResellerActiveCodesBatchController::class, 'index']);
+
+// ─── Devices MAG / Enigma ──────────────────────────
+
+$router->get('mags', [ResellerMagsController::class, 'index']);
+$router->get('mag', [ResellerMagController::class, 'index']);
+$router->get('enigmas', [ResellerEnigmasController::class, 'index']);
+$router->get('enigma', [ResellerEnigmaController::class, 'index']);
+
+// ─── Content ───────────────────────────────────────
+
+$router->get('streams', [ResellerStreamsController::class, 'index']);
+$router->get('movies', [ResellerMoviesController::class, 'index']);
+$router->get('radios', [ResellerRadiosController::class, 'index']);
+$router->get('episodes', [ResellerEpisodesController::class, 'index']);
+$router->get('created_channels', [ResellerCreatedChannelsController::class, 'index']);
+$router->get('epg_view', [ResellerEpgViewController::class, 'index']);
+
+// ─── Tickets ───────────────────────────────────────
+
+$router->get('tickets', [ResellerTicketsController::class, 'index']);
+$router->get('ticket', [ResellerTicketController::class, 'index']);
+$router->get('ticket_view', [ResellerTicketViewController::class, 'index']);
+
+// ─── Users ─────────────────────────────────────────
+
+$router->get('users', [ResellerUsersController::class, 'index']);
+$router->get('user', [ResellerUserController::class, 'index']);
+$router->get('user_logs', [ResellerUserLogsController::class, 'index']);
+
+// ─── Category Templates ────────────────────────────
+$router->get('category_templates', [ResellerCategoryTemplatesController::class, 'index']);
+$router->get('category_template', [ResellerCategoryTemplateController::class, 'index']);
+
+$router->api('category_template_create', [CategoryTemplateAjaxController::class, 'create']);
+$router->api('category_template_save', [CategoryTemplateAjaxController::class, 'save']);
+$router->api('category_template_delete', [CategoryTemplateAjaxController::class, 'delete']);
+$router->api('category_template_clone', [CategoryTemplateAjaxController::class, 'clone']);
+$router->api('category_template_apply_all', [CategoryTemplateAjaxController::class, 'applyAll']);
+$router->api('category_template_get', [CategoryTemplateAjaxController::class, 'get']);

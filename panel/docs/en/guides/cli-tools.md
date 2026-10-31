@@ -1,0 +1,481 @@
+# CLI Tools & Console Reference
+
+Reference for XC_VM command-line interface, system tools, and the database update process after version upgrades. Covers daily operations, emergency access, and creating new DB update steps.
+
+---
+
+## Console Entry Point
+
+All CLI commands are executed through `console.php`:
+
+```bash
+/home/xc_vm/console.php <command> [args...]
+```
+
+The console supports three types of commands:
+
+| Type | Count | Description |
+| --- | --- | --- |
+| **Commands** | 28 | One-time operations (update, status, tools, etc.) |
+| **CronJobs** | 25 | Scheduled tasks (auto-invoked by crontab) |
+| **Daemons** | 8 | Long-running background processes (Commands using `DaemonTrait`) |
+
+> **Note:** Daemons are regular Commands that use `DaemonTrait`. There is no separate `Daemons/` directory.
+
+To see all available commands:
+
+```bash
+/home/xc_vm/console.php list
+```
+
+---
+
+## Full Command Registry
+
+### Utility Commands
+
+| Command | Class | Description | User |
+| --- | --- | --- | --- |
+| `status` | `StatusCommand` | System status, DB updates, configuration check | root |
+| `update` | `UpdateCommand` | System update (update / post-update) | xc_vm |
+| `service` | `ServiceCommand` | Manage XC_VM service: start, stop, restart, reload | root |
+| `tools` | `ToolsCommand` | Maintenance utilities (see Tools Command section) | root/xc_vm |
+| `certbot` | `CertbotCommand` | Generate SSL certificate via certbot | root |
+| `binaries` | `BinariesCommand` | Update the runtime bundle (php/nginx/…) from the `XC_VM_Binaries` release | xc_vm |
+| `fanout_binary` | `FanoutBinaryCommand` | Install/update the `xc_fanout` daemon binary from its release | root |
+| `root:paths` | `RootPathsCommand` | List what root runs from the tree (its crontab, the service unit, `service`, the updater and the binaries root starts) and, for each path, whether the `xc_vm` user can replace it, following every symbolic link on the way. Changes nothing. | root |
+| `xcvm_core` | `XcvmCoreCommand` | Install/update the `xcvm_core` PHP extension from the binaries repo | root |
+| `ytdlp` | `YtDlpCommand` | Install/update `yt-dlp` from its upstream GitHub release | root |
+| `startup` | `StartupCommand` | System initialization: daemons.sh, crontab, cache | root |
+| `monitor` | `MonitorCommand` | Monitor stream by ID (start/restart/track). Only for streams the xc_fanout supervisor does not take — it stands down for a supervised one | xc_vm |
+| `thumbnail` | `ThumbnailCommand` | Generate thumbnail frames for a stream | xc_vm |
+| `plex_item` | `PlexItemCommand` | Process single Plex item (movie/series) | xc_vm |
+| `vod_import_batch` | `VodImportBatchCommand` | Work through one Movies/Series → Import batch, `thread_count` files at a time | xc_vm |
+| `vod_import_item` | `VodImportItemCommand` | Import a single movie/episode file (TMDB search/insert); used by Movies/Series → Import and the Watch Folder | xc_vm |
+| `watch_item` | `WatchItemCommand` | Watch module ≤ 1.0.5 only: its own per-file worker, replaced by `vod_import_item` in 1.1.0 | xc_vm |
+| `migrate` | `MigrateCommand` | Transfer data from `xc_vm_migrate` database | xc_vm |
+| `db:migrate` | `DbMigrateCommand` | Apply pending database migrations from the `migrations/` directory | xc_vm |
+| `module:migrate` | `ModuleMigrateCommand` | Run the install or update steps of a module whose files are in place (started by the panel during a module update) | xc_vm |
+| `server:install` | `ServerInstallCommand` | Install/configure server (Proxy/LB) via SSH | root |
+| `server:diagnose` | `ServerDiagnoseCommand` | Diagnose why a proxy/LB node is silent to the main (heartbeat, reachability, iptables, service, cluster state) | root |
+| `server:sync-openssl-extra` | `ServerSyncOpensslExtraCommand` | Send the main's `OPENSSL_EXTRA` to load balancers that report another one (MAIN only) | root/xc_vm |
+| `server:xcvt-pin` | `ServerXcvtPinCommand` | Pin an installed load balancer for XCVT v2 configs over host-key-verified SSH: `<serverID> [sshPort] --cred-file=<path> [--expect-hostkey=<sha1>]` (MAIN only; see [XCVT v2](../administration/main-lb-cluster.md#signed-sealed-load-balancer-configs-xcvt-v2)) | xc_vm |
+| `server:xcvt-report` | `ServerXcvtReportCommand` | Which load balancers get XCVT v2 configs and why the others do not; exit 0 when none is uncovered (the gate for the next release). `--waive=<id> --reason=<text>`, `--unwaive=<id>` (MAIN only) | xc_vm |
+
+> **`server:install` credentials and host key.** The panel does not put the SSH
+> password on the command line or in `bin/install/<id>.json`: it writes a 0600
+> `bin/install/<id>.cred`, passes `- -` in place of username and password plus
+> `--cred-file=<path>`, and the command reads and deletes that file before it
+> connects. `<id>.json` keeps only the non-secret parameters, so *Reinstall*
+> asks for the password again. The node's SSH host key (SHA-1) is checked against
+> `--expect-hostkey=` (the *Expected SSH Host Key* field: 40 hex digits, or the
+> `SHA1:…` line of `ssh-keygen -l -E sha1 -f /etc/ssh/ssh_host_ed25519_key.pub`
+> run on the node), else against `servers.ssh_hostkey_sha1` stored by the first
+> install, else it is trusted on first use and stored. A rebuilt node therefore
+> needs its new fingerprint entered on reinstall, or `--forget-hostkey=1` (the
+> *Forget the Saved SSH Host Key* switch of the reinstall form): the stored key
+> is then not asked for, and the one the node presents is stored once the login
+> has worked.
+
+> `console.php` registers **every** class it discovers in `Cli/Commands/` and `Cli/CronJobs/` (glob + reflection) — there is **no** `file_exists()` guard. A command is "optional" only in that it may be **stripped from the LB build** (`Makefile` `LB_FILES_TO_REMOVE`) or **provided by an installed module**. `plex_item` and `watch_item` above are **module-provided** (Plex/Watch ≤ 1.0.5) — their command classes are not in the committed core tree and exist only when that module is installed.
+
+### Daemon Commands (persistent processes)
+
+These commands use `DaemonTrait` and run continuously via `while(true)` loops:
+
+| Command | Class | Description |
+| --- | --- | --- |
+| `signals` | `SignalsCommand` | Process kill/cache signals from DB and Redis |
+| `watchdog` | `WatchdogCommand` | System monitoring: CPU, connections, server updates |
+| `queue` | `QueueCommand` | Process background queue tasks |
+| `scanner` | `ScannerCommand` | Scan for new streams/devices |
+| `cache_handler` | `CacheHandlerCommand` | Handle cache operations (optional) |
+
+### Stream Processing Commands
+
+| Command | Class | Description |
+| --- | --- | --- |
+| `proxy` | `ProxyCommand` | MPEG-TS stream proxying via sockets — proxy streams while fanout is switched off (started by `live.php`) |
+| `archive` | `ArchiveCommand` | TV Archive — record stream into segments |
+| `created` | `CreatedCommand` | Created Channel — compose channel from sources |
+| `delay` | `DelayCommand` | Delay HLS stream playback |
+| `loopback` | `LoopbackCommand` | Receive MPEG-TS from another server |
+| `llod` | `LlodCommand` | Low-Latency On-Demand stream processor |
+| `record` | `RecordCommand` | Record stream to MP4 |
+| `ondemand` | `OndemandCommand` | Kill streams with no active viewers |
+
+### Cron Jobs
+
+> The command/cron/daemon tables below are hand-maintained and can drift. The source of truth is `console.php list` — run it to see the live registry.
+
+All cron job names are prefixed with `cron:`. They use `CronTrait` and are invoked by the system crontab.
+
+**Core cron jobs** (in `src/Cli/CronJobs/`):
+
+| Command | Class | Description |
+| --- | --- | --- |
+| `cron:activity` | `ActivityCronJob` | Import user activity logs into DB |
+| `cron:backups` | `BackupsCronJob` | Manage backups (optional) |
+| `cron:cache` | `CacheCronJob` | Cache management |
+| `cron:cache_engine` | `CacheEngineCronJob` | Generate cache for lines, streams, series, groups (optional) |
+| `cron:certbot` | `CertbotCronJob` | SSL certificate renewal |
+| `cron:cleanup` | `CleanupCronJob` | Cleanup temporary files and logs. On MAIN it deletes the connection and log rows older than their *Keep Logs For* period (Settings, Logs; new installs keep activity and client logs 180 days and login, error and restart logs 365 days, 0 keeps them), 10,000 rows at a time and for at most 4 minutes per table per run, so a backlog goes over several runs; it starts `cluster:maintain-stats` while an index those tables are pruned by is missing. On MAIN it also prunes the resized-image caches `storage/images/admin/` and `storage/images/player/`: files older than 30 days, then the oldest files of a directory above 4 GiB or above 250,000 files. Only names the resizer writes are removed |
+| `cron:epg` | `EpgCronJob` | EPG download and processing (optional). It then writes the XMLTV files in `content/epg`: `epg_all.xml` and one per bouquet set the lines use, each with its `.gz`. The programmes of a set of EPG sources are read once, 5,000 rows at a time, for every file that uses them, and compressed once. Each file is written beside its name and renamed when complete; one that cannot be written keeps its previous version. |
+| `cron:errors` | `ErrorsCronJob` | Process error logs |
+| `cron:lines_logs` | `LinesLogsCronJob` | Import client request logs into DB |
+| `cron:maxmind` | `MaxMindCronJob` | Update MaxMind GeoIP databases (Tuesdays only; `--force` to run manually) |
+| `cron:providers` | `ProvidersCronJob` | Update providers (optional) |
+| `cron:root_mysql` | `RootMysqlCronJob` | Collect MariaDB's log lines (notes, warnings and `[ERROR]` lines) into System Logs (root, optional); `cron:cleanup` prunes them by *Keep Logs For* of System Logs (`keep_syslog`, 0 keeps them). It no longer blocks addresses for refused MySQL logins; blocks it made earlier stay until removed. |
+| `cron:root_signals` | `RootSignalsCronJob` | Process signals, iptables, nginx, service management, and **binary self-heal** (root) |
+| `cron:series` | `SeriesCronJob` | Update series data (optional) |
+| `cron:servers` | `ServersCronJob` | Monitor server, launch daemons, update statistics |
+| `cron:stats` | `StatsCronJob` | Calculate and store statistics |
+| `cron:streams` | `StreamsCronJob` | Verify and update stream status |
+| `cron:streams_logs` | `StreamsLogsCronJob` | Import stream logs |
+| `cron:tmp` | `TmpCronJob` | Cleanup temporary files |
+| `cron:update` | `UpdateCronJob` | Check and apply updates (optional) |
+| `cron:users` | `UsersCronJob` | Manage user connections, Redis sync, divergence |
+| `cron:vod` | `VodCronJob` | Process VOD content |
+| `cron:proxy` | `ProxyArchiveCronJob` | Archive/rotate proxy stream data |
+| `cron:module_licenses` | `ModuleLicensesCronJob` | Refresh installed-module licenses |
+| `cron:module_updates` | `ModuleUpdatesCronJob` | Check for module updates |
+| `cron:tmdb` | `TmdbCronJob` | Fetch TMDB metadata (optional) |
+| `cron:tmdb_popular` | `TmdbPopularCronJob` | Fetch popular TMDB content (optional) |
+
+**Module-provided cron jobs.** Registered by optional modules via `CronProviderInterface::getCronEntries()`; they exist only when that module is installed and are **not** in the committed core tree (`src/Modules/` ships empty). (`cron:tmdb`/`cron:tmdb_popular` are **core**, listed above — not module cron jobs.)
+
+| Command | Class | Module | Description |
+| --- | --- | --- | --- |
+| `cron:plex` | `PlexCronJob` | plex | Process Plex updates |
+| `cron:watch` | `WatchCronJob` | watch | Process Watch library updates |
+
+> "Optional" cron jobs are **not** conditionally registered — every discovered `CronJob` class is registered. "Optional" means the job no-ops unless its feature/setting is enabled (e.g. `cron:epg`, `cron:series`, `cron:update`), or the job is stripped from the LB build.
+
+---
+
+## Binary self-update (self-heal)
+
+Some bundled binaries are **not** shipped inside the heavy runtime bundle and would
+otherwise never refresh between panel releases (a fresh LB node, or a node left on
+an old build, would never converge). `cron:root_signals` (root, every minute) keeps
+them current by polling their idempotent per-binary updater commands on a
+stamp-throttled schedule — each downloads only on a version mismatch, verifies a
+checksum, run-tests the new binary, then swaps it in atomically (a broken download
+never replaces a working one). Runs on every node (main **and** LB).
+
+| Binary | Command | Source | Verify | Poll |
+| --- | --- | --- | --- | --- |
+| `xc_fanout` daemon and `xc_agent` | `fanout_binary` | `XC_VM_Fanout` release assets | `SHA256SUMS` (+ the agent's trial in `run.sh`) | ~hourly |
+| `xcvm_core` extension | `xcvm_core` | `XC_VM_Binaries` repo tree (`bin/xcvm_extention/`) | `SHA256SUMS` + load-test | ~hourly |
+| Runtime bundle (PHP, nginx), load balancers | `binaries` (MAIN runs it at every `status`) | `XC_VM_Binaries` release, this distribution's bundle | `hashes.md5` + the `xcvm_core` load-test | daily |
+| `yt-dlp` | `ytdlp` | upstream `yt-dlp/yt-dlp` release | `SHA2-256SUMS` + `--version` | daily |
+| `ffmpeg`/`ffprobe` 4.4, 7.1, 8.1 | `ffmpeg` (as xc_vm) | `XC_VM_FFMPEG` release, this distribution's builds | `hashes.md5` + both binaries must start | daily |
+
+Stamps live in `CRONS_TMP_PATH` (`fanout_binary_check`, `xcvm_core_check`,
+`ytdlp_check`, `ffmpeg_check`); the first pass (stamp absent) runs immediately, so a fresh
+install/LB gets the binary within a minute. Every node runs them, whatever its
+cluster mode: MAIN hands none of these out. `fanout_binary` takes `fanout` or
+`agent` to update one of the two; with fanout switched off the hourly check runs
+`fanout_binary agent`. An agent release that `run.sh` rolled back on a node is not
+fetched there again until a newer one is out (`xc_agent.tried`; `force` retries
+it).
+
+With a release canary set (Settings → Cluster, *Release Canary*: a load balancer's server ID; 0,
+the default, is off), only that load balancer takes each release of the two as soon as it is out.
+Every other server, MAIN included, takes the newest release at or below the pin MAIN raises once
+the canary has run a release for *Release Canary Hours*, active and heard throughout. A server
+that already runs a newer release keeps it, and until the first pin the others take none. The pin
+changes are in the cluster audit (`release.pin`).
+
+`ffmpeg` fetches `ffmpeg_<label>_<distro>.tar.gz` for each label the settings page
+offers (the release archives carry no ffmpeg: the installer and an LB's install
+run it too), built in this distribution's container so its glibc matches the node's,
+and swaps each into `bin/ffmpeg_bin/<label>/` only once it starts here.
+`ffmpeg_bin/ffmpeg_version.json` records each label's release; a launch that did
+not finish (killed, GitHub unreachable) is tried again after an hour.
+
+Each folder in `bin/ffmpeg_bin/` is one build, and the FFmpeg version settings store
+its name:
+
+| Folder | What it is |
+|---|---|
+| `<major>.<minor>` (`4.4`, `7.1`, `8.1`) | An XC_VM build. The name is the build's real minor version. Patch updates (7.1.5 → 7.1.6) replace it in place, so settings never change. |
+| `<major>.<minor>-<vendor>` (`6.1-my`) | Someone else's build. The `ffmpeg` command never writes or replaces it. Put a custom build in a folder named this way. |
+
+A `4.0` folder is XUI's build on a panel migrated from XUI (or an older XC_VM
+build); it is never changed either.
+
+The panel asks each binary what it is rather than trusting its folder or
+`BUILD_INFO`: the settings page shows the version the binary reports, `ffmpeg`
+installs a build only when its binary reports the label's version, and
+`-nofix_dts` (XUI's switch for the legacy DTS path, also in the XC_VM 4.4 build)
+goes only to a build whose `ffmpeg -h full` lists `-fix_dts`; stock ffmpeg would
+refuse it. The answers are cached until a binary changes. A setting
+naming a build the node lacks (an older `4.0` or `8.0`, say) takes the same minor
+version first, then the newest of its major, then the newest build there is, so no
+setting needs rewriting. Folders named `*.backup.*` are ignored and never deleted.
+
+The heavy runtime bundle (nginx, nginx_rtmp and PHP) is instead refreshed by the
+`binaries` command, triggered by an `update_binaries` signal from MAIN. The bundle is
+installed only when the `hashes.md5` of its release lists the archive's MD5 and the
+download matches it; otherwise the running binaries are kept and the reason is in
+`tmp/binaries_update_*.log`.
+
+---
+
+## Registering a New Command
+
+All CLI commands implement `CommandInterface`. Core commands are auto-discovered from `src/Cli/` via reflection in `console.php`. Module commands are registered via `ModuleLoader::registerAllCommands()`.
+
+### CommandInterface
+
+```php
+interface CommandInterface {
+    public function getName(): string;        // Unique command name (used in CLI)
+    public function getDescription(): string; // One-line help text (shown in `list`)
+    public function execute(array $rArgs): int; // Entry point, returns exit code
+}
+```
+
+### Step 1. Create the Class
+
+Create a new file in `src/Cli/Commands/` (or `src/Cli/CronJobs/` for cron jobs):
+
+```php
+<?php
+
+class MyNewCommand implements CommandInterface {
+
+    public function getName(): string {
+        return 'my_command';
+    }
+
+    public function getDescription(): string {
+        return 'Short description of what it does';
+    }
+
+    public function execute(array $rArgs): int {
+        // Your logic here
+        echo "Done.\n";
+        return 0; // 0 = success, 1 = error
+    }
+}
+```
+
+For **daemon** commands, also use `DaemonTrait`:
+
+```php
+class MyDaemonCommand implements CommandInterface {
+    use DaemonTrait;
+    // ...
+}
+```
+
+For **cron jobs**, use `CronTrait`:
+
+```php
+class MyCronJob implements CommandInterface {
+    use CronTrait;
+
+    public function getName(): string {
+        return 'cron:my_job'; // Cron names are prefixed with cron:
+    }
+    // ...
+}
+```
+
+### Step 2. Registration is automatic
+
+There is **nothing to add to `console.php`**. On startup it globs `Cli/Commands/*.php` and
+`Cli/CronJobs/*.php` and, via reflection, `register()`s every non-abstract class implementing
+`CommandInterface`. Dropping your class in the right directory (with a `getName()` that returns
+its command name) is all that is required — see [Core Wiring → CLI command registration](../development/core-wiring.md#cli-command-registration).
+
+### Step 3. Add to Makefile (if LB-excluded)
+
+If the command should NOT be included in Load Balancer builds, add its path to `LB_FILES_TO_REMOVE` in the `Makefile`.
+
+### Step 4. Test
+
+```bash
+# Verify it appears in the list
+/home/xc_vm/console.php list
+
+# Run it
+/home/xc_vm/console.php my_command
+```
+
+---
+
+## Tools Command
+
+The `tools` command provides system maintenance utilities.
+
+```bash
+/home/xc_vm/console.php  tools <subcommand>
+```
+
+### Subcommands (run as `root`)
+
+| Subcommand | Description |
+| --- | --- |
+| `rescue` | Create a temporary rescue access code for emergency panel access. Prints the URL. **Delete this code after use!** |
+| `recaptcha` | Disable reCAPTCHA (`recaptcha_enable = 0`) to restore admin panel login when captcha verification is failing. |
+| `access` | Regenerate all nginx access code configs and reload nginx. Prints URLs for all admin panel codes. |
+| `ports` | Regenerate nginx port configs (HTTP, HTTPS, RTMP) from the database and reload nginx. |
+| `migration` | Clear the staging database (`xc_vm_migrate`) and optionally restore a `.sql` backup into it. |
+| `user` | Create a rescue admin user with random credentials. Prints username and password. **Delete this user after use!** |
+| `mysql` | Reauthorise MySQL privileges for all load balancer servers. |
+| `database` | Restore a blank XC_VM database from `database.sql`. **Erases ALL data!** Requires `--confirm` flag. |
+| `flush` | Flush all blocked IPs — removes the panel's own block rules (`-s <address> -j DROP` in `INPUT`, IPv4 and IPv6) in one commit per address family, removes the block files, and truncates the `blocked_ips` table. Every other firewall rule, chain and policy is left alone. |
+| `twofactor <username>` | Turn off a user's two-factor sign-in, for an admin or reseller who lost their authenticator app and recovery codes. If the user's group requires it, the next sign-in sets it up again. |
+
+### Subcommands (run as `xc_vm`)
+
+| Subcommand | Description |
+| --- | --- |
+| `images` | Download missing stream/movie/series images from TMDB. Scans DB for image URLs and downloads missing files. |
+| `duplicates` | Find and remove duplicate VOD streams. Groups by identical source, keeps first, deletes rest. **Destructive!** |
+| `bouquets` | Clean stale references from bouquets. Removes IDs that no longer exist in the database. It can run while imports are adding items. Only one scan runs at a time and one waits; a run started while one is already waiting returns at once and leaves it the work. |
+
+### Examples
+
+```bash
+# Emergency panel access (root)
+sudo /home/xc_vm/console.php tools rescue
+
+# Disable reCAPTCHA to recover admin login (root)
+sudo /home/xc_vm/console.php tools recaptcha
+
+# Regenerate access codes (root) — required after nginx template changes
+sudo /home/xc_vm/console.php tools access
+
+# Regenerate port configuration (root)
+sudo /home/xc_vm/console.php tools ports
+
+# Clear staging database (root)
+sudo /home/xc_vm/console.php tools migration
+
+# Clear staging database and restore a backup (root)
+sudo /home/xc_vm/console.php tools migration /path/to/backup.sql
+
+# Create rescue admin user (root)
+sudo /home/xc_vm/console.php tools user
+
+# Turn off two-factor sign-in for a locked-out admin (root)
+sudo /home/xc_vm/console.php tools twofactor admin
+
+# Reauthorise MySQL privileges on all servers (root)
+sudo /home/xc_vm/console.php tools mysql
+
+# Restore blank database (root) — DESTRUCTIVE!
+sudo /home/xc_vm/console.php tools database --confirm
+
+# Flush all blocked IPs (root)
+sudo /home/xc_vm/console.php tools flush
+
+# Download missing images (xc_vm)
+su - xc_vm -c '/home/xc_vm/console.php tools images'
+
+# Remove duplicate VOD entries (xc_vm)
+su - xc_vm -c '/home/xc_vm/console.php tools duplicates'
+
+# Clean orphaned bouquet references (xc_vm)
+su - xc_vm -c '/home/xc_vm/console.php tools bouquets'
+```
+
+- ⚠️ **Warning:** `duplicates` permanently deletes streams and all associated data (logs, stats, episodes, recordings). Always back up before running.
+- ⚠️ **Warning:** `database --confirm` erases the entire database and replaces it with a blank schema. This is irreversible.
+- 💡 **Tip:** After running `rescue`, always delete the code through the admin panel or by running `tools access` once you have regained access.
+- 💡 **Tip:** After running `user`, change the password immediately and delete the rescue user when done.
+
+---
+
+## Database updates / migrations
+
+The file-based DB update system (authoring a `.sql` step, the `migrations` table, `db:migrate`, execution flow) now lives in its own page — see [Database Updates / Migrations](database-migrations.md).
+
+---
+
+## Common CLI Operations
+
+### Status Check
+
+```bash
+sudo /home/xc_vm/console.php status
+```
+
+Checks if XC_VM is running, connects to the database, runs pending DB update steps, fixes permissions, and validates nginx configuration. Required after installation or recovery.
+
+With `first-run` argument, skips the running check — used for initial setup:
+
+```bash
+sudo /home/xc_vm/console.php status first-run
+```
+
+`status` and `startup` both check root's crontab and print one of three lines. `Crontab already installed` is the normal line at every start. `Crontab installed` appears only when the list of entries changed. `Crontab not installed: ...` means the new list could not be put in place and the old crontab was kept.
+
+### Service Management
+
+```bash
+sudo /home/xc_vm/console.php service start|stop|restart|reload
+```
+
+### Manual Update
+
+```bash
+sudo -u xc_vm /home/xc_vm/console.php update update
+```
+
+Downloads and applies the latest update from GitHub. Usually triggered automatically through the web panel.
+
+### Stream Diagnostics
+
+```bash
+sudo -u xc_vm /home/xc_vm/console.php monitor <stream_id>
+```
+
+Starts a stream manually and displays any errors. Useful for diagnosing stream startup failures.
+
+### Server (Node) Diagnostics
+
+```bash
+# On the MAIN — remote-probe a node by its server id
+sudo /home/xc_vm/console.php server:diagnose <server_id>
+
+# On the LB/proxy node itself — local self-diagnosis (no arguments)
+sudo /home/xc_vm/console.php server:diagnose
+```
+
+Finds out **why** a proxy/LB node shows offline in the panel: checks the heartbeat, reachability (ICMP/TCP/HTTP `/api`), clock skew, the signal queue, whether an LB holds the main's `OPENSSL_EXTRA`, and — locally on the node — whether the node firewalled the main's IP in its own iptables, whether the `xc_vm` service/nginx are up, whether the `watchdog` heartbeat daemon is running, and whether `cron:servers` is in the `xc_vm` crontab. Read-only; exit code `0` = no problems found, `2` = probable causes printed. See the [Server Diagnostics guide](../administration/server-diagnostics.md) for details.
+
+### OPENSSL_EXTRA Sync
+
+```bash
+# On the MAIN — one load balancer, or every LB that reports another value
+sudo /home/xc_vm/console.php server:sync-openssl-extra <server_id>
+sudo /home/xc_vm/console.php server:sync-openssl-extra --all [--force]
+```
+
+Moves load balancers onto the main's `OPENSSL_EXTRA` when `server:diagnose` reports a mismatch (playback redirected from the main fails on that LB). Each LB applies it within a minute and still accepts its old value for 10 minutes. See [Repairing an OPENSSL_EXTRA mismatch](../administration/server-diagnostics.md#repairing-an-openssl_extra-mismatch).
+
+### SSL Certificate
+
+```bash
+sudo /home/xc_vm/console.php certbot
+```
+
+### Database migrations
+
+Apply pending `.sql` steps by hand, or import data from another system — see [Database Updates / Migrations](database-migrations.md#applying-migrations-manually).
+
+---
+
+## Related files
+
+| File | Role |
+| --- | --- |
+| `src/console.php` | CLI entry point + FQCN command discovery |
+| `src/Cli/Commands/` | Console commands |
+| `src/Cli/CronJobs/` | Cron job classes |
+| `src/migrations/` | Database migrations |

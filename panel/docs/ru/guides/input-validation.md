@@ -1,0 +1,335 @@
+# <a id="input-validation-and-sanitization"></a>Проверка и санитарная обработка входных данных
+
+XC_VM использует двухуровневую защиту для входящих данных запроса. Во-первых, передача **глобальная санитарная обработка** удаляет опасный контент из всех суперглобальных файлов PHP во время начальной загрузки, перед запуском любого кода приложения. Во-вторых, уровень **проверка на уровне действий** проверяет наличие обязательных полей перед выполнением бизнес-логики.
+
+Оба слоя реализованы в виде `src/Core/Validation/InputValidator.php`.
+
+---
+
+## <a id="global-sanitization-flow"></a>Глобальный поток санитарной обработки
+
+Очистка выполняется автоматически во время начальной загрузки. Когда вызывается `LegacyInitializer::initCore()` (в `src/Core/Init/LegacyInitializer.php`), перед любым кодом контроллера или службы выполняются следующие действия:
+
+```
+LegacyInitializer::initCore()
+  |
+  +-- InputValidator::cleanGlobals($_GET)
+  +-- InputValidator::cleanGlobals($_POST)
+  +-- InputValidator::cleanGlobals($_SESSION)
+  +-- InputValidator::cleanGlobals($_COOKIE)
+  |
+  +-- $input = InputValidator::parseIncomingRecursively($_GET)
+  +-- RequestManager::set(InputValidator::parseIncomingRecursively($_POST, $input))
+```
+
+После выполнения этой последовательности все необработанные суперглобальные данные были обработаны на месте, и объединенные/очищенные данные GET+POST доступны через `RequestManager`.
+
+Контекст потоковой передачи (`LegacyInitializer::initStreaming()`) выполняет ту же последовательность очистки с использованием класса `Request`, который предоставляет эквивалентные методы для пути начальной загрузки потоковой передачи.
+
+### <a id="cleanglobalsrdata-riteration-0"></a>Чистые глобальные значения(&$rData, $rIteration = 0)
+
+Рекурсивно обходит заданный суперглобальный массив и удаляет опасное содержимое. Применяется к `$_GET`, `$_POST`, `$_SESSION`, и `$_COOKIE`.
+
+Извлекает следующее из каждого скалярного значения:
+
+|Угроза|Узор удален|Замена|
+| --- | --- | --- |
+|Ввод нулевого байта|`\0` (chr 0)|удаленный|
+|Обход пути| `../` |`&#46;&#46;/` (в кодировке HTML)|
+|Переопределение RTL (подмена пользовательского интерфейса)| `&#8238;` |удаленный|
+
+Рекурсия ограничена 10 уровнями, чтобы предотвратить исчерпание стека из-за глубоко вложенных входных данных.
+
+### <a id="parseincomingrecursivelyrdata-rinput-riteration-0"></a>Синтаксический анализ выполняется рекурсивно(&$rData, $rInput, $rIteration = 0)
+
+Рекурсивно обрабатывает данные GET и POST, применяя очистку ключей и значений к каждому листу. Для массивов выполняется рекурсия на глубину до 20 уровней. Для скалярных значений применяется `parseCleanKey()` к ключу и `parseCleanValue()` к значению.
+
+Объединенный результат (сначала ПОЛУЧИТЬ, затем опубликовать с наложением) сохраняется в `RequestManager` для использования на протяжении всего жизненного цикла запроса.
+
+### parseCleanKey($rKey)
+
+Очищает ключи массива, чтобы предотвратить внедрение с помощью имен ключей:
+
+1. URL-расшифровывает, а HTML-экранирует ключ (`htmlspecialchars(urldecode(...))`)
+2. Удаляет последовательности с двумя точками (`..` -> `''`)
+3. Strips `__dunder__`-маркеры стиля с помощью регулярного выражения
+4. Проверяет соответствие допустимому набору символов: символы word, точки, дефисы, подчеркивания
+
+### Значение parseCleanValue($rValue)
+
+Выполняет очистку скалярных значений за несколько проходов:
+
+|Шаг|Что он делает|
+| --- | --- |
+|Неэкранированный пейзаж|`stripslashes()` и вернуть `&#032;` в исходное положение|
+|Нормализовать новые строки|Преобразовать `\r\n`, `\n\r`, `\r` в `\n`|
+|Защита HTML-комментариев|`<!--` становится `&#60;&#33;--`, `-->` становится `--&#62;`|
+|Нейтрализация тегов скрипта|`<script` (без учета регистра) становится `&#60;script`|
+|Нормализация объекта|Исправлены объекты с двойным кодированием и искаженные числовые объекты|
+|Отделка|Начальные и конечные пробелы удалены|
+
+---
+
+## <a id="action-level-validation"></a>Проверка на уровне действий
+
+### <a id="validate"></a>проверить()
+
+```php
+InputValidator::validate(string $rAction, array $rData): bool
+```
+
+Проверяет наличие минимально необходимых полей для данного действия. Возвращает `true`, если данные приемлемы, `false`, если необходимые поля отсутствуют или оформлены неправильно. Контроллеры должны вызывать это перед отправкой данных на уровни службы/хранилища.
+
+```php
+if (!InputValidator::validate($action, $data)) {
+    // reject with validation error
+}
+```
+
+### validateOrFail()
+
+```php
+InputValidator::validateOrFail(string $rAction, array $rData): ?array
+```
+
+Удобная оболочка для `validate()`. Возвращает `null`, если данные верны, или массив ошибок, если проверка не удалась:
+
+```php
+$error = InputValidator::validateOrFail($action, $data);
+if ($error !== null) {
+    // $error = ['status' => STATUS_INVALID_INPUT, 'data' => $data]
+    return $error;
+}
+```
+
+### <a id="confirmidsids"></a>Подтверждающие идентификаторы($ids)
+
+```php
+InputValidator::confirmIDs($ids)   // untyped params/return; yields a filtered array of positive int IDs
+```
+
+Фильтрует массив, чтобы он содержал только целые положительные идентификаторы. Любое значение, в котором пропущено значение `intval($id) <= 0`. Широко используется в кодовой базе (более 30 сайтов для звонков) везде, где необходимо очистить списки идентификаторов, предоставленные пользователем, перед запросами к базе данных.
+
+```php
+$safeIds = InputValidator::confirmIDs($userSuppliedIds);
+// [1, 42, 7] -- negative, zero, and non-numeric values removed
+```
+
+---
+
+## <a id="validation-action-reference"></a>Ссылка на действие проверки
+
+В методе `validate()` вместо названия действия используется оператор `switch`. Ниже действия сгруппированы по функциональным областям.
+
+### <a id="content-management"></a>контент-менеджмент
+
+#### <a id="streams-and-channels"></a>Потоки и каналы
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processStream` |флаг `stream_display_name` ИЛИ `review` ИЛИ `$_FILES['m3u_file']`|Любой из трех параметров удовлетворяет требованиям проверки|
+| `processChannel` |флаг `stream_display_name` ИЛИ `review` ИЛИ `$_FILES['m3u_file']`|Те же правила, что и в processStream|
+| `processRadio` |флаг `stream_display_name` ИЛИ `review` ИЛИ `$_FILES['m3u_file']`|Те же правила, что и в processStream|
+
+#### <a id="movies-vod"></a>Фильмы / VOD
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processMovie` |флаг `stream_display_name` ИЛИ `review` ИЛИ `$_FILES['m3u_file']`|Те же правила, что и в processStream|
+
+#### <a id="series-and-episodes"></a>Сериалы и эпизоды
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processSeries` | `title` |Требуется указать название серии|
+| `processEpisode` |`series` (непустой) И `season_num` (числовой) И (`multi` флаг ИЛИ `episode` числовой)|Сложная многопутевая проверка|
+
+### <a id="organization"></a>Организация
+
+#### <a id="bouquets"></a>Букеты
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processBouquet` | `bouquet_name` |Требуемый скаляр|
+| `reorderBouquet` | `stream_order_array` |Необходимо декодировать в массив JSON|
+| `sortBouquets` | `bouquet_order_array` |Необходимо декодировать в массив JSON|
+
+#### <a id="categories"></a>Категории
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processCategory` |`category_name`, `category_type`|Оба необходимых|
+| `orderCategories` | `categories` |Необходимо декодировать в массив JSON|
+
+#### <a id="groups-and-codes"></a>Группы и коды
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processGroup` | `group_name` |Требуемый скаляр|
+| `processGroupLegacy` | `group_name` |То же, что и processGroup|
+| `processCode` | `code` |Требуемый скаляр|
+| `processPackage` | `package_name` |Требуемый скаляр|
+
+### <a id="epg"></a>ЭПГ
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processEPG` |`epg_name`, `epg_file`|Оба необходимых|
+
+### <a id="devices-and-lines"></a>Устройства и линии
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processMAG` | `mac` |Требуется MAC-адрес|
+| `processEnigma` | `mac` |Требуется MAC-адрес|
+| `setChannelOrder` | `stream_order_array` |Необходимо декодировать в массив JSON|
+
+### <a id="profiles"></a>Профили
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processProfile` | `profile_name` |Требуемый скаляр|
+
+### <a id="providers"></a>Поставщики услуг
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processProvider` |`ip`, `port`, `username`, `password`, `name`|Все пять необходимых|
+| `processISP` | `isp` |Требуемый скаляр|
+| `processUA` | `user_agent` |Требуемый скаляр|
+
+### <a id="security"></a>Безопасность
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `blockIP` | `ip` |Требуется IP-адрес|
+| `processRTMPIP` | `ip` |Требуется IP-адрес|
+
+### <a id="server-management"></a>Управление сервером
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `processServer` |`server_name`, `server_ip`|Оба необходимых|
+| `processProxy` |`server_name`, `server_ip`|То же, что и processServer|
+| `installServer` |`ssh_port`, `root_password`|Оба необходимых|
+| `moveStreams` |`content_type`, `source_server`, `replacement_server`|Все три необходимых|
+| `replaceDNS` |`old_dns`, `new_dns`|Оба необходимых|
+| `orderServers` | `server_order` |Необходимо декодировать в массив JSON|
+
+### <a id="recordings-and-watch-folders"></a>Папки с записями и просмотром
+
+|Действие|Обязательные для заполнения поля|Записи|
+| --- | --- | --- |
+| `scheduleRecording` |`title`, `source_id`|Оба необходимых|
+| `processWatchFolder` |`folder_type`, `selected_path`, `server_id`|Все три необходимых|
+
+### <a id="mass-operations-json-array-payloads"></a>Массовые операции (полезная нагрузка в виде массива JSON)
+
+Для всех массовых операций в указанном поле требуется массив в кодировке JSON. Поле должно быть преобразовано в допустимый массив PHP.
+
+|Действие|Поле JSON|
+| --- | --- |
+| `massEditEpisodes` | `streams` |
+| `massEditMovies` | `streams` |
+| `massEditRadios` | `streams` |
+| `massEditStreams` | `streams` |
+| `massEditChannels` | `streams` |
+| `massDeleteStreams` | `streams` |
+| `massEditSeries` | `series` |
+| `massDeleteSeries` | `series` |
+| `massEditLines` | `users_selected` |
+| `massEditUsers` | `users_selected` |
+| `massEditMags` | `devices_selected` |
+| `massEditEnigmas` | `devices_selected` |
+| `massDeleteMovies` | `movies` |
+| `massDeleteLines` | `lines` |
+| `massDeleteUsers` | `users` |
+| `massDeleteStations` | `radios` |
+| `massDeleteMags` | `mags` |
+| `massDeleteEnigmas` | `enigmas` |
+| `massDeleteEpisodes` | `episodes` |
+
+---
+
+## <a id="default-fallthrough-behavior"></a>Аварийное поведение по умолчанию
+
+Действия, явно не указанные в инструкции `switch`, попадают в `return true`, что означает, что они всегда проходят проверку. Это сделано намеренно - эти действия либо не содержат обязательных полей на уровне gate, либо выполняют свою собственную проверку на более глубоком уровне бизнес-логики.
+
+**Явно выполняемые сквозные действия** (указан в переключателе как `return true`):
+
+- `processUser`
+- `processLine`
+- `processHMAC`
+- `editAdminProfile`
+- `editSettings`
+- `editBackupSettings`
+- `editCacheCron`
+- `editPlexSettings`
+- `editWatchSettings`
+- `processPlexSync`
+- `processLogin`
+- `submitTicket`
+
+**Неявно передаваемые действия** (вообще отсутствует в переключателе, используется значение по умолчанию `return true`):
+
+Любая строка действия, не соответствующая `case`, также вернет значение `true`. Если для нового действия требуется стробирование ввода, необходимо явно добавить регистр.
+
+---
+
+## <a id="validation-patterns-used"></a>Используемые шаблоны проверки
+
+Метод `validate()` последовательно использует небольшой набор шаблонов:
+
+|Шаблон|Цель|Пример|
+| --- | --- | --- |
+| `!empty($rData['field'])` |Обязательное скалярное поле (ненулевое, непустое, ненулевое значение)| `!empty($rData['bouquet_name'])` |
+| `is_numeric($rData['field'] ?? null)` |Числовая проверка с резервным копированием, безопасным для null| `is_numeric($rData['season_num'] ?? null)` |
+| `is_array(json_decode($rData['field'] ?? '', true))` |Строка JSON, которую необходимо декодировать в массив| `is_array(json_decode($rData['streams'] ?? '', true))` |
+| `isset($rData['field'])` |Проверка наличия поля (значение может быть пустым/ложным)| `isset($rData['review'])` |
+| `isset($_FILES['field'])` |Проверка наличия загружаемого файла| `isset($_FILES['m3u_file'])` |
+|ИЛИ условия|Многопутевая проверка (удовлетворяет любой из путей)|`!пусто($rData['имя_потока']) \|\|isset($rData['обзор']) \|\|isset($_FILES['m3u_file'])`|
+
+---
+
+## <a id="adding-validation-for-a-new-action"></a>Добавление проверки для нового действия
+
+Добавьте `case` к `switch` в `src/Core/Validation/InputValidator.php`:
+
+```php
+case 'myNewAction':
+    return !empty($rData['required_field'])
+        && is_numeric($rData['numeric_field'] ?? null);
+```
+
+Методические рекомендации:
+
+- На этом уровне проверяйте только минимально необходимые входные данные. Сохраняйте правила, относящиеся к предметной области (проверка формата, бизнес-ограничения, проверка уникальности), на уровне сервиса.
+- Используйте `!empty()` для требуемых скаляров, `is_numeric()` для числовых полей и `is_array(json_decode(..., true))` для полезной нагрузки массива JSON.
+- Для действий, которые принимают загрузку файлов в качестве альтернативы полям формы, укажите `isset($_FILES['field'])` в качестве условия ИЛИ.
+- Если действие не требует проверки на уровне шлюза, добавьте его в явный сквозной блок с `return true`, чтобы будущие разработчики знали, что это упущение является намеренным, а не случайным.
+
+---
+
+## <a id="addresses-a-visitor-supplied-url-resolves-to"></a>Адреса, указанные Посетителем по URL-Адресу, Преобразуются в
+
+Когда панель извлекает URL-адрес, полученный от посетителя (вход на внешний сервер веб-плеера, удаленный источник для изменения размера изображения), он извлекается только из общедоступных адресов. `XcVm\Core\Util\PublicAddress::isPublic($ip)` это единственная проверка адреса, к которому преобразуется такой URL-адрес:
+
+```php
+PublicAddress::isPublic(string $rIP): bool
+```
+
+Он возвращает `false` для адресов обратной связи, частных, локальных ссылок, общих (`100.64.0.0/10`) и зарезервированных адресов, а также для строки, которая не является адресом. Адрес IPv6, который содержит адрес IPv4 (сопоставленный с IPv4, совместимый с IPv4, NAT64, 6to4), оценивается по указанному в нем адресу IPv4.
+
+Проверяйте каждый адрес, который разрешает хост, и используйте этот метод, а не `filter_var()` с помощью `FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE` сам по себе, который не заглядывает в эти формы IPv6.
+
+---
+
+## <a id="related-files"></a>Связанные файлы
+
+|Файл|Цель|
+| --- | --- |
+| `src/Core/Validation/InputValidator.php` |Вся логика санитарной обработки и проверки|
+| `src/Core/Init/LegacyInitializer.php` |Вызывающий элемент Bootstrap, запускающий очистку с помощью `initCore()`|
+| `src/Core/Http/RequestManager.php` |Сохраняет обработанные, объединенные данные GET+POST|
+| `src/Core/Util/PublicAddress.php` |`isPublic()`: проверка общедоступных адресов на наличие URL-адресов, предоставленных посетителями|
+| `src/Public/Controllers/` |Контроллеры, которые вызывают `validate()` / `validateOrFail()` перед бизнес-логикой|

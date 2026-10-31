@@ -1,0 +1,396 @@
+# <a id="error-handling-model"></a>Модель обработки ошибок
+
+Обработка ошибок XC_VM состоит из трех уровней:
+
+- **Коды ошибок** -- что не удалось (централизованный реестр именованных строк ошибок)
+- **Обработчики ошибок** -- как формируется HTTP-ответ клиента (`generateError()`, `generate404()`)
+- **Подсистема регистратора** -- отслеживание ошибок PHP во время выполнения, неперехваченных исключений и фатальных сбоев
+
+---
+
+## <a id="flow-overview"></a>Обзор потока
+
+```text
+Application code
+  |
+  +-- generateError('CODE')        // deliberate error response
+  |     -> debug mode:  styled HTML page with code + description
+  |     -> production:  generate404() or explicit HTTP code
+  |
+  +-- PHP warning / notice / error  // runtime errors
+  |     -> Logger::handleError()
+  |        -> maps errno to level (ERROR, WARNING, NOTICE, INFO)
+  |        -> writes base64-encoded JSON to error_log.log
+  |        -> optionally displays on screen
+  |
+  +-- Uncaught exception            // unhandled Throwable
+  |     -> Logger::handleException()
+  |        -> logs as EXCEPTION with full chained trace
+  |
+  +-- Fatal error at shutdown       // E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR
+        -> Logger::handleFatal()
+           -> logs as FATAL (no stack trace available)
+```
+
+---
+
+## <a id="error-code-registry"></a>Реестр кодов ошибок
+
+Все коды объявляются методом `ErrorResponder::codes()` в `src/Core/Error/ErrorResponder.php`, который возвращает массив code => English-описание.
+
+Формат кода:
+
+- Ключ: строка в верхнем регистре (пример: `INVALID_CREDENTIALS`)
+- Значение: понятное для человека описание на английском языке
+
+Используйте только централизованные определения кода. Не следует жестко кодировать текст ошибки в обработчиках конечных точек.
+
+### <a id="full-code-list"></a>Полный список кодов
+
+|Код|Описание|
+| --- | --- |
+| `API_IP_NOT_ALLOWED` |IP-адрес не разрешен для доступа к API.|
+| `ARCHIVE_DOESNT_EXIST` |Для этого идентификатора потока отсутствуют архивные файлы.|
+| `ASN_BLOCKED` |ASN был заблокирован.|
+| `BANNED` |Линия была заблокирована.|
+| `BLOCKED_USER_AGENT` |Пользовательский агент был заблокирован.|
+| `CACHE_INCOMPLETE` |Генерируется кэш...|
+| `DEVICE_NOT_ALLOWED` |Устройствам MAG и Enigma не разрешен доступ к этому файлу.|
+| `DISABLED` |Линия была отключена.|
+| `DOWNLOAD_LIMIT_REACHED` |Достигнуто ограничение на одновременную загрузку. В ответ на запрос выдается HTTP 429 с пустым текстом, в то время как на сервере уже запущено `max_simultaneous_downloads` загрузок такого типа (плейлист или XMLTV); код и его текст отображаются только с включенным `debug_show_errors`.|
+| `E2_DEVICE_LOCK_FAILED` |Проверка блокировки устройства не удалась.|
+| `E2_DISABLED` |Устройство было отключено.|
+| `E2_NO_TOKEN` |Токен не был указан.|
+| `E2_TOKEN_DOESNT_MATCH` |Токен не соответствует записям.|
+| `E2_WATCHDOG_TIMEOUT` |Истек лимит времени.|
+| `EMPTY_USER_AGENT` |Пустые пользовательские агенты запрещены.|
+| `EPG_DISABLED` |Функция EPG была отключена.|
+| `EPG_FILE_MISSING` |Кэшированные файлы EPG отсутствуют.|
+| `EXPIRED` |Срок действия строки истек.|
+| `FORCED_COUNTRY_INVALID` |Страна не совпадает с принудительной страной.|
+| `GENERATE_PLAYLIST_FAILED` |Не удалось создать список воспроизведения.|
+| `HLS_DISABLED` |Функция HLS была отключена.|
+| `HOSTING_DETECT` |Обнаружен хостинг-сервер.|
+| `INVALID_API_PASSWORD` |Неверный пароль API.|
+| `INVALID_CREDENTIALS` |Имя пользователя или пароль неверны.|
+| `INVALID_HOST` |Доменное имя не распознано.|
+| `INVALID_STREAM_ID` |Идентификатор потока не существует.|
+| `INVALID_TYPE_TOKEN` |Токены не могут быть использованы для этого типа потока.|
+| `IP_BLOCKED` |IP-адрес был заблокирован.|
+| `IP_MISMATCH` |Текущий IP-адрес не соответствует исходному IP-адресу подключения.|
+| `ISP_BLOCKED` |Провайдер был заблокирован.|
+| `LB_TOKEN_INVALID` |Токен AES не может быть расшифрован.|
+| `LEGACY_EPG_DISABLED` |Устаревший epg.php доступ был отключен.|
+| `LEGACY_GET_DISABLED` |Устаревший get.php доступ был отключен.|
+| `LEGACY_PANEL_API_DISABLED` |Устаревший panel_api.php доступ был отключен.|
+| `LINE_CREATE_FAIL` |Не удалось вставить строку в базу данных.|
+| `NO_CREDENTIALS` |Учетные данные не были указаны.|
+| `NO_SERVERS_AVAILABLE` |В настоящее время серверы для этого потока не доступны.|
+| `NO_TIMESTAMP` |Временная метка архива не указана.|
+| `NO_TOKEN_SPECIFIED` |Зашифрованный токен AES не был указан.|
+| `NOT_ENIGMA_DEVICE` |Линия - это не загадочное устройство.|
+| `NOT_IN_ALLOWED_COUNTRY` |Нет в списке разрешенных стран.|
+| `NOT_IN_ALLOWED_IPS` |Его нет в списке разрешенных IP-адресов.|
+| `NOT_IN_ALLOWED_UAS` |Отсутствует в списке разрешенных пользовательских агентов.|
+| `NOT_IN_BOUQUET` |У Line нет доступа к этому идентификатору потока.|
+| `PLAYER_API_DISABLED` |API плеера был отключен.|
+| `PROXY_ACCESS_DENIED` |Вы не можете получить прямой доступ к этому потоку, пока включен прокси-сервер.|
+| `PROXY_DETECT` |Обнаружен прокси-сервер.|
+| `PROXY_NO_API_ACCESS` |Не удается получить доступ к API через прокси.|
+| `RESTREAM_DETECT` |Обнаружен повторный поток.|
+| `STALKER_CHANNEL_MISMATCH` |Идентификатор потока не совпадает с токеном stalker.|
+| `STALKER_DECRYPT_FAILED` |Не удалось расшифровать токен сталкера.|
+| `STALKER_INVALID_KEY` |Недействительный ключ сталкера.|
+| `STALKER_IP_MISMATCH` |IP-адрес не соответствует токену stalker.|
+| `STALKER_KEY_EXPIRED` |Срок действия жетона сталкера истек.|
+| `STREAM_OFFLINE` |Трансляция в данный момент отключена.|
+| `SUBTITLE_DOESNT_EXIST` |Файл субтитров не существует.|
+| `THUMBNAIL_DOESNT_EXIST` |Файл миниатюр не существует.|
+| `THUMBNAILS_NOT_ENABLED` |Миниатюра не включена для этого потока.|
+| `TOKEN_ERROR` |Токен AES содержит неполные данные.|
+| `TOKEN_EXPIRED` |Срок действия токена AES истек.|
+| `TS_DISABLED` |MPEG-TS был отключен.|
+| `USER_ALREADY_CONNECTED` |Линия уже подключена с другого IP-адреса.|
+| `USER_DISALLOW_EXT` |Добавочный номер отсутствует в списке разрешенных.|
+| `VOD_DOESNT_EXIST` |Файл VOD не существует.|
+| `WAIT_TIME_EXPIRED` |Время начала трансляции истекло, запустить не удалось.|
+
+Коды, относящиеся к потоковой передаче данных (`CACHE_INCOMPLETE`, `SUBTITLE_DOESNT_EXIST`, `NO_SERVERS_AVAILABLE`, `PROXY_ACCESS_DENIED`), были перенесены из `stream/init.php` в централизованный реестр.
+
+---
+
+## <a id="error-handlers"></a>Обработчики ошибок
+
+Определено в `src/Core/Error/ErrorHandler.php`. Это простые функции (не методы класса), загружаемые в начале начальной загрузки.
+
+### `generateError(string $rError, bool $rKill = true, ?int $rCode = null)`
+
+Выдает ответ об ошибке HTTP. Поведение зависит от параметра `debug_show_errors`:
+
+```text
+if debug_show_errors === true
+    render styled HTML page showing error key + description
+    if $rKill -> exit()
+else (production)
+    if $rKill
+        if $rCode is set -> http_response_code($rCode) + exit()
+        else             -> generate404()
+    // if !$rKill, does nothing in production mode
+```
+
+Параметры:
+
+|Параметр|Тип|По умолчанию|Значение|
+| --- | --- | --- | --- |
+| `$rError` | `string` |--|Ключ от `ErrorResponder::codes()`|
+| `$rKill` | `bool` | `true` |Завершить работу скрипта после вывода|
+| `$rCode` |`инт\|нулевой`| `null` |Явный код ответа HTTP (обходит 404 в рабочей среде)|
+
+Примеры:
+
+```php
+generateError('INVALID_CREDENTIALS');              // production: 404 + exit
+generateError('API_IP_NOT_ALLOWED', true, 403);    // production: 403 + exit
+generateError('STREAM_OFFLINE', false);             // production: no output, no exit
+```
+
+В клиентские журналы также записываются два кода (`RefusalLog`): `INVALID_STREAM_ID` ( идентификатор потока, который не существует) и `INVALID_CREDENTIALS` (учетные данные, которые не соответствуют ни одной строке). Xtream `player_api`, проверка RTMP viewer и портал Ministra (MAC, который не соответствует ни одному устройству) регистрируют `INVALID_CREDENTIALS` таким же образом, хотя они отвечают без `generateError`. На каждый адрес поступает не более 120 таких строк в минуту, при этом строка запроса не учитывается: при отказе в входе в систему в ней указывается пароль, который был использован. Детектор злоупотреблений подсчитывает эти строки для каждого адреса, чтобы обнаружить выборку из каталога и угадывание учетных данных.
+
+### `generate404(bool $rKill = true)`
+
+Возвращает страницу в стиле nginx `404 Not Found` и устанавливает HTTP 404. HTML-код содержит комментарии с дополнениями, чтобы скрыть страницы ошибок, отображаемые в браузерах MSIE и Chrome.
+
+```php
+generate404();       // 404 + exit
+generate404(false);  // 404, continue execution
+```
+
+---
+
+### Panel error pages: `ErrorResponder::respondPage()`
+
+Адрес панели, который отвечает на запросы 403, 404, 405 или 429, отправляет настоящую страницу с ошибкой браузеру, который запрашивал страницу, и короткое или пустое тело, которое он всегда отправлял всем остальным.
+
+- `ErrorResponder::wantsHtml()` решает: запрос принимает `text/html` и не является XHR (`X-Requested-With: XMLHttpRequest`).
+- Браузер получает `renderPage()`: одну отдельную страницу (без скрипта, ничего не загружается) со статусом, что это означает и обратной ссылкой.
+- Игроки, клиенты API и собственный Ajax-ключ панели отключают код состояния и сохраняют свое тело: путь к потоку не отображает HTML.
+
+Он используется в тех случаях, когда панель выдает пустую строку или перенаправление: страница, которую аккаунт может не открывать (`Router::denyAccess()`, 403 вместо автоматического перенаправления на панель мониторинга), неизвестная страница (404), изменение, отправленное с помощью GET (405), а также плейлист или руководство, загруженные через его лимит открылся в браузере (429). Это не структура с кодом состояния: другие пути сохраняют `generateError()`.
+
+```php
+ErrorResponder::emit(ErrorResponder::respondPage(403, 'Access denied', 'dashboard'));
+//                                             status, body for non-browsers, where "Back" leads
+```
+
+## <a id="logger-subsystem"></a>Подсистема регистратора
+
+Определен в `src/Core/Logging/Logger.php`. Класс `final`, который регистрирует три глобальных обработчика PHP для отслеживания всех ошибок во время выполнения и записи их в файл.
+
+### <a id="initialization"></a>Инициализация
+
+```php
+Logger::init(bool $showErrors, string $logFile): void
+```
+
+Регистры:
+
+1. `set_error_handler([Logger::class, 'handleError'])` -- Предупреждения, уведомления об ошибках в PHP
+2. `set_exception_handler([Logger::class, 'handleException'])` -- не перехвачено `Throwable`
+3. `register_shutdown_function([Logger::class, 'handleFatal'])` -- неустранимые ошибки при завершении работы
+
+Также настраивает `error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED)` и устанавливает `display_errors` / `display_startup_errors` на основе `$showErrors`.
+
+### <a id="where-loggerinit-is-called"></a>Где вызывается функция Logger::init()
+
+Регистратор инициализируется в двух местах, в зависимости от пути запроса:
+
+|Путь входа|Файл|Как|
+| --- | --- | --- |
+|Bootstrap (все контексты)| `src/bootstrap.php` |`XC_Bootstrap::loadConstants()` вызовы `Logger::init(PHP_ERRORS, LOGS_TMP_PATH . 'error_log.log')`|
+|Конечные точки потоковой передачи| `src/Core/Http/RequestGuard.php` |Загружает настройки из файлового кэша, определяет `PHP_ERRORS`, затем вызывает `Logger::init(PHP_ERRORS, LOGS_TMP_PATH . 'error_log.log')`|
+
+В обоих случаях параметр `PHP_ERRORS` соответствует параметру `debug_show_errors` (по умолчанию используется значение `false`, когда настройки недоступны).
+
+### <a id="error-level-mapping"></a>Отображение уровня ошибок
+
+`Logger::handleError()` преобразует константы ошибок PHP в строки уровня журнала с помощью `mapErrorLevel()`:
+
+|Константа(ы) PHP|Уровень регистрации|
+| --- | --- |
+|`E_ERROR`, `E_CORE_ERROR`, `E_COMPILE_ERROR`| `ERROR` |
+|`E_WARNING`, `E_USER_WARNING`| `WARNING` |
+|`E_NOTICE`, `E_USER_NOTICE`| `NOTICE` |
+|Все остальные значения `errno`| `INFO` |
+
+Обработчик завершения работы (`handleFatal()`) проверяет `error_get_last()` на наличие этих фатальных типов и регистрирует их как `FATAL`:
+
+|Константы PHP при завершении работы|Уровень регистрации|
+| --- | --- |
+|`E_ERROR`, `E_PARSE`, `E_CORE_ERROR`, `E_COMPILE_ERROR`| `FATAL` |
+
+Неперехваченные исключения, зарегистрированные с помощью `handleException()`, всегда используют уровень `EXCEPTION`.
+
+Ошибки, подавленные с помощью оператора `@`, игнорируются (обработчик проверяет `error_reporting() & $errno`).
+
+### <a id="log-format"></a>Формат журнала
+
+Each log entry is written as a single line: `base64_encode(json_encode($data))` followed by a newline. This prevents line corruption from multi-line messages.
+
+Декодированная структура JSON:
+
+```json
+{
+    "type":        "WARNING",
+    "log_message": "Undefined variable $foo",
+    "file":        "/home/xc_vm/Domain/Stream/StreamService.php",
+    "line":        142,
+    "log_extra":   "#0 /home/xc_vm/...(line): function()\n#1 ...",
+    "time":        1716220800,
+    "env":         "fpm-fcgi"
+}
+```
+
+|Поле|Содержание|
+| --- | --- |
+| `type` |Уровень регистрации: `ERROR`, `WARNING`, `NOTICE`, `INFO`, `EXCEPTION`, или `FATAL`|
+| `log_message` |Текст сообщения об ошибке/исключении|
+| `file` |Абсолютный путь к исходному файлу|
+| `line` |Номер строки, в которой произошла ошибка|
+| `log_extra` |Трассировка стека (форматированная строка). Пусто для неустранимых ошибок. Для записей `pdo` (записанных с помощью `FileLogger`) сбойная инструкция SQL в том виде, в каком она была написана, с заполнителями `?` вместо связанных значений (инструкция, выполненная с помощью `simple_query()`, не имеет заполнителей и регистрируется целиком). Сообщение водителя находится в `log_message`. Текст MySQL заключается в кавычки после `value: ` ("Неверное целочисленное значение: '...'") и после того, как синтаксическая ошибка `near ` заменена на `?`; любое другое сообщение, а также сообщение инструкции, выполненной через `simple_query()`, регистрируется как MySQL. это и все еще может указывать значение.|
+| `time` |Временная метка Unix|
+| `env` |Имя PHP SAPI (`cli`, `fpm-fcgi` и т.д.)|
+
+### <a id="log-file-location"></a>Расположение файла журнала
+
+Путь по умолчанию: `LOGS_TMP_PATH . 'error_log.log'`
+
+Если каталог журнала не существует, Logger создает его с правами доступа `0775`. При запуске от имени root (распространенного в контейнерах) файлу присваивается значение `xc_vm:xc_vm` с режимом `0664`.
+
+### <a id="screen-output"></a>Вывод на экран
+
+Когда `$showErrors` равно `true`, регистратор также отображает ошибки напрямую:
+
+- **КЛИ:** выходной сигнал терминала с цветовой кодировкой (красный - НЕИСПРАВИМОСТЬ/ОШИБКА, желтый - ПРЕДУПРЕЖДЕНИЕ, синий - УВЕДОМЛЕНИЕ).
+- **Сеть:** встроенный `<div>` с моноширинным шрифтом, красной рамкой и трассировкой стека в блоке `<pre>`
+
+---
+
+## <a id="logging-pipeline-file-to-database"></a>Конвейер ведения журнала: Передача файла в базу данных
+
+Программа ведения журнала записывает данные в файл `error_log.log` на диске. Отдельная подсистема считывает этот файл и сохраняет записи в таблице базы данных `panel_logs`:
+
+1. **Лесоруб** записывает строки JSON в кодировке base64 в `error_log.log`
+2. **Файловый регистратор** (`src/Core/Logging/FileLogger.php`) предоставляет дополнительный интерфейс ведения журнала, используемый кодом приложения (ошибки PDO, EPG и т.д.), который записывает данные в тот же файл в том же формате
+3. Записи заносятся в таблицу `panel_logs`
+4. **Диагностическая служба** (`src/Core/Diagnostics/DiagnosticsService.php`) считывается из `panel_logs` для:
+   - `downloadPanelLogs()` -- извлекает до 1000 последних ошибок, не связанных с EPG, затем обрезает таблицу
+   - `submitPanelLogs()` -- отправляет логи на центральный сервер API для анализа
+5. Панель администратора отображает эти журналы в разделе **Управление > Журналы > Ошибки панели**
+
+### <a id="filelogger-noise-filtering"></a>Фильтрация шума файлового регистратора
+
+`FileLogger::log()` пропускает записи, которые соответствуют:
+
+- Сообщения, содержащие `panel_logs` в дополнительном поле (предотвращает рекурсивное ведение журнала)
+- Сообщения, соответствующие `timeout exceeded`, `lock wait timeout` или `duplicate entry` (зашумленные ошибки MySQL)
+
+---
+
+## <a id="other-loggers"></a>Другие лесорубы
+
+Каталог `src/Core/Logging/` содержит дополнительные специализированные регистраторы:
+
+|Класс|Файл|Цель|
+| --- | --- | --- |
+| `Logger` | `Logger.php` |Обработчик глобальной ошибки/исключения/фатального исхода PHP (описанный выше)|
+| `FileLogger` | `FileLogger.php` |Ведение журнала на уровне приложения (ошибки PDO, EPG и т.д.) до `error_log.log`|
+| `DatabaseLogger` | `DatabaseLogger.php` |Клиент передает события потокового запроса в `client_request.log` (вводимые в таблицу `client_logs`)|
+| `UpdateLogger` | `UpdateLogger.php` |Операции обновления системы до `MAIN_HOME/update.log` (обычный текст, не base64)|
+
+Все регистраторы, кроме `UpdateLogger`, реализуют `LoggerInterface` и записывают JSON в кодировке base64.
+
+---
+
+## <a id="exception-types-in-the-codebase"></a>Типы исключений в кодовой базе
+
+Кодовая база определяет небольшое количество пользовательских классов исключений. Все неперехваченные исключения перехватываются параметром `Logger::handleException()`, который регистрирует всю цепочку исключений (включая `getPrevious()`).
+
+|Класс исключений|Базовый класс|Местоположение|
+| --- | --- | --- |
+| `DropboxException` | `\Exception` | `src/Core/Storage/DropboxException.php` |
+| `M3uParser\Exception` | `\Exception` | `src/vendor/gemorroj/m3u-parser/src/Exception.php` |
+| `DataBuildingException` | `\RuntimeException` | `src/vendor/chrisyue/php-m3u8/src/Parser/DataBuildingException.php` |
+| `DefinitionException` | `\RuntimeException` | `src/vendor/chrisyue/php-m3u8/src/Definition/DefinitionException.php` |
+| `DumpingException` | `\RuntimeException` | `src/vendor/chrisyue/php-m3u8/src/Dumper/DumpingException.php` |
+
+Большая часть кода приложения использует общие ошибки `Exception` или полагается на встроенную систему ошибок PHP. Обработчик исключений регистратора принимает любые `Throwable`.
+
+---
+
+## <a id="debug-vs-production"></a>Отладка против производства
+
+### <a id="production-default-debug_show_errors-false"></a>Производство (по умолчанию: `debug_show_errors = false`)
+
+- `generateError()` возвращает общую страницу 404 (или явный HTTP-код), скрывая внутреннюю причину сбоя
+- Регистратор по-прежнему записывает все ошибки в `error_log.log` на диск
+- для `display_errors` и `display_startup_errors` заданы значения `'0'`
+- Ошибки видны только через панель администратора (страница ошибок панели) или файлы журналов
+
+### <a id="debug-debug_show_errors-true"></a>Отладка (`debug_show_errors = true`)
+
+- `generateError()` показывает стилизованную страницу с ключом ошибки и сопоставленным описанием
+- Регистратор дополнительно отображает ошибки на экране (вывод CLI с цветовой кодировкой или встроенный HTML).
+- для `display_errors` и `display_startup_errors` заданы значения `'1'`
+
+Не включайте отображение отладки на рабочих узлах.
+
+---
+
+## <a id="bootstrap-error-handler-registration"></a>Регистрация обработчика ошибок Bootstrap
+
+Инфраструктура обработки ошибок загружается на ранней стадии загрузки:
+
+1. `bootstrap.php` определяет `MAIN_HOME` и регистрирует автозагрузчик Composer
+2. `XC_Bootstrap::loadConstants()` загружает (по порядку):
+   - `Core/Error/ErrorHandler.php` - определяет `generateError()` и `generate404()` (загружается глобально через Composer `autoload.files`); сам каталог кода равен `ErrorResponder::codes()` в `Core/Error/ErrorResponder.php`
+   - Путь и конфигурационные файлы
+   - `Core/Logging/Logger.php` -- определение класса
+3. вызывается `Logger::init(PHP_ERRORS, LOGS_TMP_PATH . 'error_log.log')`, регистрирующий три глобальных обработчика
+4. С этого момента фиксируются все ошибки PHP, неперехваченные исключения и фатальные сбои
+
+Для конечных точек потоковой передачи, которые обходят полную загрузку, `RequestGuard.php` выполняет шаги 2-3 независимо: загружает настройки из файлового кэша, определяет `PHP_ERRORS` и вызывает `Logger::init()`.
+
+---
+
+## <a id="adding-a-new-error-code"></a>Добавление нового кода ошибки
+
+1. Добавьте новую запись в массив, возвращаемый `ErrorResponder::codes()` в `src/Core/Error/ErrorResponder.php`:
+
+```php
+'MY_NEW_ERROR' => 'Human-readable description.',
+```
+
+2. Используйте это в коде:
+
+```php
+generateError('MY_NEW_ERROR');
+```
+
+Описания должны быть на английском языке для приведения в соответствие с существующим реестром.
+
+---
+
+## <a id="related-files"></a>Связанные файлы
+
+|Файл|Цель|
+| --- | --- |
+| `src/Core/Error/ErrorResponder.php` |Централизованная карта кодов ошибок (`ErrorResponder::codes()`)|
+| `src/Core/Error/ErrorHandler.php` |функции `generateError()` и `generate404()`|
+| `src/Core/Logging/Logger.php` |Обработчики глобальных ошибок PHP, исключений и фатальных исходов|
+| `src/Core/Logging/LoggerInterface.php` |Интерфейс контракта ведения журнала|
+| `src/Core/Logging/FileLogger.php` |Ведение журнала файлов на уровне приложения (PDO, EPG и т.д.)|
+| `src/Core/Logging/DatabaseLogger.php` |Ведение журнала событий потокового запроса клиента|
+| `src/Core/Logging/UpdateLogger.php` |Ведение журнала операций обновления системы|
+| `src/Core/Http/RequestGuard.php` |Путь потоковой передачи: защита от наводнений, проверка хоста, запуск регистратора|
+| `src/Core/Diagnostics/DiagnosticsService.php` |Считывает таблицу `panel_logs` для отображения администратором и отправки по API|
+| `src/bootstrap.php` |Включает уровень ошибок и регистратор во всех контекстах начальной загрузки|

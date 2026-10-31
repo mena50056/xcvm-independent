@@ -1,0 +1,230 @@
+# <a id="event-system"></a>Система событий
+
+XC_VM использует типизированный диспетчер событий в стиле PSR-14. Все события представляют собой простые классы PHP
+отправлено и получено по имени. Диспетчер основан на экземпляре и хранится в
+Откройте контейнер под ключом `events`.
+
+---
+
+## <a id="eventdispatcher"></a>Диспетчер событий
+
+`EventDispatcher` - это синглтон с мостом экземпляра. Статические методы делегируют
+активный экземпляр, поэтому существующие сайты вызовов работают без изменений.
+
+```php
+// bootstrap.php wires the canonical instance:
+$dispatcher = new EventDispatcher();
+EventDispatcher::setInstance($dispatcher);
+$container->set('events', $dispatcher);
+
+// Both paths reach the same listener store:
+EventDispatcher::dispatch(new MyEvent(...));           // static call
+$container->get('events')->dispatch(new MyEvent(...)); // instance call
+```
+
+В тестах изолируйте состояние для каждого теста с помощью:
+
+```php
+protected function setUp(): void {
+    $dispatcher = new EventDispatcher();
+    EventDispatcher::setInstance($dispatcher);
+}
+
+protected function tearDown(): void {
+    EventDispatcher::resetInstance();
+}
+```
+
+---
+
+## <a id="dispatching-and-listening"></a>Диспетчеризация и прослушивание
+
+```php
+// Dispatch
+EventDispatcher::dispatch(new StreamStartedEvent($lineId, $streamId));
+
+// Listen
+EventDispatcher::listen(StreamStartedEvent::class, function (StreamStartedEvent $e): void {
+    // handle
+}, priority: 10);
+
+// Remove a listener
+EventDispatcher::unlisten(StreamStartedEvent::class, $myCallable);
+
+// Check
+EventDispatcher::hasListeners(StreamStartedEvent::class); // bool
+```
+
+**Приоритет** — большее целое число = вызывается первым. По умолчанию `0`.
+
+---
+
+## <a id="registering-listeners-in-a-module"></a>Регистрация слушателей в модуле
+
+### <a id="option-1-geteventsubscribers-array"></a>Вариант 1 — Получить массив eventsubscribers()
+
+```php
+public function getEventSubscribers(): array {
+    // One entry per event class (it is an array key). The value is either a
+    // plain callable, or a [callable, int $priority] tuple (higher = called first).
+    return [
+        StreamStartedEvent::class => [$this, 'onStreamStarted'],
+        StreamStoppedEvent::class => [[$this, 'onStreamStopped'], 20], // with priority
+    ];
+}
+```
+
+> Класс события может появиться в этом массиве только один раз. Чтобы прикрепить **несколько**
+> прослушивающие событие **такой же** из одного модуля, используют повторяемый
+> `#[ListensTo]` attribute (Option 2) instead — `getEventSubscribers()` keeps a
+> одна запись обработчика для каждого события.
+
+### <a id="option-2-listensto-attribute"></a>Вариант 2 — атрибут #[ListensTo]
+
+```php
+use ListensTo;
+
+class MyModuleModule extends BaseModule {
+
+    #[ListensTo(StreamStartedEvent::class, priority: 20)]
+    public function onStreamStarted(StreamStartedEvent $e): void {
+        // handle
+    }
+
+    // IS_REPEATABLE — multiple attributes on the same method
+    #[ListensTo(StreamStartedEvent::class)]
+    #[ListensTo(StreamStoppedEvent::class)]
+    public function onStreamChange(object $e): void {
+        // handle both events
+    }
+}
+```
+
+Оба механизма работают одновременно и могут сосуществовать в одном модуле.
+`ModuleLoader::bootAll()` выполняет оба прохода для каждого загруженного модуля.
+
+> В приведенных выше примерах для краткости указано `use ListensTo;` / `use AbstractEvent;`. Реальные классы — это `XcVm\Core\Events\ListensTo` и `XcVm\Core\Events\AbstractEvent` - импортируйте эти полные имена (глобального псевдонима нет).
+
+---
+
+## <a id="stoppable-events"></a>Останавливаемые события
+
+Продлить `AbstractEvent` и вызвать `$e->stopPropagation()`:
+
+```php
+class MyGatingEvent extends AbstractEvent {
+    public bool $allowed = true;
+}
+
+EventDispatcher::listen(MyGatingEvent::class, function (MyGatingEvent $e): void {
+    if (!$this->check()) {
+        $e->allowed = false;
+        $e->stopPropagation();
+    }
+}, priority: 100);
+```
+
+Прослушиватели пропускаются, как только `isPropagationStopped()` возвращает значение `true`.
+
+> **Ошибки прослушивателя не обнаруживаются.** `EventDispatcher::dispatch()` вызывает прослушиватели в обычном цикле без `try/catch`, поэтому, если вызывается прослушиватель, исключение распространяется за пределы `dispatch()`, а остальные прослушиватели для этого события выполняют **нет**. Поддерживайте защиту слушателей (отслеживайте свои собственные ошибки), если один из подписчиков-неудачников не должен прерывать работу других.
+
+---
+
+## <a id="built-in-core-events"></a>Встроенные основные события
+
+Отправлено ядром:
+
+|Класс события|Местоположение|Когда отправлено|
+| ----------- | -------- | --------------- |
+| `StreamsChangedEvent` | `Events/Stream/` |Потоки были созданы или изменены (форма, импорт, EPG, категории, серверы, ...)|
+| `StreamSavedEvent` | `Events/Stream/` |Форма трансляции, импорт или admin API записывают прямые трансляции (содержит поля вкладок модуля)|
+| `StreamsDeletedEvent` | `Events/Stream/` |Потоки были удалены|
+| `StreamArgumentsChangedEvent` | `Events/Stream/` |Изменены значения аргументов глобального потока по умолчанию|
+| `TranscodeProfileSavedEvent` | `Events/Stream/` |Профиль перекодирования был сохранен|
+| `TranscodeProfileDeletedEvent` | `Events/Stream/` |Профиль перекодирования был удален (модули перестали указывать на него)|
+| `CategoryDeletedEvent` | `Events/Stream/` |Категория потока была удалена (модули перестали указывать на нее)|
+| `BouquetDeletedEvent` | `Events/Bouquet/` |Букет был удален|
+| `VodImportedEvent` | `Events/Vod/` |Был импортирован элемент VOD|
+| `MediaAnalyzedEvent` | `Events/Vod/` |Был проанализирован VOD-файл|
+| `ServerSavedEvent` | `Events/Server/` |Сервер был сохранен|
+| `ClusterLicenceLapsedEvent` | `Events/Cluster/` |`xcvm_core` отказано в аренде узла из-за отсутствия лицензии (токен был выдан без нее); один раз за отказ в выдаче|
+| `SettingsChangedEvent` | `Events/Settings/` |Настройки были сохранены|
+| `CrontabChangedEvent` | `Events/Settings/` |Кронтаб изменился|
+| `PackageInstalledEvent` | `Events/Module/` |Был установлен пакет marketplace|
+| `LegacyTableMigrationEvent` | `Events/Migration/` |При переносе восстановленной резервной копии модуль получает свою таблицу (прослушиватель копирует строки и устанавливает `copied`).|
+
+!!! предупреждение "Определено, но так и не отправлено"
+`StreamStartingEvent`, `StreamStartedEvent`, `StreamStoppedEvent`,
+`ModuleLoadedEvent`, `ModuleBootedEvent`, `UserAuthenticatedEvent` и
+`UserLoggedOutEvent` существуют как классы, но ничто в ядре не отправляет их. A
+прослушиватель на них никогда не запускается; не создавайте на их основе. В примерах на этой странице используются
+`StreamStartedEvent` только для отображения API.
+
+---
+
+## <a id="writing-a-custom-event"></a>Создание пользовательского события
+
+Простой класс — используйте свойства `readonly` для неизменяемых полезных нагрузок:
+
+```php
+<?php
+namespace XcVm\Module\MyModule;
+
+final class MyModuleEvent {
+    public function __construct(
+        public readonly int    $lineId,
+        public readonly string $reason,
+    ) {}
+}
+```
+
+Останавливаемое событие — продлить `AbstractEvent`:
+
+```php
+<?php
+namespace XcVm\Module\MyModule;
+
+use AbstractEvent;
+
+final class MyModuleGatingEvent extends AbstractEvent {
+    public bool $vetoed = false;
+
+    public function __construct(
+        public readonly int $resourceId,
+    ) {}
+}
+```
+
+Отправка из любой точки мира после начальной загрузки:
+
+```php
+EventDispatcher::dispatch(new MyModuleEvent($lineId, 'reason'));
+```
+
+---
+
+## <a id="listensto-attribute-reference"></a>Ссылка на атрибут ListensTo
+
+```php
+#[\Attribute(\Attribute::TARGET_METHOD | \Attribute::IS_REPEATABLE)]
+final class ListensTo {
+    public function __construct(
+        public readonly string $eventClass,
+        public readonly int    $priority = 0,
+    ) {}
+}
+```
+
+- `eventClass` — полное название класса для события
+- `priority` — приоритет прослушивателя (более высокий = вызывается первым; по умолчанию `0`)
+- Размещается в общедоступных методах классов, расширяющих `BaseModule`
+- `IS_REPEATABLE` — зарегистрировано несколько `#[ListensTo]` для одного и того же метода
+- Если `eventClass` не существует во время выполнения, атрибут корректно пропускается (без исключений).
+
+## <a id="related-files"></a>Связанные файлы
+
+|Файл|Роль|
+| --- | --- |
+| `src/Core/Events/EventDispatcher.php` |Диспетчер событий PSR-14|
+| `src/Core/Events/ListensTo.php` |Атрибут слушателя|
+| `src/Core/Events/` |Классы событий (Авторизация, модуль, Настройки, поток)|

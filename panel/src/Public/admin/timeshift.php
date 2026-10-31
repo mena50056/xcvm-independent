@@ -1,0 +1,262 @@
+<?php
+
+use XcVm\Core\Cluster\RelayGuard;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\NetworkUtils;
+use XcVm\Core\Util\StreamUtils;
+use XcVm\Domain\Stream\AdminStreamToken;
+use XcVm\Domain\Stream\StreamSource;
+use XcVm\Infrastructure\Database\DatabaseFactory;
+
+/**
+ * Admin timeshift handler
+ *
+ * @package XC_VM_Web_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+register_shutdown_function('shutdown');
+header('Access-Control-Allow-Origin: *');
+set_time_limit(0);
+$rIP = NetworkUtils::getUserIP();
+$rRequestData = RequestManager::getAll();
+
+if (SettingsManager::get('use_buffer') == 0) {
+	header('X-Accel-Buffering: no');
+}
+
+
+if (!empty($rRequestData['uitoken'])) {
+	$rToken = AdminStreamToken::decode($rRequestData['uitoken'], SettingsManager::get('live_streaming_pass'), !SettingsManager::get('secure_stream_tokens'));
+
+	if ($rToken === null || !$rToken->isValid((bool) SettingsManager::get('ip_subnet_match'), $rIP)) {
+		generate404();
+	}
+
+	RequestManager::update('stream', $rToken->streamId);
+	RequestManager::update('extension', 'm3u8');
+
+	if ($rToken->start !== null) {
+		RequestManager::update('start', $rToken->start);
+	}
+
+	if ($rToken->duration !== null) {
+		RequestManager::update('duration', $rToken->duration);
+	}
+} elseif (($rAdmitted = RelayGuard::admit(intval($rRequestData['stream'] ?? 0), $rRequestData['password'] ?? null, $rIP, $_SERVER)) === null) {
+	// A relay ticket naming the stream, or the legacy password from a server's address (RelayGuard).
+	generate404();
+} elseif ($rAdmitted === RelayGuard::RELAY && ($rRequestData['extension'] ?? null) === 'm3u8') {
+	// The playlist's segment URLs carry the password.
+	generate404();
+}
+
+// This node's stream row: MAIN's database (opened now, as before), or with
+// its replica and its own store none at all (StreamSource::local).
+$rLocal = StreamSource::local();
+$db = $rLocal ? DatabaseFactory::get() : DatabaseFactory::open();
+$rPassword = SettingsManager::get('live_streaming_pass');
+$rStreamID = intval($rRequestData['stream']);
+$rExtension = $rRequestData['extension'];
+
+if (empty($rRequestData['segment'])) {
+	$rStartDate = $rRequestData['start'];
+	$rDuration = $rRequestData['duration'];
+
+	$rTimestamp = StreamUtils::timeshiftStartTimestamp($rStartDate);
+}
+
+if ($rLocal) {
+	$rChannelInfo = StreamSource::joined($rStreamID);
+} else {
+	$db->query('SELECT * FROM `streams` t1 INNER JOIN `streams_servers` t2 ON t2.stream_id = t1.id AND t2.server_id = ? WHERE t1.`id` = ?', SERVER_ID, $rStreamID);
+	$rChannelInfo = 0 < $db->num_rows() ? $db->get_row() : null;
+}
+
+if ($rChannelInfo !== null) {
+	if (is_object($db)) {
+		$db->close_mysql();
+	}
+
+	if (empty($rRequestData['segment'])) {
+		$rQueue = [];
+		$rFile = ARCHIVE_PATH . $rStreamID . '/' . gmdate('Y-m-d:H-i', $rTimestamp) . '.ts';
+
+		if (empty($rStreamID) || empty($rTimestamp) || empty($rDuration)) {
+			generate404();
+		}
+
+		if (!file_exists($rFile) || !is_readable($rFile)) {
+			generate404();
+		}
+
+		$rQueue = [];
+		$i = 0;
+
+		while ($i < $rDuration) {
+			$rFile = ARCHIVE_PATH . $rStreamID . '/' . gmdate('Y-m-d:H-i', $rTimestamp + $i * 60) . '.ts';
+
+			if (file_exists($rFile)) {
+				$rQueue[] = ['filename' => $rFile, 'filesize' => filesize($rFile)];
+			}
+
+			$i++;
+		}
+
+		if (count($rQueue) == 0) {
+			generate404();
+		}
+	}
+
+	switch ($rExtension) {
+		case 'm3u8':
+			if (empty($rRequestData['segment'])) {
+				$rOutput = '#EXTM3U' . "\n";
+				$rOutput .= '#EXT-X-VERSION:3' . "\n";
+				$rOutput .= '#EXT-X-TARGETDURATION:60' . "\n";
+				$rOutput .= '#EXT-X-MEDIA-SEQUENCE:0' . "\n";
+				$rOutput .= '#EXT-X-PLAYLIST-TYPE:VOD' . "\n";
+
+				foreach ($rQueue as $rKey => $rItem) {
+					$rOutput .= '#EXTINF:60.0,' . "\n";
+
+					if (!empty($rRequestData['uitoken'])) {
+						$rOutput .= '/admin/timeshift?extension=m3u8&segment=' . basename($rItem['filename']) . '&uitoken=' . $rRequestData['uitoken'] . "\n";
+					} else {
+						$rOutput .= '/admin/timeshift?extension=m3u8&stream=' . $rStreamID . '&segment=' . basename($rItem['filename']) . '&password=' . $rPassword . "\n";
+					}
+				}
+				$rOutput .= '#EXT-X-ENDLIST';
+				ob_end_clean();
+				header('Content-Type: application/x-mpegurl');
+				header('Content-Length: ' . strlen($rOutput));
+				echo $rOutput;
+
+				exit();
+			} else {
+				$rSegment = ARCHIVE_PATH . $rStreamID . '/' . StreamUtils::sanitizeSegmentName($rRequestData['segment']);
+
+				if (file_exists($rSegment)) {
+					$rBytes = filesize($rSegment);
+					header('Content-Length: ' . $rBytes);
+					header('Content-Type: video/mp2t');
+					readfile($rSegment);
+				} else {
+					generate404();
+				}
+			}
+
+			break;
+
+		case 'ts':
+			header('Content-Type: video/mp2t');
+			$rLength = $rSize = getlength($rQueue);
+			header('Accept-Ranges: 0-' . $rLength);
+			$rStart = 0;
+			$rEnd = $rSize - 1;
+
+			if (isset($_SERVER['HTTP_RANGE'])) {
+				$rRangeStart = $rStart;
+				$rRangeEnd = $rEnd;
+				list(, $rRange) = explode('=', $_SERVER['HTTP_RANGE'], 2);
+
+				if (strpos($rRange, ',') === false) {
+					if ($rRange == '-') {
+						$rRangeStart = $rSize - substr($rRange, 1);
+					} else {
+						$rRange = explode('-', $rRange);
+						$rRangeStart = $rRange[0];
+						$rRangeEnd = (isset($rRange[1]) && is_numeric($rRange[1]) ? $rRange[1] : $rSize);
+					}
+
+					$rRangeEnd = ($rEnd < $rRangeEnd ? $rEnd : $rRangeEnd);
+
+					if (!($rRangeEnd < $rRangeStart || $rSize - 1 < $rRangeStart || $rSize <= $rRangeEnd)) {
+						$rStart = $rRangeStart;
+						$rEnd = $rRangeEnd;
+						$rLength = $rEnd - $rStart + 1;
+						header('HTTP/1.1 206 Partial Content');
+					} else {
+						header('HTTP/1.1 416 Requested Range Not Satisfiable');
+						header('Content-Range: bytes ' . $rStart . '-' . $rEnd . '/' . $rSize);
+
+						exit();
+					}
+				} else {
+					header('HTTP/1.1 416 Requested Range Not Satisfiable');
+					header('Content-Range: bytes ' . $rStart . '-' . $rEnd . '/' . $rSize);
+
+					exit();
+				}
+			}
+
+			header('Content-Range: bytes ' . $rStart . '-' . $rEnd . '/' . $rSize);
+			header('Content-Length: ' . $rLength);
+			$rStartFrom = 0;
+
+			if (0 < $rStart) {
+				$rStartFrom = floor($rStart / ($rSize / count($rQueue)));
+			}
+
+			$rFirstFile = false;
+			$rSeekTo = 0;
+			$rSizeToDate = 0;
+			$rBuffer = SettingsManager::get('read_buffer_size');
+
+			foreach ($rQueue as $rKey => $rItem) {
+				$rSizeToDate += $rItem['filesize'];
+
+				if (!($rFirstFile || 0 >= $rStartFrom)) {
+					if ($rKey >= $rStartFrom) {
+						$rFirstFile = true;
+						$rSeekTo = $rStart - $rSizeToDate;
+					}
+				}
+
+				$rFP = @fopen($rItem['filename'], 'rb');
+				if ($rFP === false) {
+					// Removed by the retention pass since it was listed: feof(false) is a TypeError.
+					break;
+				}
+				fseek($rFP, $rSeekTo);
+
+				while (!feof($rFP)) {
+					$rPosition = ftell($rFP);
+					$rResponse = stream_get_line($rFP, $rBuffer);
+					echo $rResponse;
+				}
+
+				if (is_resource($rFP)) {
+					fclose($rFP);
+				}
+
+				$rSeekTo = 0;
+			}
+
+			break;
+	}
+} else {
+	generate404();
+}
+
+function getLength($rQueue) {
+	$rLength = 0;
+
+	foreach ($rQueue as $item) {
+		$rLength += $item['filesize'];
+	}
+
+	return $rLength;
+}
+
+function shutdown() {
+	global $db;
+
+	if (is_object($db)) {
+		$db->close_mysql();
+	}
+}

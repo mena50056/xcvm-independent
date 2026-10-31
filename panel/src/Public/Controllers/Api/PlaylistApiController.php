@@ -1,0 +1,101 @@
+<?php
+
+namespace XcVm\Public\Controllers\Api;
+
+use XcVm\Core\Auth\BruteforceGuard;
+use XcVm\Core\Config\Maintenance;
+use XcVm\Core\Config\SettingsManager;
+use XcVm\Core\Error\ErrorResponder;
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\GeoIP;
+use XcVm\Core\Util\NetworkUtils;
+use XcVm\Domain\Security\BlocklistService;
+use XcVm\Domain\Stream\PlaylistGenerator;
+use XcVm\Infrastructure\Database\DatabaseFactory;
+
+/**
+ * PlaylistApiController — playlist api controller
+ *
+ * @package XC_VM_Public_Controllers_Api
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class PlaylistApiController extends BaseApiController {
+	protected $downloadType = 'playlist';
+
+	public function index() {
+		set_time_limit(0);
+		header('Access-Control-Allow-Origin: *');
+		$rRequestPath = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH);
+		$rLegacyAction = strtolower(explode('.', ltrim((string) $rRequestPath, '/'))[0] ?? '');
+
+		if ($rLegacyAction == 'get' && !SettingsManager::get('legacy_get')) {
+			$this->deny = false;
+			generateError('LEGACY_GET_DISABLED');
+		}
+
+		$rIP = NetworkUtils::getUserIP();
+		$rCountry = GeoIP::getCountry($rIP);
+		$rCountryCode = (is_array($rCountry) && isset($rCountry['country']['iso_code']) ? $rCountry['country']['iso_code'] : null);
+		$rUserAgent = (empty($_SERVER['HTTP_USER_AGENT']) ? '' : htmlentities(trim($_SERVER['HTTP_USER_AGENT'])));
+		$rDeviceKey = (empty(RequestManager::get('type')) ? 'm3u_plus' : RequestManager::get('type'));
+		$rTypeKey = (empty(RequestManager::get('key')) ? null : explode(',', RequestManager::get('key')));
+		$rOutputKey = (empty(RequestManager::get('output')) ? '' : RequestManager::get('output'));
+		$rNoCache = !empty(RequestManager::get('nocache'));
+		$rUsername = RequestManager::get('username') ?? '';
+
+		$rUserInfo = $this->authenticate($rIP, true);
+
+		if (!$rUserInfo) {
+			$rPassword = RequestManager::get('password');
+			BruteforceGuard::checkBruteforce(null, null, $rUsername, false, is_string($rPassword) ? $rPassword : null);
+			generateError('INVALID_CREDENTIALS');
+		}
+
+		$this->deny = false;
+		$this->userInfo = $rUserInfo;
+		ini_set('memory_limit', -1);
+
+		if (Maintenance::active(SettingsManager::getAll())) {
+			Maintenance::refuse(SettingsManager::getAll());
+		}
+
+		if (!empty($rUserInfo['is_stalker']) && SettingsManager::get('disable_playlist_ministra')) {
+			generateError('PLAYLIST_DISABLED');
+		}
+
+		if (!$rUserInfo['is_restreamer'] && SettingsManager::get('disable_playlist')) {
+			generateError('PLAYLIST_DISABLED');
+		}
+
+		if ($rUserInfo['is_restreamer'] && SettingsManager::get('disable_playlist_restreamer')) {
+			generateError('PLAYLIST_DISABLED');
+		}
+
+		$this->validateUser($rUserInfo, $rUserAgent, $rIP, $rCountryCode);
+
+		$this->downloading = true;
+
+		if (NetworkUtils::startDownload('playlist', $rUserInfo, getmypid(), intval(SettingsManager::get('max_simultaneous_downloads')))) {
+			global $db;
+			$db = DatabaseFactory::open();
+			$rProxyIP = ($_SERVER['HTTP_X_IP'] ?? ($_SERVER['REMOTE_ADDR'] ?? ''));
+
+			if (!PlaylistGenerator::generate($rUserInfo, $rDeviceKey, $rOutputKey, $rTypeKey, $rNoCache, BlocklistService::isProxy($rProxyIP))) {
+				generateError('GENERATE_PLAYLIST_FAILED');
+			}
+		} else {
+			// The address opened in a browser: a page that says why. A player
+			// keeps the bare status (and debug mode its own page).
+			if (ErrorResponder::wantsHtml() && !SettingsManager::get('debug_show_errors')) {
+				ErrorResponder::emit(ErrorResponder::respondPage(429, '', ''));
+			}
+			generateError('DOWNLOAD_LIMIT_REACHED', false);
+			http_response_code(429);
+			exit();
+		}
+	}
+}

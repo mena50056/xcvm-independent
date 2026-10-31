@@ -1,0 +1,100 @@
+<?php
+
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Core\Http\RequestManager;
+use XcVm\Core\Util\AdminHelpers;
+use XcVm\Domain\Stream\StreamConfigRepository;
+use XcVm\Domain\Stream\StreamRepository;
+
+/**
+ * RadioController — редактирование/добавление радиостанции.
+ *
+ * @renders Views/admin/radio.php
+ *
+ * @package XC_VM_Public_Controllers_Admin
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+
+class RadioController extends BaseAdminController {
+	public function index() {
+		$this->requirePermission();
+
+		global $db, $rServers;
+
+		if (RequestManager::has('id')) {
+			$rStation = StreamRepository::getById(RequestManager::get('id'));
+			if (!$rStation || $rStation['type'] != 4) {
+				AdminHelpers::goHome();
+			}
+		}
+
+		$rStation = null;
+		$rStationOptions = null;
+		$rStationSys = null;
+		$rOnDemand = [];
+		$rStationArguments = StreamConfigRepository::getStreamArguments();
+		$rServerTree = [
+			[
+				'id' => 'source',
+				'parent' => '#',
+				'text' => "<span class='badge bg-success'>Online</span>",
+				'icon' => 'icon-base ti tabler-player-play',
+				'state' => ['opened' => true]
+			],
+			[
+				'id' => 'offline',
+				'parent' => '#',
+				'text' => "<span class='badge bg-secondary'>Offline</span>",
+				'icon' => 'icon-base ti tabler-player-stop',
+				'state' => ['opened' => true]
+			]
+		];
+
+		if (isset($rStation)) {
+			$rStationOptions = StreamRepository::getOptions(RequestManager::get('id'));
+			$rStationSys = StreamRepository::getSystemRows(RequestManager::get('id'));
+
+			foreach ($rServers as $rServer) {
+				if (isset($rStationSys[intval($rServer['id'])])) {
+					$rParent = ($rStationSys[intval($rServer['id'])]['parent_id'] != 0) ? intval($rStationSys[intval($rServer['id'])]['parent_id']) : 'source';
+					if ($rStationSys[intval($rServer['id'])]['on_demand']) {
+						$rOnDemand[] = intval($rServer['id']);
+					}
+				} else {
+					$rParent = 'offline';
+				}
+
+				$rServerTree[] = [
+					'id' => $rServer['id'],
+					'parent' => $rParent,
+					'text' => $rServer['server_name'],
+					'icon' => 'icon-base ti tabler-server',
+					'state' => ['opened' => true]
+				];
+			}
+		} else {
+			foreach ($rServers as $rServer) {
+				$rServerTree[] = [
+					'id' => $rServer['id'],
+					'parent' => 'offline',
+					'text' => $rServer['server_name'],
+					'icon' => 'icon-base ti tabler-server',
+					'state' => ['opened' => true]
+				];
+			}
+		}
+
+		// The load-balancer server tree on this form is driven by jstree.
+		$GLOBALS['xmNewuiVendors'] = array_values(array_unique(array_merge(
+			(array) ($GLOBALS['xmNewuiVendors'] ?? []),
+			['jstree']
+		)));
+
+		$this->setTitle('Radio Stations');
+		$this->render('radio', ['rStation' => $rStation, 'rOnDemand' => $rOnDemand, 'rStationArguments' => $rStationArguments, 'rServerTree' => $rServerTree, 'rStationOptions' => $rStationOptions, 'rStationSys' => $rStationSys]);
+	}
+}

@@ -1,0 +1,134 @@
+<?php
+
+namespace XcVm\Core\Module;
+
+use XcVm\Cli\CommandRegistry;
+use XcVm\Core\Container\ServiceContainer;
+use XcVm\Core\Http\Router;
+use XcVm\Core\Module\Contract\CronProviderInterface;
+use XcVm\Core\Module\Contract\PermissionProviderInterface;
+use XcVm\Core\Module\Contract\QuickToolsProviderInterface;
+use XcVm\Core\Module\Contract\TableProviderInterface;
+use XcVm\Core\Module\Contract\TopbarProviderInterface;
+
+/**
+ * BaseModule — abstract base class for module implementations.
+ *
+ * Provides no-op defaults for all optional ModuleInterface methods so
+ * concrete modules only need to override what they actually use.
+ *
+ * getName() and getVersion() remain abstract — they are identity
+ * contracts and must be unique per module.
+ *
+ * @package XC_VM_Core_Module
+ * @author  Divarion_D <https://github.com/Divarion-D>
+ * @copyright 2025-2026 Vateron Media
+ * @link    https://github.com/Vateron-Media/XC_VM
+ * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
+ */
+abstract class BaseModule implements ModuleInterface, MigratableInterface, CronProviderInterface, TopbarProviderInterface, TableProviderInterface, PermissionProviderInterface, QuickToolsProviderInterface {
+	/**
+	 * Unique module identifier.
+	 */
+	abstract public function getName(): string;
+
+	/**
+	 * Module version string.
+	 */
+	abstract public function getVersion(): string;
+
+	/**
+	 * Boot hook: register services/bindings into the container. No-op by default.
+	 *
+	 * @param ServiceContainer $container The DI container.
+	 */
+	public function boot(ServiceContainer $container): void {
+	}
+
+	/**
+	 * Event subscribers provided by the module. Empty by default.
+	 *
+	 * @return array Map/list of event subscribers.
+	 */
+	public function getEventSubscribers(): array {
+		return [];
+	}
+
+	/**
+	 * Register the module's HTTP routes. No-op by default.
+	 *
+	 * @param Router $router The application router.
+	 */
+	public function registerRoutes(Router $router): void {
+	}
+
+	/**
+	 * Register the module's CLI commands. No-op by default.
+	 *
+	 * @param CommandRegistry $registry The CLI command registry.
+	 */
+	public function registerCommands(CommandRegistry $registry): void {
+	}
+
+	/**
+	 * Register the module's navbar entries. No-op by default.
+	 *
+	 * @param NavbarRegistry $registry The navbar registry.
+	 */
+	public function registerNavbar(NavbarRegistry $registry): void {
+	}
+
+	/**
+	 * No-op default — override to contribute per-page topbar buttons.
+	 */
+	public function registerTopbar(TopbarRegistry $registry): void {
+	}
+
+	/**
+	 * No-op default — override to register serverSide DataTable handlers.
+	 */
+	public function registerTables(TableRegistry $registry): void {
+	}
+
+	/**
+	 * No-op default — override to register reseller sub-permission keys.
+	 */
+	public function registerPermissions(PermissionRegistry $registry): void {
+	}
+
+	/**
+	 * No-op default — override to register one-shot Quick Tools actions.
+	 */
+	public function registerQuickTools(QuickToolsRegistry $registry): void {
+	}
+
+	/**
+	 * Installation hook, run when the module is installed. No-op by default.
+	 */
+	public function install(): void {
+	}
+
+	/**
+	 * Uninstallation hook, run when the module is removed. No-op by default.
+	 */
+	public function uninstall(): void {
+	}
+
+	/**
+	 * Database migrations provided by the module. Empty by default.
+	 *
+	 * @return array Migration descriptors.
+	 */
+	public function getMigrations(): array {
+		return [];
+	}
+
+	/**
+	 * Cron entries provided by the module. Empty by default.
+	 *
+	 * @return array Cron entry descriptors.
+	 */
+	public function getCronEntries(): array {
+		return [];
+	}
+}

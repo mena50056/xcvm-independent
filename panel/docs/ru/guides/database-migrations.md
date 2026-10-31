@@ -1,0 +1,184 @@
+# <a id="database-updates-migrations"></a>Обновления / миграции баз данных
+
+XC_VM использует файловую систему обновления базы данных для управления изменениями схемы между версиями. Обновления базы данных запускаются автоматически во время обновления панели управления и проверки состояния системы и могут быть применены вручную с помощью `db:migrate`.
+
+> Информацию о точке входа в консоль, реестре команд и о том, как зарегистрировать команду, смотрите в [CLI Tools & Console Reference](cli-tools.md).
+
+---
+
+## <a id="how-it-works"></a>как это работает
+
+- SQL-файлы для обновлений базы данных хранятся в `/home/xc_vm/migrations/database/up/` (`src/migrations/database/up/` в репозитории исходных текстов).
+
+- Каждому файлу присваивается имя с префиксом последовательного номера, например:
+
+```text
+001_drop_watch_folders_plex_token.sql
+002_panel_logs_add_file_env.sql
+003_drop_settings_segment_type.sql
+```
+
+- Применяемые шаги обновления базы данных отслеживаются в таблице базы данных `migrations`. Каждый шаг выполняется **ровно один раз** — если шаг уже был применен, он пропускается.
+
+- Обновления выполняются только в дальнейшем. При переносе может быть отправлен обратный файл с тем же именем в `migrations/database/down/`: когда MAIN откатывается к версии до 2.5.3, он запускает этот файл для каждой примененной миграции, которая не поддерживается в версии, и удаляет его строку из `migrations`; сбой в обратном файле прерывает откат, и запускается новая версия. миграция без удаления файла остается в силе. Откат к версии 2.6.0 или более поздней ничего не меняет: в этом выпуске снова применяются файлы из `up/`, которые программа обновления оставляет на месте. По возможности поддерживайте обратную совместимость при переносе.
+
+- Завершившаяся неудачей миграция не регистрируется и запускается повторно при следующей `console.php status` загрузке или обновлении. Причина сбоя указана в строке `[ERR]` перед `[FAIL] <file>`; `update.log`, **Бревенчатые панели**, а в строке **Схема базы данных** панели мониторинга указано, что произошел сбой, и `console.php db:migrate` завершает работу со статусом 1.
+
+- Обновления базы данных выполняются автоматически:
+  - `console.php update post-update` — после обновления панели
+  - `console.php status` — во время проверки состояния системы (только для главного сервера)
+
+Основная логика находится в `MigrationRunner` (`src/Core/Database/MigrationRunner.php`).
+
+### <a id="db-update-execution-flow"></a>Процесс выполнения обновления базы данных
+
+```text
+[ MigrationRunner::run() — DB update execution ]
+        │
+        ▼
+[ CREATE TABLE IF NOT EXISTS `migrations` ]
+        │
+        ▼
+[ Read all *.sql files from migrations/database/up/ ]
+        │
+        ▼
+[ For each file not in `migrations` table: ]
+    ├── Execute SQL statements
+    ├── Record in `migrations` table
+    └── Output [OK] (recorded) or [FAIL] (not recorded)
+```
+
+---
+
+## <a id="creating-a-new-db-update-step"></a>Создание нового шага обновления базы данных
+
+Когда вам нужно изменить схему базы данных (добавить столбцы, создать таблицы, вставить данные и т.д.), создайте новый SQL-файл для этапа обновления базы данных.
+
+### <a id="step-1-choose-a-file-name"></a>Шаг 1. Выберите имя файла
+
+Используйте следующий порядковый номер и описательное название:
+
+```text
+NNN_short_description.sql
+```
+
+**Format rules:**
+
+- Числовой префикс: 3 цифры, дополненные нулем (например, `006`, `007`)
+- Разделитель: символ подчеркивания `_`
+- Название: нижний регистр, подчеркивание, описывающее, что делает шаг обновления
+- Добавочный номер: `.sql`
+
+**Examples:**
+
+```text
+006_add_user_timezone.sql
+007_create_audit_log_table.sql
+008_insert_default_codec_settings.sql
+```
+
+### <a id="step-2-write-the-sql"></a>Шаг 2. Напишите SQL-код
+
+Поместите в файл необработанные инструкции SQL. Несколько инструкций разделяются символом `;`.
+
+**Rules for SQL DB update steps:**
+
+- **Используйте `IF EXISTS` / `IF NOT EXISTS`** чтобы сделать шаги обновления базы данных идемпотентными:
+
+```sql
+-- Adding a column (safe)
+ALTER TABLE `settings` ADD COLUMN IF NOT EXISTS `timezone` VARCHAR(64) DEFAULT 'UTC';
+
+-- Dropping a column (safe)
+ALTER TABLE `settings` DROP COLUMN IF EXISTS `old_column`;
+
+-- Creating a table (safe)
+CREATE TABLE IF NOT EXISTS `audit_log` (
+    `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    `action` VARCHAR(255) NOT NULL,
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+```
+
+- **Использовать условное значение `INSERT`** чтобы избежать дублирования:
+
+```sql
+INSERT INTO `streams_arguments` (argument_key, argument_name, argument_cmd)
+SELECT 'my_key', 'My Argument', '-my_flag %s'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `streams_arguments` WHERE argument_key = 'my_key');
+```
+
+- **Не смешивайте DDL и DML**, которые зависят друг от друга в одном файле. Если вам нужно добавить столбец и затем заполнить его, используйте два файла шагов обновления базы данных.
+
+- **Комментарии** поддерживаются с префиксом `--` (они пропускаются во время выполнения).
+
+> Idempotency matters because a failed step is **not** recorded — it prints `[FAIL] <name> (not recorded — will retry on next run)` and re-runs on the **next** `db:migrate`. A non-idempotent step that half-applied before failing will be retried from the top, so every statement must be safe to run again (use `IF NOT EXISTS`, `INSERT ... ON DUPLICATE KEY UPDATE`, etc.).
+
+### <a id="step-3-place-the-file"></a>Шаг 3. Поместите файл
+
+Скопируйте SQL-файл для шага обновления базы данных в:
+
+```text
+/home/xc_vm/migrations/database/up/
+```
+
+> 💡 В хранилище исходных текстов это значение равно `src/migrations/database/up/`. Обратный файл для отката версии, если он есть на этом шаге, находится под тем же именем в `src/migrations/database/down/`.
+
+### <a id="step-4-validate-db-update"></a>Шаг 4. Подтвердите обновление базы данных
+
+Запустите `db:migrate`, чтобы применить ожидающие обновления БД шаги:
+
+```bash
+su - xc_vm -c '/home/xc_vm/console.php db:migrate'
+```
+
+Или через `status first-run` (также запускает миграции):
+
+```bash
+sudo /home/xc_vm/console.php status first-run
+```
+
+Ожидаемый результат:
+
+```text
+Migrations
+------------------------------
+  [OK]   006_add_user_timezone.sql
+
+```
+
+If a statement fails, the runner prints the database's message on an `[ERR]` line (the panel log leaves some messages out, such as duplicate entries), the step prints `[FAIL]` and is **not** recorded — so it will be retried on the next run. Review the SQL, fix it, and re-run `db:migrate`.
+
+A step may fail on purpose to wait for the operator: `068_unique_panel_account_names` raises every username used more than once through a temporary procedure (`SIGNAL` cannot run as a prepared statement before MariaDB 10.6.2; a `CALL` can) and stays pending until they are renamed. After a version rollback a step's row is removed and the next update applies it again; `066_hold_unredeemed_activation_codes` relies on that.
+
+---
+
+## <a id="applying-migrations-manually"></a>Применение Миграций вручную
+
+Применить все ожидающие `.sql` файлы из `/home/xc_vm/migrations/database/up/` без полного обновления системы:
+
+```bash
+su - xc_vm -c '/home/xc_vm/console.php db:migrate'
+```
+
+### <a id="data-migration-from-another-system"></a>Перенос данных из другой системы
+
+Перенести данные из промежуточной базы данных `xc_vm_migrate`:
+
+```bash
+/home/xc_vm/console.php migrate
+```
+
+Более подробную информацию смотрите в [Руководстве по обновлению базы данных](../info/migration_guide.md).
+
+---
+
+## <a id="related-files"></a>Связанные файлы
+
+|Файл|Роль|
+| --- | --- |
+| `src/migrations/database/up/` |Перенос файлов базы данных `.sql`|
+| `src/migrations/database/down/` |Реверсивные файлы, запускаемые при откате версии|
+| `src/Core/Database/MigrationRunner.php` |Выполняет отложенные миграции, записывает таблицу `migrations`|
+| `src/console.php` |`db:migrate` / `status` / `migrate` точка входа|
