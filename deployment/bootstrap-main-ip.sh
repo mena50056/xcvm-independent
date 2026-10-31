@@ -85,9 +85,9 @@ APT
 export APT_CONFIG="$work/apt.conf"
 apt-get update
 apt-get install -y git python3 ca-certificates
-git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v11 \
+git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v12 \
   https://github.com/mena50056/xcvm-independent.git "$work/source"
-args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.10 --server-ip "$SERVER_IP" --admin-user admin)
+args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.11 --server-ip "$SERVER_IP" --admin-user admin)
 python3 "$work/source/deployment/install.py" "${args[@]}"
 python3 "$work/source/deployment/enable_updates.py"
 # Allow nginx's supplemental xcvm_lab group to reach the fanout socket only.

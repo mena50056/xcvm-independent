@@ -59,7 +59,7 @@ final class IndependentLbInstall {
             if(!preg_match('~^/root/xcvm-node-install\.[A-Za-z0-9]{8}$~D',$remote))throw new \RuntimeException('Invalid private remote staging directory');
             foreach(['trusted-node.py','fetch_release.py','install.py','configure.py','native-agent.json'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
             self::send($conn,$sftp,$certificate,$remote.'/main.crt');
-            $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.10'];
+            $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.11'];
             $planFile=self::privateFile($plan,$temp);self::send($conn,$sftp,$planFile,$remote.'/plan.json');
             echo "Checking MAIN TLS and downloading the node package from mena50056/xcvm-independent without a token...\n";
             $result=self::run($conn,'python3 '.escapeshellarg($remote.'/trusted-node.py').' prepare',false);

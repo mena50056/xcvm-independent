@@ -10,7 +10,11 @@ def ensure_home(root=ROOT,home=HOME,legacy=LEGACY):
     for path in [home,legacy]:
         if os.path.lexists(path) and (not path.is_symlink() or path.resolve()!=target.resolve()):
             raise ValueError('Refusing an occupied home path: '+str(path))
-    if not os.path.lexists(home):home.symlink_to(target)
+    if not os.path.lexists(home):
+        home.symlink_to(target)
+    elif os.readlink(home)!=str(target):
+        temp=home.with_name('.horus_xc.home-stage-'+str(os.getpid()))
+        temp.symlink_to(target);temp.replace(home)
     if not os.path.lexists(legacy) or os.readlink(legacy)!=str(home):
         temp=legacy.with_name('.xc_vm.horus-home-'+str(os.getpid()))
         temp.symlink_to(home);temp.replace(legacy)
