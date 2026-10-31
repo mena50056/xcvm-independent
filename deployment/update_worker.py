@@ -17,7 +17,7 @@ import time
 import sys
 import urllib.request
 
-ROOT = pathlib.Path('/opt/xcvm-independent-lab')
+ROOT = (pathlib.Path('/opt/horus_xc') if pathlib.Path('/opt/horus_xc').is_dir() else pathlib.Path('/opt/xcvm-independent-lab'))
 STATE = pathlib.Path('/var/lib/xcvm-independent-updates')
 REPOSITORY = 'mena50056/xcvm-independent'
 API = 'https://api.github.com/repos/' + REPOSITORY
@@ -201,7 +201,7 @@ def target_path(name):
 def health():
     for attempt in range(20):
         try:
-            with urllib.request.urlopen('http://127.0.0.1:18080/lab/login', timeout=3) as response:
+            with urllib.request.urlopen('http://127.0.0.1:18080/horus_xc/login', timeout=3) as response:
                 if response.status == 200:
                     return
         except Exception:

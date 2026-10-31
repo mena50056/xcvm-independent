@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 
-ROOT = pathlib.Path('/opt/xcvm-independent-lab')
+ROOT = pathlib.Path('/opt/horus_xc')
 SRC = ROOT / 'panel/src'
 
 

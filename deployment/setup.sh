@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 umask 077
-ROOT=/opt/xcvm-independent-lab
+ROOT=/opt/horus_xc
 ROLE=${1:?main or node required}
 [[ "$ROLE" == main || "$ROLE" == node ]] || exit 2
 [[ $(id -u) == 0 && $(uname -m) == x86_64 ]] || { echo 'Root and x86_64 required'; exit 1; }

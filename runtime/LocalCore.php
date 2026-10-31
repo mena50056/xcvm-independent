@@ -11,7 +11,7 @@ final class XC_VM {
         if (!function_exists('sodium_crypto_sign_keypair')) {
             throw new RuntimeException('The sodium extension is required.');
         }
-        if ($dir === '' || !str_contains(str_replace('\\', '/', $dir), '/xcvm-independent-lab/')) {
+        if ($dir === '' || (!str_contains(str_replace('\\', '/', $dir), '/xcvm-independent-lab/') && !str_contains(str_replace('\\', '/', $dir), '/horus_xc/'))) {
             throw new RuntimeException('Only an isolated xcvm-independent-lab state directory is allowed.');
         }
         self::$dir = $dir;

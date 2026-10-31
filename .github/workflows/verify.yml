@@ -9,6 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: php tests/vendor-disconnect.php
       - run: python3 deployment/test_vendor_isolation.py
+      - run: python3 deployment/test_horus_paths.py
       - run: python3 deployment/test_node_updates.py
       - run: python3 deployment/test_updates.py
       - run: sudo --preserve-env=GITHUB_ACTIONS python3 deployment/test_update_privileges.py

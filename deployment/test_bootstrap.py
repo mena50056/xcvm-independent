@@ -60,7 +60,7 @@ else:print('2: eth0 inet '+ip+'/24 scope global eth0')
         self.assertIn('Selected MAIN IPv4: 8.8.4.4', output)
 
     def test_existing_panel_paths_databases_and_services_are_refused(self):
-        for name in ['/home/xc_vm', '/opt/xcvm-independent-lab', '/home/xui', '/var/lib/mysql/xcvm_lab_main', '/etc/systemd/system/xcvm-independent-agent.service']:
+        for name in ['/home/xc_vm', '/opt/horus_xc', '/opt/xcvm-independent-lab', '/home/xui', '/var/lib/mysql/xcvm_lab_main', '/etc/systemd/system/xcvm-independent-agent.service']:
             with self.subTest(name=name):
                 marker = self.paths[name]
                 marker.parent.mkdir(parents=True, exist_ok=True)

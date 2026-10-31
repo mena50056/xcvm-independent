@@ -18,7 +18,7 @@ stop() { echo "STOP: $*" >&2; exit 1; }
 source /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 22.04 ]] || stop 'Ubuntu 22.04 is required'
 # All read-only checks run before package installation, service or DB changes.
-for path in /home/xc_vm /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /opt/xui /home/streamcreed; do
+for path in /home/xc_vm /opt/horus_xc /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /opt/xui /home/streamcreed; do
   [[ ! -e "$path" && ! -L "$path" ]] || stop "Existing panel path found: $path"
 done
 for path in /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main /var/lib/mysql/xcvm_lab_migrate /var/lib/mysql/xtream_iptvpro /var/lib/mysql/xui; do
@@ -85,14 +85,14 @@ APT
 export APT_CONFIG="$work/apt.conf"
 apt-get update
 apt-get install -y git python3 ca-certificates
-git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v9 \
+git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v10 \
   https://github.com/mena50056/xcvm-independent.git "$work/source"
-args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.8 --server-ip "$SERVER_IP" --admin-user admin)
+args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.9 --server-ip "$SERVER_IP" --admin-user admin)
 python3 "$work/source/deployment/install.py" "${args[@]}"
 python3 "$work/source/deployment/enable_updates.py"
 # Allow nginx's supplemental xcvm_lab group to reach the fanout socket only.
 # The separate .runtime-state directory and local keys remain private.
-for path in /opt/xcvm-independent-lab/panel /opt/xcvm-independent-lab/panel/src /opt/xcvm-independent-lab/panel/src/bin /opt/xcvm-independent-lab/panel/src/bin/xc_fanout /opt/xcvm-independent-lab/panel/src/bin/xc_fanout/sockets; do
+for path in /opt/horus_xc/panel /opt/horus_xc/panel/src /opt/horus_xc/panel/src/bin /opt/horus_xc/panel/src/bin/xc_fanout /opt/horus_xc/panel/src/bin/xc_fanout/sockets; do
   chmod g+x "$path"
 done
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
@@ -103,15 +103,15 @@ python3 - "$SERVER_IP" <<'PY'
 import time,urllib.request,ssl,pathlib,json,hashlib,sys
 for attempt in range(20):
     try:
-        with urllib.request.urlopen('http://127.0.0.1:18080/lab/login',timeout=5) as r:
+        with urllib.request.urlopen('http://127.0.0.1:18080/horus_xc/login',timeout=5) as r:
             if r.status!=200:raise RuntimeError('Login did not return HTTP 200')
         print('PASS local MAIN login endpoint: HTTP 200')
-        root=pathlib.Path('/opt/xcvm-independent-lab')
+        root=pathlib.Path('/opt/horus_xc')
         options=json.loads((root/'installed.json').read_text())
         assert options['version']=='v0.1.0-lab.4'
         ip=sys.argv[1]
         context=ssl.create_default_context(cafile=str(root/'tls/server.crt'))
-        with urllib.request.urlopen('https://'+ip+'/lab/login',context=context,timeout=5) as response:
+        with urllib.request.urlopen('https://'+ip+'/horus_xc/login',context=context,timeout=5) as response:
             assert response.status==200
         manifest=json.loads((root/'deployment/native-agent.json').read_text())
         assert hashlib.sha256((root/'panel/src/bin/xc_agent/xc_agent').read_bytes()).hexdigest()==manifest['binary_sha256']
@@ -122,5 +122,5 @@ for attempt in range(20):
         time.sleep(1)
 PY
 echo 'MAIN installation finished. Login details:'
-cat /opt/xcvm-independent-lab/.runtime-state/main/admin-login.json
-printf '\nPanel URL: https://%s/lab/login\n' "$SERVER_IP"
+cat /opt/horus_xc/.runtime-state/main/admin-login.json
+printf '\nPanel URL: https://%s/horus_xc/login\n' "$SERVER_IP"

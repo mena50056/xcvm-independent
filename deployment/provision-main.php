@@ -25,7 +25,7 @@ $d->prepare("UPDATE servers SET server_ip=?,private_ip=NULL,server_name='Indepen
 $d->prepare('UPDATE servers SET domain_name=? WHERE id=1')->execute([$options['hostname']]);
 $d->exec("DELETE FROM users");
 $d->exec("DELETE FROM access_codes");
-$d->exec("INSERT INTO access_codes (code,type,enabled,groups) VALUES ('lab',0,1,'[1]')");
+$d->exec("INSERT INTO access_codes (code,type,enabled,groups) VALUES ('horus_xc',0,1,'[1]')");
 $password=bin2hex(random_bytes(16));
 $salt='$6$rounds=20000$'.bin2hex(random_bytes(8)).'$';
 $d->prepare('INSERT INTO users (username,password,member_group_id,status,date_registered) VALUES (?,?,1,1,?)')->execute([$options['admin_user'],crypt($password,$salt),time()]);
@@ -40,5 +40,5 @@ $columns=$d->query('SHOW COLUMNS FROM settings')->fetchAll(PDO::FETCH_COLUMN);
 $settings=['fanout_enabled'=>1,'fanout_supervise'=>1,'dts_legacy_ffmpeg'=>0,'keep_protocol'=>1,'cluster_api_enabled'=>1,'lb_new_node_mode'=>'api','cluster_transport'=>'https_required','cluster_main_host'=>$options['hostname']??''];
 foreach($settings as $key=>$value)if(in_array($key,$columns,true))$d->prepare('UPDATE settings SET `'.$key.'`=? WHERE id=1')->execute([$value]);
 $file=$root.'/.runtime-state/main/admin-login.json';
-file_put_contents($file,json_encode(['url'=>'https://'.$panelHost.'/lab/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
+file_put_contents($file,json_encode(['url'=>'https://'.$panelHost.'/horus_xc/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
 echo "Fresh independent identity, database and admin created.\n";

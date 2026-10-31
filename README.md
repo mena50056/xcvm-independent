@@ -4,8 +4,8 @@
 لم نغيّر شكل الواجهة أو طريقة إدارة القنوات والمستخدمين.
 
 المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع عام الآن.
-الإصدار الكامل الحالي `v0.1.0-lab.8`، ومُثبّت MAIN المثبت على الوسم
-`installer-public-v9`. الحزم والمصدر من هذا المستودع العام، دون توكن GitHub
+الإصدار الكامل الحالي `v0.1.0-lab.9`، ومُثبّت MAIN المثبت على الوسم
+`installer-public-v10`. الحزم والمصدر من هذا المستودع العام، دون توكن GitHub
 أو مفتاح تفعيل رسمي. ينشئ التنصيب مفاتيح مستقلة وبيانات دخول جديدة على السيرفر نفسه.
 
 ## تنصيب MAIN على IP بدون تدخل
@@ -13,11 +13,11 @@
 شغّل أمرًا واحدًا بحساب root على Ubuntu 22.04 amd64 فارغ:
 
 ```bash
-python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v9/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
+python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v10/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
 ```
 
 يكتشف IPv4 العام المعيّن للسيرفر تلقائيًا، ويثبت MAIN ويطبع رابط الدخول
-`https://IP/lab/login` واسم admin وكلمة مرور عشوائية. لا يطلب دومينًا أو توكنًا
+`https://IP/horus_xc/login` واسم admin وكلمة مرور عشوائية. لا يطلب دومينًا أو توكنًا
 أو مفتاح تفعيل. تُنشأ شهادة HTTPS ذاتية التوقيع للـIP.
 
 يتوقف قبل تثبيت الحزم أو تغيير الخدمات إذا وجد مسار بانل معروفًا، أو قاعدة
@@ -37,7 +37,7 @@ IP وفحص SHA-256 للوكيل. إعداد HTTP على المنفذ 80 يحو�
 
 ## حدود الإصدار
 
-- Ubuntu 22.04 amd64 فقط، سيرفر جديد، ومسار `/opt/xcvm-independent-lab`.
+- Ubuntu 22.04 amd64 فقط، سيرفر جديد، ومسار `/opt/horus_xc`.
 - المُثبّت يرفض أي بانل موجود، ولا ينفذ ترقية أو فورمات.
 - عنوان السيرفر الأصلي محظور صراحة في المُثبّت.
 - حزم النظام تُحمّل من مستودعات Ubuntu؛ ملفات البانل واللود من Releases بهذا المستودع.
@@ -114,8 +114,8 @@ sudo python3 install.py --role main --repository mena50056/xcvm-independent \
 ```
 
 بيانات الدخول تُنشأ عشوائيًا في ملف خاص بالسيرفر:
-`/opt/xcvm-independent-lab/.runtime-state/main/admin-login.json`.
-واجهة البانل `/lab/login`. الشهادة الافتراضية ذاتية التوقيع؛ تواصل الكلاستر
+`/opt/horus_xc/.runtime-state/main/admin-login.json`.
+واجهة البانل `/horus_xc/login`. الشهادة الافتراضية ذاتية التوقيع؛ تواصل الكلاستر
 بين أجهزة مختلفة يحتاج شهادة HTTPS موثوقة يثق بها الطرف الآخر. يمكن تمرير
 `--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem` أثناء التنصيب.
 لا يفتح المُثبّت الجدار الناري تلقائيًا؛ احتفظ بوصول SSH وافتح منافذ الخدمة المطلوبة.
@@ -124,7 +124,7 @@ sudo python3 install.py --role main --repository mena50056/xcvm-independent \
 
 في الإصدار `v0.1.0-lab.3` يمكن حذف `--hostname` و`--tls-cert` و`--tls-key`.
 ينشئ المُثبّت شهادة ذاتية التوقيع تحتوي IP السيرفر، ويكون رابط الدخول
-`https://SERVER_IP/lab/login`. لا يحتاج ذلك إلى certbot أو تسجيل دومين.
+`https://SERVER_IP/horus_xc/login`. لا يحتاج ذلك إلى certbot أو تسجيل دومين.
 سيعرض المتصفح تنبيهًا لأن الشهادة غير موثوقة تلقائيًا. ربط لود على جهاز آخر
 يحتاج شهادة موثوقة للـIP أو إعداد ثقة بشهادة MAIN؛ لا يتم تعطيل التحقق من TLS.
 التنصيب الكامل من الصفر والربط بين جهازين عبر IP لم يُعتمدا بعد.
@@ -156,10 +156,10 @@ sudo python3 install.py --role node --repository mena50056/xcvm-independent \
 أمر التسجيل على MAIN (ضع المفاتيح العامة في `node-public.json`):
 
 ```bash
-sudo env XCVM_LAB_STATE=/opt/xcvm-independent-lab/.runtime-state/main \
-  /opt/xcvm-independent-lab/panel/src/bin/php/bin/php \
-  -c /opt/xcvm-independent-lab/php.ini \
-  /opt/xcvm-independent-lab/deployment/enroll-node.php \
+sudo env XCVM_LAB_STATE=/opt/horus_xc/.runtime-state/main \
+  /opt/horus_xc/panel/src/bin/php/bin/php \
+  -c /opt/horus_xc/php.ini \
+  /opt/horus_xc/deployment/enroll-node.php \
   --public-keys=/root/node-public.json --server-ip=NEW_NODE_IP \
   --main-url=https://panel.example.com/cluster/v1/ --output=/root/enrollment.json
 ```
@@ -195,16 +195,20 @@ The original agent acknowledged controls without executing them when PHP was abs
 
 The panel buttons were exercised on a temporary normal H.264/AAC HLS channel: Start produced real video on the load balancer; Stop removed the producer and made existing/fresh HLS requests return 404; the stopped channel stayed stopped after an agent restart; Start restored HLS; Restart changed the encoder PID and restored HLS. Test records and source processes were removed. This validates these live controls, not VOD/root administration or every source format.
 
-`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v9 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
+`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v10 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
 
 ## Independent GitHub update notifications
 
-Fresh MAIN installations using `installer-public-v9` enable hourly release checks and the existing Settings update control automatically. Existing MAIN installations enable it once using [the update setup command](deployment/UPDATES.md). Updating application code requires pressing Update now; checks alone do not install anything. Only compatible, checksummed MAIN update releases are offered. See [update scope and publishing](deployment/UPDATES.md).
+Fresh MAIN installations using `installer-public-v10` enable hourly release checks and the existing Settings update control automatically. Existing MAIN installations enable it once using [the update setup command](deployment/UPDATES.md). Updating application code requires pressing Update now; checks alone do not install anything. Only compatible, checksummed MAIN update releases are offered. See [update scope and publishing](deployment/UPDATES.md).
 
 Independent update notifications now include verified LB versions. Same/older releases never enable Update; see [LB checks, SSH update flow and service upgrade](deployment/UPDATES.md#independent-lb-updates).
 
 ## ��� ������� ������� � .8
 
-����� ������� ����� ������ ��� ��� ������ ������� �������� ������. ����� ���� ����� ������� ����� ������� ������ ������� ���������� ������ɡ �� ����� ������ �������� ������ ������� ���������. ����� ����� installer-public-v9 ���� .8 ����� ���� ������� ������ɡ ��� ����� ����� ���� ���� .8.
+����� ������� ����� ������ ��� ��� ������ ������� �������� ������. ����� ���� ����� ������� ����� ������� ������ ������� ���������� ������ɡ �� ����� ������ �������� ������ ������� ���������. ����� ����� installer-public-v10 ���� .8 ����� ���� ������� ������ɡ ��� ����� ����� ���� ���� .8.
 
 ������� �� ���� ����� ���� ����� �����. ���� ����� ������ ���� ����� ��� ����� ��ء ��� ����� ������� �� �����ɡ ��� ���� ����� ����� ��� ��� ����� ������� ���������. ���� deployment/VENDOR-ISOLATION.md. ��� ����� �������� ��� ������ ���� ���� ��������� ��������.
+
+## Horus paths (.9)
+
+Fresh MAIN and LB installs use `/opt/horus_xc`; the MAIN panel URL is `/horus_xc/`. Existing hosts require the explicit namespace migration; the fresh installer still refuses them. Live migration retains the legacy root as a compatibility symlink and redirects `/lab/` requests without changing `/live`, `/hls`, `/auth` or `/cluster/v1` URLs.

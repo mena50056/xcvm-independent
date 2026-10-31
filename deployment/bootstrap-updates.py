@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import urllib.request
 
-BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v5/'
+BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v6/'
 FILES = {'deployment/enable_updates.py', 'deployment/node_update.py', 'panel/src/Core/Updates/GitHubReleases.php', 'panel/src/Cli/Commands/IndependentLbInstall.php', 'deployment/update-ui-manifest.json', 'panel/src/Public/Controllers/Admin/ServerInstallController.php', 'panel/src/Core/Diagnostics/DiagnosticsService.php', 'panel/src/Public/routes/admin.php', 'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php', 'panel/src/Cli/Commands/BinariesCommand.php', 'panel/src/Public/Views/admin/servers.php', 'panel/src/Core/Module/ModuleStore.php', 'panel/src/Public/Views/admin/modules.php', 'panel/src/Public/Controllers/Admin/SettingsController.php', 'panel/src/Cli/CronJobs/ModuleLicensesCronJob.php', 'deployment/update_worker.py', 'panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php', 'panel/src/Public/Views/admin/dashboard.php', 'panel/src/Domain/Server/ServerService.php', 'panel/src/Public/Views/admin/settings.php', 'panel/src/Public/Views/admin/independent_updates.php', 'panel/src/Public/Controllers/Admin/Ajax/ModuleAjaxController.php', 'panel/src/Core/Updates/IndependentUpdates.php', 'panel/src/Public/Controllers/Admin/ModulesController.php', 'panel/src/Public/Controllers/Admin/Ajax/MiscAjaxController.php', 'panel/src/Core/Module/ModuleManager.php', 'panel/src/Public/Views/admin/header.php', 'panel/src/Core/Updates/IndependentNodeUpdates.php', 'panel/src/Public/Views/admin/server_install.php'}
 
 
@@ -22,7 +22,7 @@ def download(name):
 def main():
     if os.geteuid() != 0:
         raise SystemExit('Run as root on the installed independent MAIN')
-    root = pathlib.Path('/opt/xcvm-independent-lab')
+    root = pathlib.Path('/opt/horus_xc') if pathlib.Path('/opt/horus_xc').is_dir() else pathlib.Path('/opt/xcvm-independent-lab')
     installed = json.loads((root / 'installed.json').read_text())
     if installed.get('role') != 'main' or installed.get('repository') != 'mena50056/xcvm-independent':
         raise SystemExit('Only an existing independent MAIN is supported')

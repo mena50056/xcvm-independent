@@ -11,7 +11,7 @@ import tempfile
 import time
 import urllib.request
 
-ROOT=pathlib.Path('/opt/xcvm-independent-lab')
+ROOT=(pathlib.Path('/opt/horus_xc') if pathlib.Path('/opt/horus_xc').is_dir() else pathlib.Path('/opt/xcvm-independent-lab'))
 FILES=[
     'deployment/trusted-node.py','deployment/configure.py','deployment/fetch_release.py','deployment/install.py',
     'panel/src/Cli/Commands/IndependentLbInstall.php','panel/src/Domain/Server/ServerService.php',
@@ -69,7 +69,7 @@ def main():
         subprocess.run(['systemctl','daemon-reload'],check=True)
         subprocess.run(['systemctl','enable','--now','xcvm-independent-signals'],check=True)
         subprocess.run(['systemctl','is-active','--quiet','xcvm-independent-signals'],check=True)
-        with urllib.request.urlopen('http://127.0.0.1:18080/lab/login',timeout=15) as response:
+        with urllib.request.urlopen('http://127.0.0.1:18080/horus_xc/login',timeout=15) as response:
             if response.status!=200:raise RuntimeError('MAIN login health check failed')
         (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v4','installed_at':int(time.time()),'backup':str(backup)},indent=2))
         print('Independent LB button enabled; MAIN login HTTP 200. Backup: '+str(backup))

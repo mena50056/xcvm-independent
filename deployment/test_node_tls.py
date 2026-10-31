@@ -17,7 +17,7 @@ node=importlib.util.module_from_spec(spec);spec.loader.exec_module(node)
 
 class Login(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200 if self.path=='/lab/login' else 404)
+        self.send_response(200 if self.path=='/horus_xc/login' else 404)
         self.end_headers();self.wfile.write(b'fixture login')
     def log_message(self,*args):
         pass

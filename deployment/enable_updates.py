@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import time
 
-ROOT = pathlib.Path('/opt/xcvm-independent-lab')
+ROOT = (pathlib.Path('/opt/horus_xc') if pathlib.Path('/opt/horus_xc').is_dir() else pathlib.Path('/opt/xcvm-independent-lab'))
 STATE = pathlib.Path('/var/lib/xcvm-independent-updates')
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
 FILES = ['panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php', 'panel/src/Core/Updates/IndependentUpdates.php', 'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php', 'panel/src/Public/Controllers/Admin/SettingsController.php', 'panel/src/Public/Views/admin/independent_updates.php', 'panel/src/Public/Views/admin/header.php', 'panel/src/Public/Views/admin/settings.php', 'panel/src/Public/routes/admin.php', 'panel/src/Core/Updates/IndependentNodeUpdates.php', 'panel/src/Cli/Commands/IndependentLbInstall.php', 'panel/src/Domain/Server/ServerService.php', 'panel/src/Public/Controllers/Admin/ServerInstallController.php', 'panel/src/Public/Views/admin/servers.php', 'panel/src/Public/Views/admin/server_install.php', 'panel/src/Core/Diagnostics/DiagnosticsService.php', 'panel/src/Core/Module/ModuleStore.php', 'panel/src/Core/Module/ModuleManager.php', 'panel/src/Public/Controllers/Admin/Ajax/MiscAjaxController.php', 'panel/src/Cli/CronJobs/ModuleLicensesCronJob.php', 'panel/src/Cli/Commands/BinariesCommand.php', 'panel/src/Public/Controllers/Admin/ModulesController.php', 'panel/src/Public/Views/admin/modules.php', 'panel/src/Public/Views/admin/dashboard.php', 'panel/src/Public/Controllers/Admin/Ajax/ModuleAjaxController.php', 'panel/src/Core/Updates/GitHubReleases.php']
@@ -110,7 +110,7 @@ WantedBy=timers.target
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', 'enable', '--now', 'xcvm-independent-updates.timer'], check=True)
     subprocess.run(['systemctl', 'start', 'xcvm-independent-updates.service'], check=True)
-    print('GitHub update checks enabled. Open /lab/settings#panel-update as a full administrator.')
+    print('GitHub update checks enabled. Open /horus_xc/settings#panel-update as a full administrator.')
 
 
 if __name__ == '__main__':

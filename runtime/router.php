@@ -19,8 +19,14 @@ if(preg_match('~^/auth/([^/]+)$~',$path,$m)) {
 if(preg_match('~^/(hls|key)/([^/]+)$~',$path,$m)) {
     $_GET['token']=rawurldecode($m[2]);$_SERVER['XC_STREAM']=$m[1]==='hls'?'segment':'key';require MAIN_HOME.'Public/stream/index.php';return;
 }
+// Keep existing page requests valid while the canonical panel prefix changes.
+if($path === '/lab' || str_starts_with($path,'/lab/')) {
+    $suffix=substr((string)$_SERVER['REQUEST_URI'],4);
+    header('Location: /horus_xc'.($suffix === '' ? '/' : $suffix),true,307);return;
+}
+if($path === '/horus_xc'){header('Location: /horus_xc/',true,307);return;}
 // Expose assets only, never the state, source tree, exports or arbitrary PHP.
-if (preg_match('~^/lab/assets/(.+)$~',$path,$m)) {
+if (preg_match('~^/horus_xc/assets/(.+)$~',$path,$m)) {
     $asset=realpath(MAIN_HOME.'Public/assets/admin/'.$m[1]);
     $base=realpath(MAIN_HOME.'Public/assets/admin');
     if($asset && $base && str_starts_with($asset,$base.'/') && is_file($asset) && !str_ends_with(strtolower($asset),'.php')) {
@@ -29,6 +35,6 @@ if (preg_match('~^/lab/assets/(.+)$~',$path,$m)) {
     }
     http_response_code(404);return;
 }
-if(!str_starts_with($path,'/lab/')){header('Location: /lab/login');return;}
-$_SERVER['XC_SCOPE']='admin';$_SERVER['XC_CODE']='lab';
+if(!str_starts_with($path,'/horus_xc/')){header('Location: /horus_xc/login');return;}
+$_SERVER['XC_SCOPE']='admin';$_SERVER['XC_CODE']='horus_xc';
 require MAIN_HOME.'Public/index.php';
