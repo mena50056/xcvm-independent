@@ -4,6 +4,7 @@ import ipaddress
 import json
 import os
 import pathlib
+import re
 import subprocess
 import tarfile
 import tempfile
@@ -36,6 +37,7 @@ def main():
     p.add_argument('--token-file', required=True)
     p.add_argument('--server-ip', required=True)
     p.add_argument('--admin-user', default='admin')
+    p.add_argument('--hostname')
     p.add_argument('--enrollment-file')
     p.add_argument('--tls-cert')
     p.add_argument('--tls-key')
@@ -48,6 +50,10 @@ def main():
         raise SystemExit('The original production server is explicitly excluded')
     if address.version != 4:
         raise SystemExit('This experimental installer currently supports IPv4')
+    if a.hostname and (not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', a.hostname) or a.hostname==str(address)):
+        raise SystemExit('Invalid DNS hostname')
+    if a.role == 'main' and not a.hostname:
+        raise SystemExit('--hostname is required for MAIN cluster HTTPS policy')
     if not a.plan:
         if os.geteuid() != 0:
             raise SystemExit('Run as root on a fresh server')

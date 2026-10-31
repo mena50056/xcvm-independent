@@ -53,7 +53,7 @@ def copy_source(destination):
     workflow.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PROJECT / '.github/workflows/verify.yml', workflow)
     # Only standalone tests with generated local fixtures are exported.
-    for filename in ['core.php', 'cluster-nodes.php', 'run.sh']:
+    for filename in ['core.php', 'cluster-nodes.php', 'deployment-policy.php', 'run.sh']:
         target = destination / 'tests' / filename
         target.parent.mkdir(exist_ok=True)
         shutil.copyfile(PROJECT / 'tests' / filename, target)
@@ -128,7 +128,7 @@ def main():
     p.add_argument('--release-output', type=pathlib.Path, required=True)
     p.add_argument('--php-runtime', type=pathlib.Path, required=True)
     p.add_argument('--go-runtime', type=pathlib.Path, required=True)
-    p.add_argument('--version', default='v0.1.0-lab.1')
+    p.add_argument('--version', default='v0.1.0-lab.2')
     a = p.parse_args()
     if not re.fullmatch(r'v[0-9][A-Za-z0-9_.-]*', a.version):
         raise SystemExit('Invalid version')

@@ -6,7 +6,7 @@ use XcVm\Core\Cluster\Crypto\ClusterCryptoFactory;
 use XcVm\Core\Config\SettingsManager;
 use XcVm\Domain\Cluster\{EnrolmentService,LeaseService};
 set_exception_handler(static function(Throwable $e):void{fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
-$o=getopt('', ['public-keys:','server-ip:','main-url:','output:']);
+$o=getopt('', ['public-keys:','server-ip:','hostname:','main-url:','output:']);
 foreach(['public-keys','server-ip','main-url','output'] as $key)if(empty($o[$key]))throw new RuntimeException('Missing --'.$key);
 if(!filter_var($o['server-ip'],FILTER_VALIDATE_IP,FILTER_FLAG_IPV4) || $o['server-ip']==='45.32.223.254')throw new RuntimeException('Invalid or excluded node address');
 if(parse_url($o['main-url'],PHP_URL_SCHEME)!=='https' || !str_ends_with($o['main-url'],'/cluster/v1/'))throw new RuntimeException('Expected trusted HTTPS MAIN URL ending /cluster/v1/');
@@ -19,6 +19,10 @@ $q=$pdo->prepare('SELECT id FROM servers WHERE server_ip=?');$q->execute([$o['se
 if($q->fetchColumn())throw new RuntimeException('Existing node address refused');
 $pdo->prepare("INSERT INTO servers (server_name,server_ip,is_main,enabled,serve_only,http_broadcast_port,https_broadcast_port,enable_https,status,server_type) VALUES (?, ?,0,1,1,8080,443,1,1,0)")->execute(['Independent node '.$o['server-ip'],$o['server-ip']]);
 $sid=(int)$pdo->lastInsertId();
+if(!empty($o['hostname'])){
+    if(!\XcVm\Core\Cluster\ClusterSettings::validHostname($o['hostname']))throw new RuntimeException('Invalid node hostname');
+    $pdo->prepare('UPDATE servers SET domain_name=? WHERE id=?')->execute([$o['hostname'],$sid]);
+}
 $settings=SettingsManager::getAll();$settings['lb_new_node_mode']='api';$crypto=ClusterCryptoFactory::create();$main=$pdo->query('SELECT * FROM servers WHERE id=1')->fetch(PDO::FETCH_ASSOC);
 $first=EnrolmentService::issueFirst($crypto,$sid,$k['node_uuid'],hex2bin($k['sign_pub']),hex2bin($k['box_pub']),hex2bin($k['eph_pub']),$settings,$main);
 $i=$crypto->info();$install=['server_id'=>$sid,'panel_sign_pub'=>base64_encode($i['panel_sign_pub']),'panel_box_pub'=>base64_encode($i['panel_box_pub']),'main_urls'=>[$o['main-url']],'policy_ver'=>1,'epoch'=>1,'token_sealed'=>base64_encode($first['token_sealed'])]+LeaseService::wire($first['lease']);

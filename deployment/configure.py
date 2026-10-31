@@ -27,8 +27,10 @@ if stage != 'services':
     write(SRC / 'bin/xc_fanout/config.json', json.dumps(config))
     tls = ROOT / 'tls'
     tls.mkdir(mode=0o700, exist_ok=True)
+    hostname = options.get('hostname') or options['server_ip']
+    san = ('DNS:' if options.get('hostname') else 'IP:') + hostname
     subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-days', '30',
-                    '-subj', '/CN=' + options['server_ip'], '-addext', 'subjectAltName=IP:' + options['server_ip'],
+                    '-subj', '/CN=' + hostname, '-addext', 'subjectAltName=' + san,
                     '-keyout', str(tls / 'server.key'), '-out', str(tls / 'server.crt')], check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     (tls / 'server.key').chmod(0o600)
@@ -122,7 +124,7 @@ WantedBy=timers.target
 ''')
     write('/etc/nginx/sites-available/xcvm-independent', f'''server {{
 listen 443 ssl;
-server_name {options['server_ip']};
+server_name {options.get('hostname') or options['server_ip']};
 ssl_certificate {ROOT}/tls/server.crt;
 ssl_certificate_key {ROOT}/tls/server.key;
 location /xc_fanout/ {{ internal; proxy_pass http://unix:{fan}/sockets/http.sock:/live/; proxy_buffering off; proxy_read_timeout 60s; }}

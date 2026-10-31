@@ -21,7 +21,7 @@
 ## نشر إصدار خاص
 
 ارفع المصدر المنظف إلى Git. ضع الملفين الناتجين و`SHA256SUMS` و`install.py`
-و`fetch_release.py` في Release بالوسم `v0.1.0-lab.1`:
+و`fetch_release.py` في Release بالوسم `v0.1.0-lab.2`:
 
 ```
 xcvm-independent-main-linux-amd64.tar.gz
@@ -44,12 +44,13 @@ Contents: read. لا تضع قيمة التصريح في الأمر أو الر�
 
 ```bash
 sudo python3 install.py --role main --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
-  --server-ip NEW_SERVER_IP --plan
+  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
+  --server-ip NEW_SERVER_IP --hostname panel.example.com --plan
 
 sudo python3 install.py --role main --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
-  --server-ip NEW_SERVER_IP --admin-user admin
+  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
+  --server-ip NEW_SERVER_IP --hostname panel.example.com --admin-user admin \
+  --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem
 ```
 
 بيانات الدخول تُنشأ عشوائيًا في ملف خاص بالسيرفر:
@@ -71,12 +72,27 @@ sudo python3 install.py --role main --repository mena50056/xcvm-independent \
 
 ```bash
 sudo python3 install.py --role node --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.1 --token-file /root/github-read-token \
+  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
   --server-ip NEW_NODE_IP --enrollment-file /root/node-setup/enrollment.json
 ```
 
 عقدة اللود تعمل بـGo دون بيانات دخول قاعدة MAIN ودون PHP أو إضافة التفعيل.
 لا تنسخ هوية عقدة مسجلة إلى جهاز آخر.
+
+أمر التسجيل على MAIN (ضع المفاتيح العامة في `node-public.json`):
+
+```bash
+sudo env XCVM_LAB_STATE=/opt/xcvm-independent-lab/.runtime-state/main \
+  /opt/xcvm-independent-lab/panel/src/bin/php/bin/php \
+  -c /opt/xcvm-independent-lab/php.ini \
+  /opt/xcvm-independent-lab/deployment/enroll-node.php \
+  --public-keys=/root/node-public.json --server-ip=NEW_NODE_IP \
+  --main-url=https://panel.example.com/cluster/v1/ --output=/root/enrollment.json
+```
+
+استبدل `panel.example.com` بدومينك الذي يشير إلى MAIN، وثبّت شهادة موثوقة له
+قبل تسجيل العقد. إذا كان للود دومين وشهادة، أضف `--hostname=...` إلى أمر
+التسجيل ونفس `--hostname` مع مساري الشهادة إلى أمر تنصيب اللود.
 
 ## الاختبارات والتجميع
 

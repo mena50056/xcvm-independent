@@ -21,6 +21,7 @@ $proc=proc_open(['/usr/bin/mariadb','--socket=/run/mysqld/mysqld.sock','-u','roo
 if(!is_resource($proc)||proc_close($proc)!==0)throw new RuntimeException('Schema import failed');
 $d=XC_VM::db_connect();
 $d->prepare("UPDATE servers SET server_ip=?,private_ip=NULL,server_name='Independent MAIN',is_main=1,http_broadcast_port=18080,https_broadcast_port=443,enable_https=1 WHERE id=1")->execute([$options['server_ip']]);
+$d->prepare('UPDATE servers SET domain_name=? WHERE id=1')->execute([$options['hostname']]);
 $d->exec("DELETE FROM users");
 $d->exec("DELETE FROM access_codes");
 $d->exec("INSERT INTO access_codes (code,type,enabled,groups) VALUES ('lab',0,1,'[1]')");
@@ -35,8 +36,8 @@ $failed=\XcVm\Core\Database\MigrationRunner::run($db);
 \XcVm\Cli\Commands\StatusCommand::markSchema($db,$failed===[]);
 if($failed)throw new RuntimeException('Migrations failed: '.implode('; ',$failed));
 $columns=$d->query('SHOW COLUMNS FROM settings')->fetchAll(PDO::FETCH_COLUMN);
-$settings=['fanout_enabled'=>1,'fanout_supervise'=>1,'dts_legacy_ffmpeg'=>0,'keep_protocol'=>1,'cluster_api_enabled'=>1,'lb_new_node_mode'=>'api','cluster_transport'=>'https_only'];
+$settings=['fanout_enabled'=>1,'fanout_supervise'=>1,'dts_legacy_ffmpeg'=>0,'keep_protocol'=>1,'cluster_api_enabled'=>1,'lb_new_node_mode'=>'api','cluster_transport'=>'https_required','cluster_main_host'=>$options['hostname']];
 foreach($settings as $key=>$value)if(in_array($key,$columns,true))$d->prepare('UPDATE settings SET `'.$key.'`=? WHERE id=1')->execute([$value]);
 $file=$root.'/.runtime-state/main/admin-login.json';
-file_put_contents($file,json_encode(['url'=>'https://'.$options['server_ip'].'/lab/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
+file_put_contents($file,json_encode(['url'=>'https://'.$options['hostname'].'/lab/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
 echo "Fresh independent identity, database and admin created.\n";
