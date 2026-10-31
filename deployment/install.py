@@ -52,8 +52,6 @@ def main():
         raise SystemExit('This experimental installer currently supports IPv4')
     if a.hostname and (not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', a.hostname) or a.hostname==str(address)):
         raise SystemExit('Invalid DNS hostname')
-    if a.role == 'main' and not a.hostname:
-        raise SystemExit('--hostname is required for MAIN cluster HTTPS policy')
     if not a.plan:
         if os.geteuid() != 0:
             raise SystemExit('Run as root on a fresh server')

@@ -4,6 +4,7 @@ $root=dirname(__DIR__);putenv('XCVM_LAB_STATE='.$root.'/.runtime-state/main');
 require $root.'/runtime/bootstrap.php';
 set_exception_handler(static function(Throwable $e):void{fwrite(STDERR,$e->getMessage().PHP_EOL);exit(1);});
 $options=json_decode(file_get_contents($root.'/.install-options.json'),true,512,JSON_THROW_ON_ERROR);
+$panelHost=!empty($options['hostname'])?$options['hostname']:$options['server_ip'];
 $pdo=new PDO('mysql:unix_socket=/run/mysqld/mysqld.sock','root','',[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 foreach(['xcvm_lab_main','xcvm_lab_migrate'] as $database){
     if($pdo->query('SHOW DATABASES LIKE '.$pdo->quote($database))->fetchColumn())throw new RuntimeException('Existing database refused: '.$database);
@@ -36,8 +37,8 @@ $failed=\XcVm\Core\Database\MigrationRunner::run($db);
 \XcVm\Cli\Commands\StatusCommand::markSchema($db,$failed===[]);
 if($failed)throw new RuntimeException('Migrations failed: '.implode('; ',$failed));
 $columns=$d->query('SHOW COLUMNS FROM settings')->fetchAll(PDO::FETCH_COLUMN);
-$settings=['fanout_enabled'=>1,'fanout_supervise'=>1,'dts_legacy_ffmpeg'=>0,'keep_protocol'=>1,'cluster_api_enabled'=>1,'lb_new_node_mode'=>'api','cluster_transport'=>'https_required','cluster_main_host'=>$options['hostname']];
+$settings=['fanout_enabled'=>1,'fanout_supervise'=>1,'dts_legacy_ffmpeg'=>0,'keep_protocol'=>1,'cluster_api_enabled'=>1,'lb_new_node_mode'=>'api','cluster_transport'=>'https_required','cluster_main_host'=>$options['hostname']??''];
 foreach($settings as $key=>$value)if(in_array($key,$columns,true))$d->prepare('UPDATE settings SET `'.$key.'`=? WHERE id=1')->execute([$value]);
 $file=$root.'/.runtime-state/main/admin-login.json';
-file_put_contents($file,json_encode(['url'=>'https://'.$options['hostname'].'/lab/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
+file_put_contents($file,json_encode(['url'=>'https://'.$panelHost.'/lab/login','username'=>$options['admin_user'],'password'=>$password],JSON_PRETTY_PRINT));chmod($file,0600);
 echo "Fresh independent identity, database and admin created.\n";

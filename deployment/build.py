@@ -128,7 +128,7 @@ def main():
     p.add_argument('--release-output', type=pathlib.Path, required=True)
     p.add_argument('--php-runtime', type=pathlib.Path, required=True)
     p.add_argument('--go-runtime', type=pathlib.Path, required=True)
-    p.add_argument('--version', default='v0.1.0-lab.2')
+    p.add_argument('--version', default='v0.1.0-lab.3')
     a = p.parse_args()
     if not re.fullmatch(r'v[0-9][A-Za-z0-9_.-]*', a.version):
         raise SystemExit('Invalid version')

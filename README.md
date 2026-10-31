@@ -21,7 +21,7 @@
 ## نشر إصدار خاص
 
 ارفع المصدر المنظف إلى Git. ضع الملفين الناتجين و`SHA256SUMS` و`install.py`
-و`fetch_release.py` في Release بالوسم `v0.1.0-lab.2`:
+و`fetch_release.py` في Release بالوسم `v0.1.0-lab.3`:
 
 ```
 xcvm-independent-main-linux-amd64.tar.gz
@@ -44,11 +44,11 @@ Contents: read. لا تضع قيمة التصريح في الأمر أو الر�
 
 ```bash
 sudo python3 install.py --role main --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
+  --tag v0.1.0-lab.3 --token-file /root/github-read-token \
   --server-ip NEW_SERVER_IP --hostname panel.example.com --plan
 
 sudo python3 install.py --role main --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
+  --tag v0.1.0-lab.3 --token-file /root/github-read-token \
   --server-ip NEW_SERVER_IP --hostname panel.example.com --admin-user admin \
   --tls-cert /path/fullchain.pem --tls-key /path/privkey.pem
 ```
@@ -60,7 +60,21 @@ sudo python3 install.py --role main --repository mena50056/xcvm-independent \
 `--tls-cert /path/fullchain.pem --tls-key /path/privkey.pem` أثناء التنصيب.
 لا يفتح المُثبّت الجدار الناري تلقائيًا؛ احتفظ بوصول SSH وافتح منافذ الخدمة المطلوبة.
 
-## تنصيب عقدة لود مستقلة
+## MAIN على IP بدون دومين
+
+في الإصدار `v0.1.0-lab.3` يمكن حذف `--hostname` و`--tls-cert` و`--tls-key`.
+ينشئ المُثبّت شهادة ذاتية التوقيع تحتوي IP السيرفر، ويكون رابط الدخول
+`https://SERVER_IP/lab/login`. لا يحتاج ذلك إلى certbot أو تسجيل دومين.
+سيعرض المتصفح تنبيهًا لأن الشهادة غير موثوقة تلقائيًا. ربط لود على جهاز آخر
+يحتاج شهادة موثوقة للـIP أو إعداد ثقة بشهادة MAIN؛ لا يتم تعطيل التحقق من TLS.
+التنصيب الكامل من الصفر والربط بين جهازين عبر IP لم يُعتمدا بعد.
+
+```bash
+python3 deployment/install.py --role main --tag v0.1.0-lab.3 \
+  --token-file /root/github-read-token --server-ip SERVER_IP --admin-user admin
+```
+
+## تسجيل وتنصيب عقدة لود مستقلة
 
 1. نزّل حزمة `node` من نفس الإصدار بواسطة `fetch_release.py` إلى السيرفر الجديد.
 2. استخرج executable `panel/src/bin/xc_agent/xc_agent` إلى مجلد تجهيز خاص.
@@ -72,7 +86,7 @@ sudo python3 install.py --role main --repository mena50056/xcvm-independent \
 
 ```bash
 sudo python3 install.py --role node --repository mena50056/xcvm-independent \
-  --tag v0.1.0-lab.2 --token-file /root/github-read-token \
+  --tag v0.1.0-lab.3 --token-file /root/github-read-token \
   --server-ip NEW_NODE_IP --enrollment-file /root/node-setup/enrollment.json
 ```
 

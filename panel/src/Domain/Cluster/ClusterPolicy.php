@@ -49,6 +49,11 @@ final class ClusterPolicy {
 					$rTlsName = $rDomain;
 				}
 			}
+			// The independent installer can issue a certificate with an IP SAN.
+			// Nodes must still verify and trust that certificate; no TLS bypass.
+			if ($rTlsName === null && defined('XCVM_INDEPENDENT_LAB') && filter_var($rMain['server_ip'] ?? '', FILTER_VALIDATE_IP)) {
+				$rTlsName = (string) $rMain['server_ip'];
+			}
 			if ($rTlsName !== null) {
 				$rHttps[] = 'https://' . self::hostPort($rTlsName, intval($rMain['https_broadcast_port'] ?? 443)) . '/cluster/v1/';
 			}
