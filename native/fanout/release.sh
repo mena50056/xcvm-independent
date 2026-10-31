@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# Build the xc_fanout daemon, the xc_agent cluster agent, and the merged xc_node binary for every target arch into ./dist as flat,
+# release-ready assets (+ SHA256SUMS). Binaries are NOT committed to the repo —
+# they are attached to a GitHub Release (see .github/workflows/release.yml, or
+# upload dist/* manually with `gh release create <tag> dist/*`).
+#
+# Usage:
+#   ./release.sh            # version from VERSION
+#   ./release.sh 0.7.0      # explicit version (also writes VERSION)
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Build this module alone. A go.work in a parent directory (a checkout that sits
+# inside a larger workspace) would otherwise drag in sibling modules that are not
+# part of this repo and fail the build before it starts.
+export GOWORK=off
+
+VERSION="${1:-$(cat VERSION)}"
+[ -n "${1:-}" ] && echo "$VERSION" > VERSION
+
+OUT=dist
+rm -rf "$OUT"; mkdir -p "$OUT"
+
+# arch label -> GOARCH[/GOARM]
+TARGETS=(amd64 arm64 armv7 386)
+
+echo ">>> xc_fanout $VERSION  ($(go version | awk '{print $3}'))"
+echo ">>> go test ./..."
+go test ./...
+
+for T in "${TARGETS[@]}"; do
+  GOARM=""
+  case "$T" in
+    amd64) GOARCH=amd64 ;;
+    arm64) GOARCH=arm64 ;;
+    armv7) GOARCH=arm; GOARM=7 ;;
+    386)   GOARCH=386 ;;
+  esac
+  BIN="$OUT/xc_fanout-linux-$T"
+  echo ">>> build linux-$T"
+  CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" \
+    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$BIN" ./cmd/xc_fanout
+  # The LB cluster agent (MAIN ↔ LB API), same release and version.
+  AGENT="$OUT/xc_agent-linux-$T"
+  CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" \
+    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$AGENT" ./cmd/xc_agent
+  # The merged load-balancer binary: fanout + agent (+ remux) in one, dispatched
+  # by the name it is invoked under (xc_fanout/xc_agent symlinks) or a leading
+  # subcommand. Shipped alongside the two standalone binaries so a panel can
+  # adopt it without the standalone assets going away mid-transition.
+  NODE="$OUT/xc_node-linux-$T"
+  CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" \
+    go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$NODE" ./cmd/xc_node
+  # abort if not fully static
+  for B in "$BIN" "$AGENT" "$NODE"; do
+    if command -v file >/dev/null && file "$B" | grep -qv "statically linked"; then
+      echo "ERROR: $B is not statically linked"; exit 1
+    fi
+  done
+done
+
+( cd "$OUT" && sha256sum xc_fanout-linux-* xc_agent-linux-* xc_node-linux-* > SHA256SUMS )
+echo ">>> done — $OUT (tag as $VERSION and attach these as release assets)"
+ls -la "$OUT"

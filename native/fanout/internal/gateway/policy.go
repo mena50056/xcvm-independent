@@ -1,0 +1,216 @@
+package gateway
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"sync"
+	"time"
+)
+
+// PolicyVersion is the policy file's format (the panel's GatewayPolicy::VERSION).
+const PolicyVersion = 1
+
+// StaleAfter is how old a policy may be before every request goes to PHP:
+// the panel rewrites it every minute (cron:cache).
+const StaleAfter = 600
+
+// Policy is the panel's tmp/gateway/policy.json (Core/Gateway/GatewayPolicy):
+// what the gateway needs to answer as segment.php and key.php do, written by
+// PHP from the caches those endpoints read.
+type Policy struct {
+	V         int    `json:"v"`
+	ServerID  int    `json:"server_id"`
+	WrittenAt int64  `json:"written_at"`
+	Mode      string `json:"mode"`
+	RawKeys   struct {
+		Viewer          []hexKey `json:"viewer"`
+		Shared          []hexKey `json:"shared"`
+		Context         []hexKey `json:"context"`
+		AcceptLegacyCBC bool     `json:"accept_legacy_cbc"`
+	} `json:"keys"`
+	RestrictSameIP bool `json:"restrict_same_ip"`
+	IPSubnetMatch  bool `json:"ip_subnet_match"`
+	EncryptHLS     bool `json:"encrypt_hls"`
+	Headers        struct {
+		Server     string `json:"server"`
+		Protection bool   `json:"protection"`
+		AltsvcPort int    `json:"altsvc_port"`
+		// UniqueName/UniqueDomain are send_unique_header / _domain: the name of
+		// the per-response anti-restream cookie (empty: off) and its configured
+		// domain (empty: derived from the request host).
+		UniqueName   string `json:"unique_header_name"`
+		UniqueDomain string `json:"unique_header_domain"`
+	} `json:"headers"`
+	// ServeUntil is the node's lease fence on this host's clock: nothing is
+	// served past it (PHP answers from then). 0: no lease limits the node.
+	ServeUntil int64 `json:"serve_until"`
+	// ServeOnly marks a serve-only LB with no PHP/nginx behind the gateway: a
+	// defer that would hand off to PHP has nowhere to go, so the gateway serves
+	// a registered idle stream (starts its puller) instead of deferring
+	// not-on-air. Off (a transition node) keeps the defer-to-PHP path.
+	ServeOnly bool `json:"serve_only"`
+	// OffAir is what live.php's off-air clip reads: VIDEO_PATH and the five
+	// configured clip paths (ReplicaSections::OFF_AIR's settings), by setting key.
+	OffAir struct {
+		VideoPath string            `json:"video_path"`
+		Paths     map[string]string `json:"paths"`
+		// Show is the show_*_video switch per off_air name (not_on_air, ...).
+		Show map[string]bool `json:"show"`
+	} `json:"off_air"`
+	Paths struct {
+		Cons      string `json:"cons"`
+		Streams   string `json:"streams"`
+		Archive   string `json:"archive"`
+		Vod       string `json:"vod"`
+		Flood     string `json:"flood"`
+		AgentSock string `json:"agent_sock"`
+		Signals   string `json:"signals"`
+		Spool     string `json:"spool"`
+		Flows     string `json:"flows"`
+	} `json:"paths"`
+	// VerifyHost and AllowedDomains: StreamingRequestBootstrap's host check.
+	VerifyHost     bool     `json:"verify_host"`
+	AllowedDomains []string `json:"allowed_domains"`
+	// ConnStore is where the node keeps its viewers: "agent" (the CONNECTIONS
+	// flow on) or "php" (MAIN's Redis or MySQL, which only PHP reaches).
+	ConnStore string `json:"conn_store"`
+	// TimeOffset is the node's servers.time_offset: hls_last_read is now minus it.
+	TimeOffset int64 `json:"time_offset"`
+	// VodLimitPerc / VodBitratePlus are vod.php's throttle: past vod_limit_perc
+	// of a movie, serve at its bitrate plus vod_bitrate_plus percent.
+	VodLimitPerc   int `json:"vod_limit_perc"`
+	VodBitratePlus int `json:"vod_bitrate_plus"`
+	// DefaultTimezone is the panel's default_timezone (LegacyInitializer sets
+	// it): timeshift.php parses its date-form start with mktime in this zone.
+	DefaultTimezone string `json:"default_timezone"`
+	// Live is what live.php reads for a playlist refresh.
+	Live LivePolicy `json:"live"`
+	// Redirect is each other server's base URLs, for a token it minted.
+	Redirect map[string][]string `json:"redirect"`
+
+	Keys Keys `json:"-"`
+}
+
+// LivePolicy is the settings live.php reads for a playlist refresh or a TS reconnect.
+type LivePolicy struct {
+	UseBuffer bool `json:"use_buffer"`
+	// ApiContainer is the api_container setting, live.php's fallback for an unknown extension.
+	ApiContainer     string `json:"api_container"`
+	InstantOff       bool   `json:"on_demand_instant_off"`
+	Disallow2ndIP    bool   `json:"disallow_2nd_ip_con"`
+	Disallow2ndIPMax int64  `json:"disallow_2nd_ip_max"`
+	// TS: the panel writes the TS fields below; without them a TS reconnect is PHP's.
+	TS bool `json:"ts"`
+	// The seconds of history a TS viewer joins with (live.php's ?prebuffer=):
+	// client_prebuffer, restreamer_prebuffer, and max(1, seg_time) for a
+	// restreamer's link that asks for a prebuffer.
+	ClientPrebuffer     int64 `json:"client_prebuffer"`
+	RestreamerPrebuffer int64 `json:"restreamer_prebuffer"`
+	SegTime             int64 `json:"seg_time"`
+	// CreateExpiration is live.php's create_expiration (never 0 there): how
+	// long after its mint a token still opens a new connection. Without it (a
+	// panel from before the gateway's first TS request) a new viewer is PHP's.
+	CreateExpiration int64 `json:"create_expiration"`
+	// Admission: a new viewer with a limit is admitted by the agent
+	// (AgentConnections::admission: the node is one MAIN has left active).
+	Admission bool `json:"admission"`
+}
+
+type hexKey struct {
+	Hex   string `json:"hex"`
+	Until *int64 `json:"until"`
+}
+
+// ParsePolicy reads a policy file's bytes.
+func ParsePolicy(b []byte) (*Policy, error) {
+	var p Policy
+	if err := json.Unmarshal(b, &p); err != nil {
+		return nil, err
+	}
+	if p.V != PolicyVersion {
+		return nil, fmt.Errorf("policy version %d, want %d", p.V, PolicyVersion)
+	}
+	var err error
+	conv := func(list []hexKey) []Key {
+		out := make([]Key, 0, len(list))
+		for _, k := range list {
+			v, e := hex.DecodeString(k.Hex)
+			if e != nil && err == nil {
+				err = fmt.Errorf("policy key: %w", e)
+			}
+			var until int64
+			if k.Until != nil {
+				until = *k.Until
+			}
+			out = append(out, Key{Value: v, Until: until})
+		}
+		return out
+	}
+	p.Keys = Keys{Viewer: conv(p.RawKeys.Viewer), Shared: conv(p.RawKeys.Shared), Context: conv(p.RawKeys.Context)}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// Fresh reports whether the policy is recent enough to act on: written in
+// the last StaleAfter seconds (and not from a clock far ahead of this one).
+func (p *Policy) Fresh(now int64) bool {
+	return p != nil && p.WrittenAt > 0 && now-p.WrittenAt <= StaleAfter && p.WrittenAt-now <= 60
+}
+
+// PolicyFile is the policy as the file holds it now: re-read when its mtime
+// or size changes, looked at no more than once a second.
+type PolicyFile struct {
+	path string
+
+	mu      sync.Mutex
+	checked time.Time
+	mtime   time.Time
+	size    int64
+	cur     *Policy
+}
+
+// NewPolicyFile watches path.
+func NewPolicyFile(path string) *PolicyFile {
+	return &PolicyFile{path: path}
+}
+
+// Get returns the policy to act on at now, or nil: no file, an unreadable
+// one, or one gone stale. A nil policy sends every request to PHP.
+func (f *PolicyFile) Get(now time.Time) *Policy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if now.Sub(f.checked) >= time.Second {
+		f.checked = now
+		f.reload()
+	}
+	if !f.cur.Fresh(now.Unix()) {
+		return nil
+	}
+	return f.cur
+}
+
+func (f *PolicyFile) reload() {
+	st, err := os.Stat(f.path)
+	if err != nil {
+		f.cur, f.mtime, f.size = nil, time.Time{}, 0
+		return
+	}
+	if f.cur != nil && st.ModTime().Equal(f.mtime) && st.Size() == f.size {
+		return
+	}
+	b, err := os.ReadFile(f.path)
+	if err != nil {
+		f.cur = nil
+		return
+	}
+	p, err := ParsePolicy(b)
+	if err != nil {
+		f.cur = nil
+		return
+	}
+	f.cur, f.mtime, f.size = p, st.ModTime(), st.Size()
+}

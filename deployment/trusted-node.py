@@ -1,5 +1,8 @@
 """Two-phase node installer invoked only over MAIN's authenticated SSH session."""
 import hashlib
+import gzip
+import io
+import re
 import ipaddress
 import json
 import os
@@ -54,6 +57,26 @@ def extract(archive, destination):
         target.chmod(member.mode & 0o755)
 
 
+def install_native_agent(payload):
+    manifest = json.loads((WORK / 'native-agent.json').read_text())
+    if manifest['repository'] != 'mena50056/xcvm-independent' or manifest['asset'] != 'xc_agent-linux-amd64.gz':
+        raise ValueError('Unexpected native agent source')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', manifest['tag']):
+        raise ValueError('Invalid native agent release tag')
+    url = 'https://github.com/' + manifest['repository'] + '/releases/download/' + manifest['tag'] + '/' + manifest['asset']
+    with urllib.request.urlopen(url, timeout=60) as response:
+        data = response.read(16 * 1024 * 1024 + 1)
+    if len(data) > 16 * 1024 * 1024 or hashlib.sha256(data).hexdigest() != manifest['sha256']:
+        raise ValueError('Native agent download checksum mismatch')
+    with gzip.GzipFile(fileobj=io.BytesIO(data)) as archive:
+        binary = archive.read(32 * 1024 * 1024 + 1)
+    if len(binary) > 32 * 1024 * 1024 or hashlib.sha256(binary).hexdigest() != manifest['binary_sha256']:
+        raise ValueError('Native agent binary checksum mismatch')
+    target = payload / 'panel/src/bin/xc_agent/xc_agent'
+    target.write_bytes(binary)
+    target.chmod(0o755)
+
+
 def main():
     os.umask(0o077)
     plan = json.loads((WORK / 'plan.json').read_text())
@@ -71,6 +94,7 @@ def main():
             if metadata['role'] != 'node' or metadata['version'] != plan['version'] or metadata['repository'] != 'mena50056/xcvm-independent':
                 raise ValueError('Unexpected node package metadata')
             extract(archive, payload)
+        install_native_agent(payload)
         result = subprocess.run([str(payload / 'panel/src/bin/xc_agent/xc_agent'), 'keygen', '-uuid', str(uuid.uuid4()), '-state', str(WORK / 'agent.json')], check=True, capture_output=True, text=True)
         public = json.loads(result.stdout)
         # Do not expose the node's private identity or any enrollment token.

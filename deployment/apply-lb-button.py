@@ -15,6 +15,9 @@ ROOT=pathlib.Path('/opt/xcvm-independent-lab')
 FILES=[
     'deployment/trusted-node.py','deployment/configure.py','deployment/fetch_release.py','deployment/install.py',
     'panel/src/Cli/Commands/IndependentLbInstall.php','panel/src/Domain/Server/ServerService.php',
+    'deployment/native-agent.json','runtime/LocalCore.php',
+    'panel/src/Core/Database/QueryHelper.php','panel/src/Domain/Stream/StreamProcess.php',
+    'panel/src/Domain/Cluster/ClusterRoute.php',
     'panel/src/Cli/Commands/ServerInstallCommand.php',
 ]
 
@@ -30,7 +33,7 @@ def main():
     os.umask(0o077)
     account=pwd.getpwnam('xcvm_lab')
     backup=pathlib.Path(tempfile.mkdtemp(prefix='xcvm-lb-button-backup-',dir='/root'))
-    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v2/'
+    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v3/'
     def read(name):
         if args.source:return (args.source/name).read_bytes()
         with urllib.request.urlopen(base+name,timeout=30) as response:return response.read()
@@ -54,9 +57,20 @@ def main():
         for name in FILES:
             stage=staged[name];os.chown(stage,account.pw_uid,account.pw_gid);stage.chmod(0o644)
             stage.replace(ROOT/name)
+        # MAIN must consume cache signals from the node's authenticated events.
+        monitor=pathlib.Path('/etc/systemd/system/xcvm-independent-monitor.service').read_text()
+        if 'User=xcvm_lab' not in monitor:raise ValueError('Unexpected MAIN monitor service')
+        signals=monitor.replace('xcvm-independent-monitor','xcvm-independent-signals').replace(str(ROOT/'runtime/monitor.php'),str(ROOT/'panel/src/console.php')+' signals')
+        if 'console.php signals' not in signals:raise ValueError('Cannot derive MAIN signal service')
+        unit=pathlib.Path('/etc/systemd/system/xcvm-independent-signals.service')
+        if unit.exists() and unit.read_text()!=signals:raise ValueError('Existing MAIN signal service differs')
+        unit.write_text(signals)
+        subprocess.run(['systemctl','daemon-reload'],check=True)
+        subprocess.run(['systemctl','enable','--now','xcvm-independent-signals'],check=True)
+        subprocess.run(['systemctl','is-active','--quiet','xcvm-independent-signals'],check=True)
         with urllib.request.urlopen('http://127.0.0.1:18080/lab/login',timeout=15) as response:
             if response.status!=200:raise RuntimeError('MAIN login health check failed')
-        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v2','installed_at':int(time.time()),'backup':str(backup)},indent=2))
+        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v3','installed_at':int(time.time()),'backup':str(backup)},indent=2))
         print('Independent LB button enabled; MAIN login HTTP 200. Backup: '+str(backup))
     except Exception:
         for name,saved in old.items():

@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// XC_VM_Fanout — https://github.com/Vateron-Media/XC_VM_Fanout
+// See LICENSE and LICENSE-ADDITIONAL-TERMS.md
+
+package hub
+
+import (
+	"bytes"
+	"testing"
+)
+
+func mkPkt(marker byte) []byte {
+	p := make([]byte, 188)
+	p[0] = 0x47
+	p[3] = marker
+	return p
+}
+
+// TestSnapshotReturnsCleanEntry: Snapshot yields the current join snapshot
+// (PAT/PMT + recent ring bytes) as a fresh copy, for re-seeding a decoder
+// (the overlay ffmpeg) without disturbing the ring.
+func TestSnapshotReturnsCleanEntry(t *testing.T) {
+	h := New(1<<20, 0)
+	h.Publish(mkPkt(1))
+
+	snap := h.Snapshot(0)
+	if len(snap) == 0 || snap[0] != 0x47 {
+		t.Fatalf("Snapshot must return TS-aligned bytes, got %d bytes", len(snap))
+	}
+}
+
+// TestPublishFoldsIntoRingIndependently: Publish folds the chunk in place (no
+// per-chunk copy), but the ring must still hold an INDEPENDENT copy — mutating
+// the caller's buffer after Publish must not corrupt the buffered data. This pins
+// the safety of the no-copy publish path (the whole point of ADR 0004's Publish).
+func TestPublishFoldsIntoRingIndependently(t *testing.T) {
+	h := New(1<<20, 0)
+	chunk := mkPkt(9) // p[0]=0x47, p[3]=9
+	h.Publish(chunk)  // folded in place
+
+	// Overwrite the caller's buffer; the ring must be unaffected.
+	for i := range chunk {
+		chunk[i] = 0xEE
+	}
+	snap := h.Snapshot(0)
+	if len(snap) != 188 || snap[0] != 0x47 || snap[3] != 9 {
+		t.Fatalf("ring must hold an independent copy; got len=%d byte[0]=%#x byte[3]=%d", len(snap), snap[0], snap[3])
+	}
+}
+
+// TestBurstIsTheRingNotACopy: a Follow burst is the ring's own bytes (no
+// per-viewer copy of the history), it reads back correctly through Bytes()/Len(),
+// a second read from the same cursor yields the same bytes, and Release is safe to
+// call more than once — serveLive releases right after the write and again,
+// deferred, on every exit path.
+func TestBurstIsTheRingNotACopy(t *testing.T) {
+	h := New(1<<20, 0)
+	_, cur := h.Join(0) // empty ring: cursor at the edge
+	h.Publish(mkPkt(7))
+
+	b1, _, _, _, behind, ended := h.Follow(cur, 1<<20)
+	if behind || ended {
+		t.Fatalf("Follow: behind=%v ended=%v, want both false", behind, ended)
+	}
+	want := b1.Bytes()
+	if len(want) == 0 || want[0] != 0x47 {
+		t.Fatalf("Follow burst must be TS-aligned, got %d bytes", len(want))
+	}
+	if b1.Len() != len(want) {
+		t.Fatalf("Len() = %d, Bytes() gave %d", b1.Len(), len(want))
+	}
+	b1.Release()
+	b1.Release() // idempotent
+
+	b2, _, _, _, _, _ := h.Follow(cur, 1<<20)
+	if !bytes.Equal(b2.Bytes(), want) {
+		t.Fatalf("second read from the same cursor differs: got %d bytes, want %d", b2.Len(), len(want))
+	}
+	b2.Release()
+}
+
+// TestCloseAllIdempotentAndPublishSafe: teardown may be requested more than once
+// (racing DELETEs), and the producer may still publish for a moment after it
+// (the puller notices its cancellation asynchronously). Neither must panic — in
+// particular CloseAll must not double-close the wake channel, and Publish after a
+// teardown must be a no-op, not a close-of-closed-channel panic.
+func TestCloseAllIdempotentAndPublishSafe(t *testing.T) {
+	h := New(1<<20, 0)
+	h.Publish(mkPkt(1))
+
+	h.CloseAll()
+	h.CloseAll() // idempotent: must not panic (no double close of wake)
+
+	// Publishing after a teardown must not panic or block.
+	h.Publish([]byte("x")) // sub-packet garbage
+	h.Publish(mkPkt(2))    // a valid packet
+
+	// A viewer that tries to follow a torn-down hub is told the stream ended.
+	_, cur := h.Join(0)
+	if _, _, _, _, _, ended := h.Follow(cur, 1<<20); !ended {
+		t.Fatal("Follow on a torn-down hub must report ended")
+	}
+}
+
+// TestPublishAfterCloseAllTouchesNothing: after teardown the hub is unreachable —
+// the stream is out of the registry, so no viewer can ever join it again and the
+// reaper can never idle-stop it. A producer that has not noticed its cancellation
+// yet (or one started by a Register racing the Unregister) must therefore not go
+// on folding chunks into its ring: that keeps a whole prebuffer resident, and
+// churns it, for a reader that cannot exist. CloseAll's contract says closed
+// short-circuits Publish; this pins that it really does.
+func TestPublishAfterCloseAllTouchesNothing(t *testing.T) {
+	h := New(1<<20, 0)
+	h.CloseAll()
+
+	for i := 0; i < 64; i++ {
+		h.Publish(mkPkt(3))
+	}
+	if b, _, g := h.RingStats(); b != 0 || g != 0 {
+		t.Fatalf("Publish after CloseAll grew the ring: %d bytes in %d gop(s), want 0/0", b, g)
+	}
+	if a, v, _ := h.Counters(); a != 0 || v != 0 {
+		t.Fatalf("Publish after CloseAll advanced the counters: audio=%d video=%d, want 0/0", a, v)
+	}
+}
+
+// TestCloseAllKeepsWhatItAlreadyHeld: teardown must not disturb the bytes the
+// ring already holds — an HLS segment request, a Snapshot or a Follow burst may
+// still be in flight when it lands, and all three read through the same join
+// state — AND neither must the chunks that keep arriving after it.
+//
+// That second half is the bound on Publish's early return, and the reason this
+// test takes a pin before the teardown: without the early return every stray
+// chunk still ran a full join.Update, so the ring an in-flight reader is holding
+// went on growing (and, at a real prebuffer depth, pruning) underneath it. With
+// it, the ring is frozen at exactly what the teardown found.
+func TestCloseAllKeepsWhatItAlreadyHeld(t *testing.T) {
+	h := New(1<<20, 0)
+	_, cur := h.Join(0)
+	h.Publish(mkPkt(5))
+	before, _, _ := h.RingStats()
+	if before == 0 {
+		t.Fatal("setup: expected the ring to hold the published packet")
+	}
+
+	// A read already in flight when the teardown lands: Parts are the ring's own
+	// pinned buffers, not a copy of them.
+	b, _, _, _, behind, ended := h.Follow(cur, 1<<20)
+	if behind || ended {
+		t.Fatalf("setup: Follow before teardown reported behind=%v ended=%v, want both false", behind, ended)
+	}
+	defer b.Release()
+	held := b.Bytes()
+	if len(held) != before {
+		t.Fatalf("setup: the in-flight read holds %d bytes, the ring holds %d", len(held), before)
+	}
+
+	h.CloseAll()
+	if after, _, _ := h.RingStats(); after != before {
+		t.Fatalf("CloseAll changed the ring: %d bytes, want %d", after, before)
+	}
+
+	// The producer notices its cancellation asynchronously, so chunks keep
+	// arriving for a moment after the teardown. They must land nowhere.
+	for i := 0; i < 64; i++ {
+		h.Publish(mkPkt(6))
+	}
+	if after, _, _ := h.RingStats(); after != before {
+		t.Fatalf("publishing after CloseAll grew the ring under an in-flight read: %d bytes, want %d", after, before)
+	}
+	if got := b.Bytes(); !bytes.Equal(got, held) {
+		t.Fatalf("the in-flight read's bytes changed across the teardown: got %d, want the %d it pinned", len(got), len(held))
+	}
+}

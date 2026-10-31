@@ -1,0 +1,52 @@
+name: release
+
+# Push a version tag (e.g. 0.7.0 — NO "v" prefix, per project convention) →
+# build the per-arch static binaries and publish them as assets on a GitHub
+# Release. The panel installs/updates from these assets (console.php
+# fanout_binary); the binaries are never committed to the repo.
+on:
+  push:
+    tags: ['[0-9]*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history + tags, needed for the changelog
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - name: Build + checksums
+        # Invoke via `bash` (not ./release.sh) so a lost executable bit on the
+        # tracked file can never fail the release with exit 126 again.
+        run: bash release.sh "${GITHUB_REF_NAME}"
+      - name: Generate changelog
+        # Release body = the commits between the previous version tag and this
+        # one, so every release shows what actually changed without a hand-kept
+        # CHANGELOG. Meaningful commit subjects (feat:/fix:/docs: …) become the notes.
+        run: |
+          PREV=$(git describe --tags --abbrev=0 --match '[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          echo "changelog range: ${PREV:-<start>}..${GITHUB_REF_NAME}"
+          {
+            echo "## Changes"
+            echo
+            if [ -n "$PREV" ]; then
+              git log --no-merges --pretty='- %s (%h)' "${PREV}..${GITHUB_REF_NAME}"
+            else
+              git log --no-merges --pretty='- %s (%h)' "${GITHUB_REF_NAME}"
+            fi
+          } > CHANGELOG_RELEASE.md
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG_RELEASE.md
+          files: |
+            dist/xc_fanout-linux-*
+            dist/xc_agent-linux-*
+            dist/xc_node-linux-*
+            dist/SHA256SUMS

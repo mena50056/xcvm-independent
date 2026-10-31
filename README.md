@@ -48,12 +48,12 @@ cat /opt/xcvm-independent-lab/.runtime-state/main/admin-login.json
 - حزم النظام تُحمّل من مستودعات Ubuntu؛ ملفات البانل واللود من Releases بهذا المستودع.
 - `xcvm_core` وionCube الأصلية مستبعدتان؛ تُنشأ مفاتيح تشفير محلية مستقلة.
 - هذه نسخة مختبر، وليست نسخة إنتاج مكتملة. راجع NOTICE.md.
-- تحديث `independent-lb-button-v2` يربط زر تنصيب اللود بالمثبت المستقل؛ راجع القسم التالي لتحديث MAIN القائمة.
+- تحديث `independent-lb-button-v3` يربط زر تنصيب اللود بالمثبت المستقل؛ راجع القسم التالي لتحديث MAIN القائمة.
 - تحديث النسخ القائمة يحتاج مسار ترقية منفصل؛ لا تشغّل المُثبّت على نسخة قائمة.
 
 ## تنصيب اللود من زر البانل
 
-التحديث `independent-lb-button-v2` مستخدم الآن على MAIN التجربة. الزر الحالي
+التحديث `independent-lb-button-v3` مستخدم الآن على MAIN التجربة. الزر الحالي
 يستهلك بيانات SSH من ملف خاص مؤقت، ويتحقق من مفتاح SSH المحفوظ أو المحدد
 من المسؤول، ويرفض تنصيب اللود على MAIN أو فوق بانل قائمة.
 
@@ -195,4 +195,8 @@ A temporary synthetic H.264/AAC channel was saved through the authenticated pane
 
 This validation exposed and fixed three issues in the source and the running test MAIN: temporal SQL defaults must be evaluated by MariaDB, the independent crypto adapter must classify signed commands, and confirmed codec metadata from fanout must clear the pending-analysis flag. The prebuilt v0.1.0-lab.3 payload has not been rebuilt with these changes.
 
-Limitation: the current Go-only agent can acknowledge `node.rpc` / typed start-stop commands with `no PHP on this node`. This is not proof of execution. The test used the authenticated replica/runtime path to obtain the running producer; start/stop administration on PHP-free nodes still needs a separate implementation and validation. HLS delivery passing does not establish that all panel controls work.
+The original agent acknowledged controls without executing them when PHP was absent. Native agent release `native-controls-v1` fixes live-stream start, stop and restart inside Go. MAIN routes live starts only when the node advertises `native_stream_controls`; unsupported operations fail explicitly. Stops persist across replica refresh and agent restart. MAIN now runs its signals worker to refresh viewer caches from authenticated stream events.
+
+The panel buttons were exercised on a temporary normal H.264/AAC HLS channel: Start produced real video on the load balancer; Stop removed the producer and made existing/fresh HLS requests return 404; the stopped channel stayed stopped after an agent restart; Start restored HLS; Restart changed the encoder PID and restored HLS. Test records and source processes were removed. This validates these live controls, not VOD/root administration or every source format.
+
+`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Existing MAIN installations need `independent-lb-button-v3`; the prebuilt MAIN v0.1.0-lab.3 bundle itself is unchanged.

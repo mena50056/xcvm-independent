@@ -1,0 +1,1026 @@
+package gateway
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+)
+
+// The panel's tests/Support/gateway_live_vectors.json (GatewayLiveVectorsTest).
+type liveVectors struct {
+	Context  string `json:"context"`
+	ServerID int    `json:"server_id"`
+	HLSKeys  []struct {
+		HmacID     json.RawMessage `json:"hmac_id"`
+		Identifier *string         `json:"identifier"`
+		UserID     json.RawMessage `json:"user_id"`
+		StreamID   int             `json:"stream_id"`
+		IP         string          `json:"ip"`
+		UserAgent  string          `json:"user_agent"`
+		UAHTML     string          `json:"ua_html"`
+		UUID       string          `json:"uuid"`
+	} `json:"hls_keys"`
+	Rawurlencode []struct {
+		InHex string `json:"in_hex"`
+		Out   string `json:"out"`
+	} `json:"rawurlencode"`
+	Reconcile []struct {
+		Daemon int64     `json:"daemon"`
+		Floor  int64     `json:"floor"`
+		State  *seqState `json:"state"`
+		Now    *int64    `json:"now"`
+		Target int64     `json:"target"`
+		Seq    int64     `json:"seq"`
+		Next   seqState  `json:"next"`
+	} `json:"reconcile"`
+	Playlist struct {
+		Input    string `json:"input"`
+		StreamID int    `json:"stream_id"`
+		UUID     string `json:"uuid"`
+		IP       string `json:"ip"`
+		Codec    string `json:"codec"`
+		IVHex    string `json:"iv_hex"`
+		Cases    []struct {
+			Name         string                     `json:"name"`
+			ViewerKeyHex *string                    `json:"viewer_key_hex"`
+			Settings     map[string]json.RawMessage `json:"settings"`
+			Username     *string                    `json:"username"`
+			Password     *string                    `json:"password"`
+			HmacID       *int64                     `json:"hmac_id"`
+			Identifier   *string                    `json:"identifier"`
+			Output       string                     `json:"output"`
+		} `json:"cases"`
+	} `json:"playlist"`
+	// A TS viewer's first request: the record createLive stores and the
+	// admission AgentConnections::admission asks, for each token.
+	FirstTS struct {
+		Now        int64  `json:"now"`
+		TimeOffset int64  `json:"time_offset"`
+		ServerID   int    `json:"server_id"`
+		IP         string `json:"ip"`
+		UserAgent  string `json:"user_agent"`
+		Cases      []struct {
+			Name      string          `json:"name"`
+			Token     json.RawMessage `json:"token"`
+			Record    map[string]any  `json:"record"`
+			Admission map[string]any  `json:"admission"`
+		} `json:"cases"`
+	} `json:"first_ts"`
+}
+
+func loadLive(t *testing.T) liveVectors {
+	t.Helper()
+	b, err := os.ReadFile("testdata/gateway_live_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v liveVectors
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestLiveConnectionIDMatchesThePanel(t *testing.T) {
+	for _, k := range loadLive(t).HLSKeys {
+		ua, ok := htmlentitiesASCII(k.UserAgent)
+		if !ok || ua != k.UAHTML {
+			t.Fatalf("%q: %q %v; want %q", k.UserAgent, ua, ok, k.UAHTML)
+		}
+		var identity string
+		if isNull(k.HmacID) {
+			id, _ := jsonInt(k.UserID)
+			identity = "u" + itoa(id)
+		} else {
+			ident := ""
+			if k.Identifier != nil {
+				ident = *k.Identifier
+			}
+			h, _ := jsonInt(k.HmacID)
+			identity = "h" + itoa(h) + "_" + ident
+		}
+		if got := hlsConnectionKey(identity, k.StreamID, k.IP, ua); got != k.UUID {
+			t.Errorf("%q: %s; want %s", k.UserAgent, got, k.UUID)
+		}
+	}
+	if _, ok := htmlentitiesASCII("Mozilla/5.0 (é)"); ok {
+		t.Fatal("a non-ASCII agent is PHP's to read")
+	}
+}
+
+func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+func TestRawurlencodeAndReconcileMatchThePanel(t *testing.T) {
+	v := loadLive(t)
+	for _, c := range v.Rawurlencode {
+		in, _ := hex.DecodeString(c.InHex)
+		if got := rawurlencode(string(in)); got != c.Out {
+			t.Errorf("rawurlencode(%q) = %q; want %q", in, got, c.Out)
+		}
+	}
+	for i, c := range v.Reconcile {
+		seq, next := reconcile(c.Daemon, c.Floor, c.State, c.Now, c.Target)
+		gb, _ := json.Marshal(next)
+		wb, _ := json.Marshal(c.Next)
+		if seq != c.Seq || string(gb) != string(wb) {
+			t.Errorf("reconcile #%d: %d %s; want %d %s", i, seq, gb, c.Seq, wb)
+		}
+	}
+}
+
+var tokenInPlaylist = regexp.MustCompile(`/(hls|key)/([A-Za-z0-9_-]+)`)
+
+// opened is a playlist with each token replaced by what it opens to.
+func opened(t *testing.T, playlist string, keys Keys) string {
+	return tokenInPlaylist.ReplaceAllStringFunc(playlist, func(m string) string {
+		parts := tokenInPlaylist.FindStringSubmatch(m)
+		plain, v := keys.Read(parts[2], true, time.Now().Unix())
+		if v != Opened {
+			t.Fatalf("a token that does not open: %s", m)
+		}
+		return "/" + parts[1] + "/{" + string(plain) + "}"
+	})
+}
+
+func TestTokenizeMatchesThePanel(t *testing.T) {
+	v := loadLive(t)
+	dir := t.TempDir() + "/"
+	iv, _ := hex.DecodeString(v.Playlist.IVHex)
+	_ = os.WriteFile(dir+"9001_.iv", iv, 0o644)
+	ctx, _ := hex.DecodeString(v.Context)
+	for _, c := range v.Playlist.Cases {
+		var secure, encrypt int
+		var shared string
+		_ = json.Unmarshal(c.Settings["secure_stream_tokens"], &secure)
+		_ = json.Unmarshal(c.Settings["encrypt_hls"], &encrypt)
+		_ = json.Unmarshal(c.Settings["live_streaming_pass"], &shared)
+		p := &Policy{ServerID: v.ServerID, EncryptHLS: encrypt == 1}
+		p.RawKeys.AcceptLegacyCBC = secure == 0
+		p.Paths.Streams = dir
+		p.Keys = Keys{Shared: []Key{{Value: []byte(shared)}}, Context: []Key{{Value: ctx}}}
+		if c.ViewerKeyHex != nil {
+			vk, _ := hex.DecodeString(*c.ViewerKeyHex)
+			p.Keys.Viewer = []Key{{Value: vk}}
+		}
+		r := &Refresh{Stream: v.Playlist.StreamID, UUID: v.Playlist.UUID, Codec: v.Playlist.Codec, Playlist: v.Playlist.Input}
+		if c.HmacID != nil {
+			r.HMAC, r.Identifier = itoa(*c.HmacID), *c.Identifier
+		} else {
+			r.Username, r.Password = *c.Username, *c.Password
+		}
+		got, err := Tokenize(p, r, v.Playlist.IP, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g, w := opened(t, got, p.Keys), opened(t, c.Output, p.Keys); g != w {
+			t.Errorf("%s:\n%s\nwant\n%s", c.Name, g, w)
+		}
+	}
+}
+
+// ── JudgeLive ───────────────────────────────────────────────────────────
+
+func liveTokenJSON(edit func(map[string]any)) string {
+	t := map[string]any{
+		"username": "user1", "password": "pass1", "stream_id": 12, "extension": "m3u8", "video_codec": "h264",
+		"channel_info": map[string]any{"redirect_id": 3, "originator_id": nil, "on_demand": 0, "proxy": false, "pid": 4242},
+		"user_info":    map[string]any{"id": 41, "max_connections": 2, "is_restreamer": 0},
+		"uuid":         testUUID, "activity_start": 1799999000,
+	}
+	if edit != nil {
+		edit(t)
+	}
+	b, _ := json.Marshal(t)
+	return tok(string(b))
+}
+
+const testUA = "VLC/3.0.18 LibVLC/3.0.18"
+
+func liveUUID() string { return hlsConnectionKey("u41", 12, "198.51.100.7", testUA) }
+
+func livePolicy() *Policy {
+	p := testPolicy()
+	p.ConnStore, p.Live.UseBuffer = "agent", true
+	return p
+}
+
+type liveEnvState struct {
+	alive, onDisk, agentAnswers, agentAlive, fed bool
+	registered                                   bool // the node holds a pull config (serve-only serve-and-start)
+	fileMissing                                  bool // vod.php's file_exists: the movie is gone
+	playlist                                     string
+	rec                                          map[string]any
+	recUUID                                      string           // the record's key in the agent
+	sizes                                        map[string]int64 // timeshift archive files present, by path
+	offset                                       int64            // the first archive minute's .offset
+}
+
+func (st *liveEnvState) env() LiveEnv {
+	// The record as the agent's JSON, decoded once (as each real call would be, by the client).
+	var recRaw map[string]json.RawMessage
+	if st.rec != nil {
+		b, _ := json.Marshal(st.rec)
+		_ = json.Unmarshal(b, &recRaw)
+	}
+	return LiveEnv{
+		StreamAlive: func(int, json.RawMessage) bool { return st.alive },
+		OnDisk:      func(int) bool { return st.onDisk },
+		Playlist:    func(int) string { return st.playlist },
+		Fed:         func(int) bool { return st.fed },
+		Serveable:   func(int) bool { return st.registered },
+		Record: func(uuid string) (map[string]json.RawMessage, bool, bool) {
+			if !st.agentAnswers {
+				return nil, false, false
+			}
+			if recRaw == nil || uuid != st.recUUID {
+				return nil, false, true
+			}
+			return recRaw, true, true
+		},
+		AgentAlive: func() bool { return st.agentAlive },
+		File:       func(string) bool { return !st.fileMissing },
+		FileSize:   func(path string) (int64, bool) { s, ok := st.sizes[path]; return s, ok },
+		Offset:     func(string) int64 { return st.offset },
+	}
+}
+
+func goodLiveEnv() *liveEnvState {
+	return &liveEnvState{alive: true, onDisk: true, agentAnswers: true, agentAlive: true, fed: true, recUUID: liveUUID(),
+		playlist: "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:4.0,\n5.ts\n",
+		rec:      map[string]any{"uuid": liveUUID(), "identity": "u41", "user_id": 41, "server_id": 3, "stream_id": 12, "container": "hls", "user_ip": "198.51.100.7", "hls_end": 0, "pid": 0}}
+}
+
+// goodTSEnv is a TS viewer's connection: the token's uuid, fanout's (pid 0).
+func goodTSEnv() *liveEnvState {
+	st := goodLiveEnv()
+	st.recUUID, st.rec["uuid"], st.rec["container"] = testUUID, testUUID, "ts"
+	return st
+}
+
+func tsTokenJSON(edit func(map[string]any)) string {
+	return liveTokenJSON(func(m map[string]any) {
+		m["extension"] = "ts"
+		if edit != nil {
+			edit(m)
+		}
+	})
+}
+
+func tsPolicy() *Policy {
+	p := livePolicy()
+	p.Live.TS, p.Live.ClientPrebuffer, p.Live.RestreamerPrebuffer, p.Live.SegTime = true, 3, 7, 10
+	return p
+}
+
+func TestJudgeLive(t *testing.T) {
+	ip := "198.51.100.7"
+	cases := []struct {
+		name   string
+		token  string
+		ua     string
+		policy func(*Policy)
+		env    func(*liveEnvState)
+		want   Action
+		reason string
+	}{
+		{"a known viewer's refresh", liveTokenJSON(nil), testUA, nil, nil, Serve, "playlist"},
+		{"viewers in MAIN's store", liveTokenJSON(nil), testUA, func(p *Policy) { p.ConnStore = "php" }, nil, PHP, "conn-store"},
+		{"a token this node does not open", tok("x"), testUA, nil, nil, PHP, "token"},
+		{"an off-air token", liveTokenJSON(func(m map[string]any) { m["off_air"] = 1 }), testUA, nil, nil, PHP, "off-air"},
+		{"an adaptive token", liveTokenJSON(func(m map[string]any) { m["adaptive"] = []int{1} }), testUA, nil, nil, PHP, "off-air"},
+		{"a malformed uuid", liveTokenJSON(func(m map[string]any) { m["uuid"] = "../x" }), testUA, nil, nil, PHP, "token"},
+		{"an expired token", liveTokenJSON(func(m map[string]any) { m["expires"] = testNow - 1 }), testUA, nil, nil, PHP, "expired"},
+		{"TS, from a panel without its settings", liveTokenJSON(func(m map[string]any) { m["extension"] = "ts" }), testUA, nil, nil, PHP, "extension"},
+		{"another container", liveTokenJSON(func(m map[string]any) { m["extension"] = "mp4" }), testUA, nil, nil, PHP, "extension"},
+		{"a proxied channel", liveTokenJSON(func(m map[string]any) { m["channel_info"].(map[string]any)["proxy"] = 1 }), testUA, nil, nil, PHP, "proxy"},
+		{"behind a proxy server", liveTokenJSON(func(m map[string]any) {
+			ci := m["channel_info"].(map[string]any)
+			ci["originator_id"], ci["redirect_id"] = 3, 9
+		}), testUA, nil, nil, PHP, "proxy"},
+		{"instant off", liveTokenJSON(func(m map[string]any) { m["channel_info"].(map[string]any)["on_demand"] = 1 }), testUA, func(p *Policy) { p.Live.InstantOff = true }, nil, PHP, "instant-off"},
+		{"a producer that is not running", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.alive = false }, PHP, "stream-down"},
+		{"no playlist on disk yet", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.onDisk = false }, PHP, "no-playlist"},
+		{"the second-address rule", liveTokenJSON(nil), testUA, func(p *Policy) { p.Live.Disallow2ndIP = true }, nil, PHP, "second-ip"},
+		{"the rule, a restreamer", liveTokenJSON(func(m map[string]any) { m["user_info"].(map[string]any)["is_restreamer"] = 1 }), testUA, func(p *Policy) { p.Live.Disallow2ndIP = true }, nil, Serve, "playlist"},
+		{"the rule, above its maximum", liveTokenJSON(nil), testUA, func(p *Policy) { p.Live.Disallow2ndIP, p.Live.Disallow2ndIPMax = true, 1 }, nil, Serve, "playlist"},
+		{"a non-ASCII agent", liveTokenJSON(nil), "Player (é)", nil, nil, PHP, "user-agent"},
+		{"the agent does not answer", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.agentAnswers = false }, PHP, "agent"},
+		{"no connection yet", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.rec = nil }, PHP, "new-connection"},
+		{"another stream's connection", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.rec["stream_id"] = 13 }, PHP, "new-connection"},
+		{"a closed connection", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.rec["hls_end"] = 1 }, PHP, "new-connection"},
+		{"another address", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.rec["user_ip"] = "203.0.113.9" }, PHP, "ip"},
+		{"a limit and no agent draining the spool", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.agentAlive = false }, PHP, "spool"},
+		{"no limit: no spool needed", liveTokenJSON(func(m map[string]any) { m["user_info"].(map[string]any)["max_connections"] = 0 }), testUA, nil, func(s *liveEnvState) { s.agentAlive = false }, Serve, "playlist"},
+		{"not on air", liveTokenJSON(nil), testUA, nil, func(s *liveEnvState) { s.playlist = "" }, PHP, "not-on-air"},
+	}
+	for _, c := range cases {
+		p := livePolicy()
+		if c.policy != nil {
+			c.policy(p)
+		}
+		st := goodLiveEnv()
+		if c.env != nil {
+			c.env(st)
+		}
+		v, r := JudgeLive(p, c.token, ip, c.ua, testNow, st.env())
+		if v.Action != c.want || v.Reason != c.reason {
+			t.Errorf("%s: %s (%s); want %s (%s)", c.name, v.Action, v.Reason, c.want, c.reason)
+		}
+		if v.Action == Serve && (r == nil || r.UUID != liveUUID() || string(r.ServerID) != "3" || r.UserID != 41) {
+			t.Errorf("%s: refresh %+v", c.name, r)
+		}
+	}
+}
+
+func TestJudgeLiveTS(t *testing.T) {
+	ip := "198.51.100.7"
+	cases := []struct {
+		name      string
+		token     string
+		policy    func(*Policy)
+		env       func(*liveEnvState)
+		want      Action
+		reason    string
+		prebuffer int64
+	}{
+		{"a known viewer's reconnect", tsTokenJSON(nil), nil, nil, Serve, "ts", 3},
+		{"a restreamer", tsTokenJSON(func(m map[string]any) { m["user_info"].(map[string]any)["is_restreamer"] = 1 }), nil, nil, Serve, "ts", 7},
+		{"a restreamer's link asking for a prebuffer", tsTokenJSON(func(m map[string]any) {
+			m["user_info"].(map[string]any)["is_restreamer"], m["prebuffer"] = 1, 1
+		}), nil, nil, Serve, "ts", 10},
+		{"a viewer's link asking for one", tsTokenJSON(func(m map[string]any) { m["prebuffer"] = 1 }), nil, nil, Serve, "ts", 3},
+		{"a proxied channel (PHP registers its source)", tsTokenJSON(func(m map[string]any) { m["channel_info"].(map[string]any)["proxy"] = 1 }), nil, nil, PHP, "proxy", 0},
+		{"no uuid in the token", tsTokenJSON(func(m map[string]any) { delete(m, "uuid") }), nil, nil, PHP, "token", 0},
+		{"the first request", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.rec = nil }, PHP, "new-connection", 0},
+		{"an HLS record under the uuid", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.rec["container"] = "hls" }, PHP, "new-connection", 0},
+		{"an ended connection (PHP re-opens it)", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.rec["hls_end"] = 1 }, PHP, "new-connection", 0},
+		{"a PHP worker feeding it", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.rec["pid"] = 777 }, PHP, "worker", 0},
+		{"another address", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.rec["user_ip"] = "203.0.113.9" }, PHP, "ip", 0},
+		{"another address, not restricted", tsTokenJSON(nil), func(p *Policy) { p.RestrictSameIP = false }, func(s *liveEnvState) { s.rec["user_ip"] = "203.0.113.9" }, Serve, "ts", 3},
+		{"the second-address rule", tsTokenJSON(nil), func(p *Policy) { p.Live.Disallow2ndIP = true }, nil, PHP, "second-ip", 0},
+		{"instant off", tsTokenJSON(func(m map[string]any) { m["channel_info"].(map[string]any)["on_demand"] = 1 }), func(p *Policy) { p.Live.InstantOff = true }, nil, PHP, "instant-off", 0},
+		{"a producer that is not running", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.alive = false }, PHP, "stream-down", 0},
+		{"no playlist on disk yet", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.onDisk = false }, PHP, "no-playlist", 0},
+		{"fanout not fed", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.fed = false }, PHP, "not-on-air", 0},
+		{"a limit and no agent draining the spool", tsTokenJSON(nil), nil, func(s *liveEnvState) { s.agentAlive = false }, PHP, "spool", 0},
+		{"viewers in MAIN's store", tsTokenJSON(nil), func(p *Policy) { p.ConnStore = "php" }, nil, PHP, "conn-store", 0},
+	}
+	for _, c := range cases {
+		p := tsPolicy()
+		if c.policy != nil {
+			c.policy(p)
+		}
+		st := goodTSEnv()
+		if c.env != nil {
+			c.env(st)
+		}
+		v, r := JudgeLive(p, c.token, ip, testUA, testNow, st.env())
+		if v.Action != c.want || v.Reason != c.reason {
+			t.Errorf("%s: %s (%s); want %s (%s)", c.name, v.Action, v.Reason, c.want, c.reason)
+			continue
+		}
+		if v.Action == Serve && (r == nil || !r.TS || r.UUID != testUUID || r.Prebuffer != c.prebuffer || r.Codec != "h264" || r.UserAgent != testUA) {
+			t.Errorf("%s: reconnect %+v", c.name, r)
+		}
+	}
+}
+
+// The record and the admission the gateway builds for a TS viewer's first
+// request are the panel's: its own createLive and admission wrote the file.
+func TestFirstTSRecordAndAdmissionMatchThePanel(t *testing.T) {
+	v := loadLive(t).FirstTS
+	if len(v.Cases) == 0 {
+		t.Fatal("no first_ts vectors")
+	}
+	for _, c := range v.Cases {
+		p := tsPolicy()
+		p.ServerID, p.TimeOffset, p.Live.CreateExpiration, p.Live.Admission = v.ServerID, v.TimeOffset, 5, true
+		st := goodTSEnv()
+		st.rec = nil
+		verdict, r := JudgeLive(p, tok(string(c.Token)), v.IP, v.UserAgent, v.Now, st.env())
+		if verdict.Action != Serve || verdict.Reason != "ts-new" || r == nil {
+			t.Errorf("%s: %s (%s)", c.Name, verdict.Action, verdict.Reason)
+			continue
+		}
+		raw, _ := json.Marshal(r.Record)
+		var rec map[string]any
+		_ = json.Unmarshal(raw, &rec)
+		if !reflect.DeepEqual(rec, c.Record) {
+			want, _ := json.Marshal(c.Record)
+			t.Errorf("%s: record\n%s\nwant\n%s", c.Name, raw, want)
+		}
+		var adm map[string]any
+		if r.Admission != "" && json.Unmarshal([]byte(r.Admission), &adm) != nil {
+			t.Errorf("%s: admission %q", c.Name, r.Admission)
+		}
+		if !reflect.DeepEqual(adm, c.Admission) {
+			want, _ := json.Marshal(c.Admission)
+			t.Errorf("%s: admission %s; want %s", c.Name, r.Admission, want)
+		}
+	}
+}
+
+// firstTSToken is a TS link just minted (inside create_expiration), with what MAIN seals for its record.
+func firstTSToken(edit func(map[string]any)) string {
+	return tsTokenJSON(func(m map[string]any) {
+		m["activity_start"], m["country_code"], m["external_device"] = testNow-2, "PT", ""
+		m["user_info"].(map[string]any)["con_isp_name"] = "Example ISP"
+		if edit != nil {
+			edit(m)
+		}
+	})
+}
+
+// A TS viewer's first request: its connection is created as createLive and
+// openRecord create it, and admitted by the agent as AgentConnections::admission asks.
+func TestJudgeLiveTSFirstRequest(t *testing.T) {
+	ip := "198.51.100.7"
+	proof := strings.Repeat("ab", 16)
+	type want struct {
+		action    Action
+		reason    string
+		admission string // "-": none; else the header's JSON
+		mint      string
+	}
+	first := func(p *Policy) { p.Live.CreateExpiration, p.Live.Admission, p.TimeOffset = 5, true, 0 }
+	cases := []struct {
+		name   string
+		token  string
+		policy func(*Policy)
+		want   want
+	}{
+		{"a line with a limit", firstTSToken(nil), nil, want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"MAIN's admission at mint", firstTSToken(func(m map[string]any) { m["adm"] = map[string]any{"exp": testNow + 60, "sid": 3} }), nil,
+			want{Serve, "ts-new", `{"adm":{"exp":1800000060,"sid":3},"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"an admission that is past", firstTSToken(func(m map[string]any) { m["adm"] = map[string]any{"exp": testNow - 1, "sid": 3} }), nil,
+			want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"an admission for another node", firstTSToken(func(m map[string]any) { m["adm"] = map[string]any{"exp": testNow + 60, "sid": 9} }), nil,
+			want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"an admission whose values are text (not PHP's is_int)", firstTSToken(func(m map[string]any) { m["adm"] = map[string]any{"exp": "1800000060", "sid": 3} }), nil,
+			want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"MAIN's proof of the mint", firstTSToken(func(m map[string]any) { m["prf"] = map[string]any{"iat": 1799999990, "p": proof} }), nil,
+			want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"mint":"` + testUUID + `.1799999990.` + proof + `","stream_id":12,"ua":"` + testUA + `"}`, testUUID + ".1799999990." + proof}},
+		{"a proof that is not one", firstTSToken(func(m map[string]any) { m["prf"] = map[string]any{"iat": 1799999990, "p": "zz"} }), nil,
+			want{Serve, "ts-new", `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"no limit: a plain register", firstTSToken(func(m map[string]any) { m["user_info"].(map[string]any)["max_connections"] = 0 }), nil, want{Serve, "ts-new", "-", ""}},
+		{"a node MAIN has not left active: a plain register", firstTSToken(nil), func(p *Policy) { p.Live.Admission = false }, want{Serve, "ts-new", "-", ""}},
+		{"an HMAC viewer", firstTSToken(func(m map[string]any) {
+			delete(m, "username")
+			delete(m, "password")
+			m["hmac_id"], m["identifier"] = 7, "dev-1"
+		}), nil, want{Serve, "ts-new", `{"hmac_id":7,"identifier":"dev-1","ip":"198.51.100.7","max_connections":2,"stream_id":12,"ua":"` + testUA + `"}`, ""}},
+		{"past create_expiration (PHP's TOKEN_EXPIRED)", firstTSToken(func(m map[string]any) { m["activity_start"] = testNow - 6 }), nil, want{PHP, "expired", "", ""}},
+		{"the node's clock ahead of MAIN's", firstTSToken(func(m map[string]any) { m["activity_start"] = testNow - 36 }), func(p *Policy) { p.TimeOffset = 30 }, want{PHP, "expired", "", ""}},
+		{"a token naming a reservation", firstTSToken(func(m map[string]any) { m["adm_uuid"] = testUUID }), nil, want{PHP, "token", "", ""}},
+		{"a line with no id", firstTSToken(func(m map[string]any) { m["user_info"].(map[string]any)["id"] = 0 }), nil, want{PHP, "token", "", ""}},
+		{"a panel that does not say how long a token opens a connection", firstTSToken(nil), func(p *Policy) { p.Live.CreateExpiration = 0 }, want{PHP, "new-connection", "", ""}},
+	}
+	for _, c := range cases {
+		p := tsPolicy()
+		first(p)
+		if c.policy != nil {
+			c.policy(p)
+		}
+		st := goodTSEnv()
+		st.rec = nil
+		v, r := JudgeLive(p, c.token, ip, testUA, testNow, st.env())
+		if v.Action != c.want.action || v.Reason != c.want.reason {
+			t.Errorf("%s: %s (%s); want %s (%s)", c.name, v.Action, v.Reason, c.want.action, c.want.reason)
+			continue
+		}
+		if v.Action != Serve {
+			continue
+		}
+		wantAdm := c.want.admission
+		if wantAdm == "-" {
+			wantAdm = ""
+		}
+		if r == nil || !r.New || !r.TS || r.Admission != wantAdm {
+			t.Errorf("%s: admission %q; want %q", c.name, r.Admission, wantAdm)
+			continue
+		}
+		mint, _ := jsonString(r.Record["mint"])
+		if mint != c.want.mint {
+			t.Errorf("%s: mint %q; want %q", c.name, mint, c.want.mint)
+		}
+	}
+
+	// The record, field for field what createLive stores for a TS viewer fanout serves.
+	p := tsPolicy()
+	first(p)
+	p.TimeOffset = 10
+	st := goodTSEnv()
+	st.rec = nil
+	_, r := JudgeLive(p, firstTSToken(func(m map[string]any) { m["activity_start"] = testNow - 12 }), ip, testUA, testNow, st.env())
+	if r == nil {
+		t.Fatal("not served")
+	}
+	got, _ := json.Marshal(r.Record)
+	wantRec := `{"container":"ts","date_start":1799999988,"external_device":"","geoip_country_code":"PT","hls_end":0,"hls_last_read":1799999990,"identity":41,"isp":"Example ISP","on_demand":0,"pid":0,"proxy_id":null,"server_id":3,"stream_id":12,"user_agent":"` + testUA + `","user_id":41,"user_ip":"198.51.100.7","uuid":"` + testUUID + `"}`
+	if string(got) != wantRec {
+		t.Fatalf("record\n%s\nwant\n%s", got, wantRec)
+	}
+
+	// An HMAC viewer's: its identity is the token's two values joined.
+	_, r = JudgeLive(p, firstTSToken(func(m map[string]any) {
+		delete(m, "username")
+		delete(m, "password")
+		m["hmac_id"], m["identifier"], m["activity_start"] = 7, "dev-1", testNow-12
+	}), ip, testUA, testNow, st.env())
+	if r == nil || string(r.Record["hmac_id"]) != "7" || string(r.Record["hmac_identifier"]) != `"dev-1"` || string(r.Record["identity"]) != `"7_dev-1"` || r.Record["user_id"] != nil {
+		t.Fatalf("an HMAC viewer's record: %v", r)
+	}
+}
+
+// firstHLSToken is an HLS (m3u8) link just minted, with what MAIN seals for its record.
+func firstHLSToken(edit func(map[string]any)) string {
+	return liveTokenJSON(func(m map[string]any) {
+		m["activity_start"], m["country_code"], m["external_device"] = testNow-2, "PT", ""
+		m["user_info"].(map[string]any)["con_isp_name"] = "Example ISP"
+		if edit != nil {
+			edit(m)
+		}
+	})
+}
+
+// An HLS viewer's first request: its connection is created as createLive and
+// openRecord create it — keyed on the deterministic playlist key, the uuid MAIN
+// reserved at mint kept as adm_uuid — and admitted by the agent as
+// AgentConnections::admission asks.
+func TestJudgeLiveHLSFirstRequest(t *testing.T) {
+	ip := "198.51.100.7"
+	proof := strings.Repeat("ab", 16)
+	first := func(p *Policy) { p.Live.CreateExpiration, p.Live.Admission, p.TimeOffset = 5, true, 0 }
+	serve := func(p *Policy, token string) (Verdict, *Refresh) {
+		st := goodLiveEnv()
+		st.rec = nil
+		return JudgeLive(p, token, ip, testUA, testNow, st.env())
+	}
+
+	// A line with a limit: a new connection keyed on the playlist key, admitted
+	// by the agent; no reservation and no mint without them in the token.
+	p := livePolicy()
+	first(p)
+	v, r := serve(p, firstHLSToken(nil))
+	if v.Action != Serve || v.Reason != "playlist-new" || r == nil || !r.New || r.TS || r.UUID != liveUUID() {
+		t.Fatalf("a new HLS viewer: %s (%s) %+v", v.Action, v.Reason, r)
+	}
+	if r.Admission != `{"ip":"198.51.100.7","line_id":41,"max_connections":2,"stream_id":12,"ua":"`+testUA+`"}` {
+		t.Fatalf("admission: %q", r.Admission)
+	}
+	if _, ok := r.Record["adm_uuid"]; ok {
+		t.Fatalf("no reservation without an admission claim: %s", r.Record["adm_uuid"])
+	}
+	if _, ok := r.Record["mint"]; ok {
+		t.Fatalf("no mint without a proof: %s", r.Record["mint"])
+	}
+	got, _ := json.Marshal(r.Record)
+	wantRec := `{"container":"hls","date_start":1799999998,"external_device":"","geoip_country_code":"PT","hls_end":0,"hls_last_read":1800000000,"identity":41,"isp":"Example ISP","on_demand":0,"pid":null,"proxy_id":null,"server_id":3,"stream_id":12,"user_agent":"` + testUA + `","user_id":41,"user_ip":"198.51.100.7","uuid":"` + liveUUID() + `"}`
+	if string(got) != wantRec {
+		t.Fatalf("record\n%s\nwant\n%s", got, wantRec)
+	}
+
+	// MAIN's admission at mint and its proof: the reservation kept as adm_uuid
+	// (the token's own uuid, not the playlist key), the proof as mint, both
+	// passed to the agent.
+	v, r = serve(p, firstHLSToken(func(m map[string]any) {
+		m["adm"] = map[string]any{"exp": testNow + 60, "sid": 3}
+		m["prf"] = map[string]any{"iat": 1799999990, "p": proof}
+	}))
+	if v.Action != Serve || string(r.Record["adm_uuid"]) != `"`+testUUID+`"` || string(r.Record["mint"]) != `"`+testUUID+".1799999990."+proof+`"` {
+		t.Fatalf("reservation/mint: adm_uuid=%s mint=%s", r.Record["adm_uuid"], r.Record["mint"])
+	}
+	if r.Admission != `{"adm":{"exp":1800000060,"sid":3},"ip":"198.51.100.7","line_id":41,"max_connections":2,"mint":"`+testUUID+".1799999990."+proof+`","stream_id":12,"ua":"`+testUA+`"}` {
+		t.Fatalf("admission with adm+mint: %q", r.Admission)
+	}
+
+	// A past admission is not passed on, but the reservation is still kept
+	// (openRecord stores adm_uuid whenever the token carries an adm object).
+	_, r = serve(p, firstHLSToken(func(m map[string]any) { m["adm"] = map[string]any{"exp": testNow - 1, "sid": 3} }))
+	if string(r.Record["adm_uuid"]) != `"`+testUUID+`"` || strings.Contains(r.Admission, `"adm"`) {
+		t.Fatalf("past admission: adm_uuid=%s admission=%q", r.Record["adm_uuid"], r.Admission)
+	}
+
+	// An HMAC viewer: keyed on its own identity, the record's identity joined.
+	_, r = serve(p, firstHLSToken(func(m map[string]any) {
+		delete(m, "username")
+		delete(m, "password")
+		m["hmac_id"], m["identifier"] = 7, "dev-1"
+	}))
+	if r == nil || r.UUID != hlsConnectionKey("h7_dev-1", 12, ip, testUA) || string(r.Record["identity"]) != `"7_dev-1"` || r.Record["user_id"] != nil {
+		t.Fatalf("an HMAC viewer: %+v", r)
+	}
+
+	// No limit: a plain register, no admission asked.
+	if _, r := serve(p, firstHLSToken(func(m map[string]any) { m["user_info"].(map[string]any)["max_connections"] = 0 })); r.Admission != "" {
+		t.Fatalf("no limit: %q", r.Admission)
+	}
+
+	// PHP's to create: expired, a token naming a reservation, a panel that does
+	// not say how long a token opens a connection.
+	if v, _ := serve(p, firstHLSToken(func(m map[string]any) { m["activity_start"] = testNow - 6 })); v.Action != PHP || v.Reason != "expired" {
+		t.Errorf("expired: %s (%s)", v.Action, v.Reason)
+	}
+	if v, _ := serve(p, firstHLSToken(func(m map[string]any) { m["adm_uuid"] = testUUID })); v.Action != PHP || v.Reason != "token" {
+		t.Errorf("a reservation token: %s (%s)", v.Action, v.Reason)
+	}
+	noCE := livePolicy()
+	first(noCE)
+	noCE.Live.CreateExpiration = 0
+	if v, _ := serve(noCE, firstHLSToken(nil)); v.Action != PHP || v.Reason != "new-connection" {
+		t.Errorf("no create_expiration: %s (%s)", v.Action, v.Reason)
+	}
+}
+
+// ── A refresh served ────────────────────────────────────────────────────
+
+func TestServeLiveAnswersAsLivePHPDoes(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"cons", "streams", "signals", "spool"} {
+		_ = os.MkdirAll(filepath.Join(dir, d), 0o755)
+	}
+	flows := filepath.Join(dir, "flows.json")
+	_ = os.WriteFile(flows, []byte("{}"), 0o644)
+	st := goodLiveEnv()
+	a := &fakeAgent{records: map[string]map[string]any{liveUUID(): st.rec}}
+	sock := startAgent(t, a)
+	path := writeServePolicy(t, dir, "segments+playlist", func(doc map[string]any) {
+		doc["conn_store"] = "agent"
+		doc["time_offset"] = 10
+		doc["live"] = map[string]any{"use_buffer": false}
+		paths := doc["paths"].(map[string]any)
+		paths["agent_sock"], paths["streams"], paths["signals"], paths["spool"], paths["flows"] = sock, dir+"/streams/", dir+"/signals/", dir+"/spool", flows
+		paths["cons"] = dir + "/cons"
+	})
+	startProducer(t, filepath.Join(dir, "streams"))
+	node := &fakeFiles{playlists: map[string]string{"12": st.playlist}}
+	s := NewServer(path, http.NotFoundHandler(), node)
+
+	req := httptest.NewRequest(http.MethodGet, "/stream/live?token=x", nil)
+	req.Header.Set("X-XC-Original-URI", "/auth/"+liveTokenJSON(nil))
+	req.Header.Set("X-XC-Client-IP", "198.51.100.7")
+	req.Header.Set("User-Agent", testUA)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/x-mpegurl" || rec.Header().Get("Cache-Control") != "no-store, no-cache, must-revalidate" || rec.Header().Get("X-Accel-Buffering") != "no" {
+		t.Fatalf("refresh: %d %v %s; stats %v", rec.Code, rec.Header(), rec.Body.String(), s.Stats())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "#EXT-X-MEDIA-SEQUENCE:") || strings.Contains(body, "\n5.ts") {
+		t.Fatalf("playlist: %s", body)
+	}
+	if len(a.puts) != 1 || a.records[liveUUID()]["hls_end"] != float64(0) || a.records[liveUUID()]["proxy_id"] != nil {
+		t.Fatalf("the record refreshed in the agent: %v %v", a.puts, a.records[liveUUID()])
+	}
+	spooled, _ := filepath.Glob(filepath.Join(dir, "spool", "p0", "*.ndjson"))
+	if len(spooled) != 1 || !strings.Contains(string(mustRead(t, spooled[0])), `"type":"conn.limit"`) {
+		t.Fatalf("conn.limit spooled for MAIN: %v", spooled)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "signals", "hlsseq_12")); err != nil {
+		t.Fatalf("the sequence's state kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cons", liveUUID())); err != nil {
+		t.Fatalf("the viewer's marker touched: %v", err)
+	}
+}
+
+// startProducer runs stream 12's producer: a process whose command line
+// names the stream (isStreamAlive reads it), in the stream's pid file; the
+// on-disk playlist exists.
+func startProducer(t *testing.T, streams string) {
+	t.Helper()
+	producer := exec.Command("sleep", "12")
+	if err := producer.Start(); err != nil {
+		t.Skip("no sleep binary: ", err)
+	}
+	t.Cleanup(func() { _ = producer.Process.Kill(); _ = producer.Wait() })
+	// Start returns once exec is under way; the command line isStreamAlive
+	// reads can still be empty for a moment after.
+	for deadline := time.Now().Add(3 * time.Second); !isStreamAlive(int64(producer.Process.Pid), 12); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			cmd, _ := os.ReadFile("/proc/" + itoa(int64(producer.Process.Pid)) + "/cmdline")
+			t.Fatalf("the producer never looked alive: cmdline %q", cmd)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(streams, "12_.pid"), []byte(itoa(int64(producer.Process.Pid))+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(streams, "12_.m3u8"), []byte("#EXTM3U\n"), 0o644)
+}
+
+// A TS viewer's reconnect: the record refreshed as live.php's TS arm does,
+// then the stream from fanout's /live/<id> with the viewer's uuid, prebuffer
+// and codec, as its X-Accel-Redirect to /xc_fanout/<id> hands it.
+func TestServeTSReconnectAnswersAsLivePHPDoes(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"cons", "streams", "signals", "spool"} {
+		_ = os.MkdirAll(filepath.Join(dir, d), 0o755)
+	}
+	flows := filepath.Join(dir, "flows.json")
+	_ = os.WriteFile(flows, []byte("{}"), 0o644)
+	st := goodTSEnv()
+	st.rec["server_id"], st.rec["proxy_id"] = 3, nil
+	a := &fakeAgent{records: map[string]map[string]any{testUUID: st.rec}}
+	sock := startAgent(t, a)
+	path := writeServePolicy(t, dir, "segments+playlist", func(doc map[string]any) {
+		doc["conn_store"] = "agent"
+		doc["time_offset"] = 10
+		doc["live"] = map[string]any{"use_buffer": true, "ts": true, "client_prebuffer": 4, "restreamer_prebuffer": 8, "seg_time": 10}
+		paths := doc["paths"].(map[string]any)
+		paths["agent_sock"], paths["streams"], paths["signals"], paths["spool"], paths["flows"] = sock, dir+"/streams/", dir+"/signals/", dir+"/spool", flows
+		paths["cons"] = dir + "/cons"
+	})
+	startProducer(t, filepath.Join(dir, "streams"))
+	var asked *http.Request
+	fanout := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte("TS"))
+	})
+	s := NewServer(path, fanout, &fakeFiles{playlists: map[string]string{"12": st.playlist}})
+
+	req := httptest.NewRequest(http.MethodGet, "/stream/live?token=x", nil)
+	req.Header.Set("X-XC-Original-URI", "/auth/"+tsTokenJSON(nil))
+	req.Header.Set("X-XC-Client-IP", "198.51.100.7")
+	req.Header.Set("User-Agent", testUA)
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Code != 200 || rec.Body.String() != "TS" || rec.Header().Get("Content-Type") != "video/mp2t" || rec.Header().Get("X-Accel-Buffering") != "no" || rec.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("reconnect: %d %v %q; stats %v", rec.Code, rec.Header(), rec.Body.String(), s.Stats())
+	}
+	if asked == nil || asked.URL.Path != "/live/12" || asked.URL.Query().Get("c") != testUUID || asked.URL.Query().Get("prebuffer") != "4" || asked.URL.Query().Get("vc") != "h264" {
+		t.Fatalf("fanout asked for %v", asked)
+	}
+	got := a.records[testUUID]
+	if len(a.puts) != 1 || got["pid"] != float64(0) || got["hls_end"] != float64(0) || got["server_id"] != float64(3) || got["container"] != "ts" {
+		t.Fatalf("the record refreshed in the agent: %v %v", a.puts, got)
+	}
+	if last, ok := got["hls_last_read"].(float64); !ok || int64(last) < time.Now().Unix()-20 {
+		t.Fatalf("hls_last_read: %v", got["hls_last_read"])
+	}
+	spooled, _ := filepath.Glob(filepath.Join(dir, "spool", "p0", "*.ndjson"))
+	if len(spooled) != 1 || !strings.Contains(string(mustRead(t, spooled[0])), `"uuid":"`+testUUID+`"`) {
+		t.Fatalf("conn.limit spooled for MAIN: %v", spooled)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cons", testUUID)); !os.IsNotExist(err) {
+		t.Fatalf("a TS viewer has no marker, as after live.php's hand-off: %v", err)
+	}
+	if s.Stats()["live serve ts"] != 1 {
+		t.Fatalf("stats: %v", s.Stats())
+	}
+
+	// The first request of a session stays PHP's while the panel does not say
+	// how long a token opens a connection: no record yet.
+	delete(a.records, testUUID)
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, req)
+	if rec.Header().Get("X-Accel-Redirect") != "@gw_live_php" {
+		t.Fatalf("first request: %d %v", rec.Code, rec.Header())
+	}
+}
+
+// A TS viewer's first request: the connection created in the agent as
+// createLive creates it (admitted by the agent for a line with a limit), the
+// limit spooled, then the stream from fanout. A viewer the agent refuses, or
+// one it does not answer for, is PHP's, with nothing stored.
+func TestServeTSFirstRequestAnswersAsLivePHPDoes(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"cons", "streams", "signals", "spool"} {
+		_ = os.MkdirAll(filepath.Join(dir, d), 0o755)
+	}
+	flows := filepath.Join(dir, "flows.json")
+	_ = os.WriteFile(flows, []byte("{}"), 0o644)
+	a := &fakeAgent{records: map[string]map[string]any{}}
+	sock := startAgent(t, a)
+	path := writeServePolicy(t, dir, "segments+playlist", func(doc map[string]any) {
+		doc["conn_store"] = "agent"
+		doc["live"] = map[string]any{"use_buffer": true, "ts": true, "client_prebuffer": 4, "restreamer_prebuffer": 8, "seg_time": 10, "create_expiration": 5, "admission": true}
+		paths := doc["paths"].(map[string]any)
+		paths["agent_sock"], paths["streams"], paths["signals"], paths["spool"], paths["flows"] = sock, dir+"/streams/", dir+"/signals/", dir+"/spool", flows
+		paths["cons"] = dir + "/cons"
+	})
+	startProducer(t, filepath.Join(dir, "streams"))
+	asked := 0
+	fanout := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		_, _ = w.Write([]byte("TS"))
+	})
+	s := NewServer(path, fanout, &fakeFiles{playlists: map[string]string{"12": goodTSEnv().playlist}})
+	ask := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/stream/live?token=x", nil)
+		// Minted now: the server judges on the real clock.
+		req.Header.Set("X-XC-Original-URI", "/auth/"+firstTSToken(func(m map[string]any) { m["activity_start"] = time.Now().Unix() }))
+		req.Header.Set("X-XC-Client-IP", "198.51.100.7")
+		req.Header.Set("User-Agent", testUA)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Refused by the agent: PHP's to answer, nothing stored, nothing spooled, fanout not asked.
+	a.refuse = "LIMIT"
+	if rec := ask(); rec.Header().Get("X-Accel-Redirect") != "@gw_live_php" || len(a.records) != 0 || asked != 0 || s.Stats()["live php refused"] != 1 {
+		t.Fatalf("a refused viewer: %d %v records %v stats %v", rec.Code, rec.Header(), a.records, s.Stats())
+	}
+	if spooled, _ := filepath.Glob(filepath.Join(dir, "spool", "p0", "*.ndjson")); len(spooled) != 0 {
+		t.Fatalf("a refused viewer spools nothing: %v", spooled)
+	}
+
+	// Admitted: stored with the admission asked of the agent, spooled, served.
+	a.refuse = ""
+	rec := ask()
+	if rec.Code != 200 || rec.Body.String() != "TS" || rec.Header().Get("Content-Type") != "video/mp2t" || asked != 1 {
+		t.Fatalf("first request: %d %v %q; stats %v", rec.Code, rec.Header(), rec.Body.String(), s.Stats())
+	}
+	got := a.records[testUUID]
+	if got == nil || got["container"] != "ts" || got["pid"] != float64(0) || got["user_id"] != float64(41) || got["identity"] != float64(41) || got["server_id"] != float64(3) || got["user_ip"] != "198.51.100.7" || got["geoip_country_code"] != "PT" || got["isp"] != "Example ISP" {
+		t.Fatalf("the record created in the agent: %v", got)
+	}
+	var adm map[string]any
+	if len(a.admissions) != 2 || json.Unmarshal([]byte(a.admissions[1]), &adm) != nil || adm["line_id"] != float64(41) || adm["max_connections"] != float64(2) || adm["stream_id"] != float64(12) {
+		t.Fatalf("the admission asked of the agent: %v", a.admissions)
+	}
+	spooled, _ := filepath.Glob(filepath.Join(dir, "spool", "p0", "*.ndjson"))
+	if len(spooled) != 1 || !strings.Contains(string(mustRead(t, spooled[0])), `"uuid":"`+testUUID+`"`) {
+		t.Fatalf("conn.limit spooled for MAIN: %v", spooled)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cons", testUUID)); !os.IsNotExist(err) {
+		t.Fatalf("a TS viewer has no marker: %v", err)
+	}
+	if s.Stats()["live serve ts-new"] != 1 {
+		t.Fatalf("stats: %v", s.Stats())
+	}
+
+	// The same link again: the viewer is known now, a reconnect.
+	if rec := ask(); rec.Code != 200 || s.Stats()["live serve ts"] != 1 || len(a.admissions) != 2 {
+		t.Fatalf("the reconnect: %d stats %v admissions %d", rec.Code, s.Stats(), len(a.admissions))
+	}
+
+	// Shadow only judges: a new viewer the agent would have to admit is not compared.
+	delete(a.records, testUUID)
+	req := httptest.NewRequest(http.MethodPost, "/shadow", nil)
+	req.Header.Set("X-XC-Original-URI", "/auth/"+firstTSToken(func(m map[string]any) { m["activity_start"] = time.Now().Unix() }))
+	req.Header.Set("X-XC-Client-IP", "198.51.100.7")
+	req.Header.Set("User-Agent", testUA)
+	s.ServeHTTP(httptest.NewRecorder(), req)
+	if s.Stats()["live php admission"] != 1 || len(a.records) != 0 || len(a.admissions) != 2 {
+		t.Fatalf("shadow: stats %v records %v admissions %d", s.Stats(), a.records, len(a.admissions))
+	}
+}
+
+// An HLS viewer's first request served: the record createLive stores (keyed on
+// the playlist key, container hls, pid null), the viewer admitted by the agent,
+// the tokenized playlist returned and the marker touched. A second request is a
+// known viewer's refresh, with no new admission.
+func TestServeHLSFirstRequestAnswersAsLivePHPDoes(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"cons", "streams", "signals", "spool"} {
+		_ = os.MkdirAll(filepath.Join(dir, d), 0o755)
+	}
+	flows := filepath.Join(dir, "flows.json")
+	_ = os.WriteFile(flows, []byte("{}"), 0o644)
+	a := &fakeAgent{records: map[string]map[string]any{}}
+	sock := startAgent(t, a)
+	path := writeServePolicy(t, dir, "segments+playlist", func(doc map[string]any) {
+		doc["conn_store"] = "agent"
+		doc["live"] = map[string]any{"use_buffer": true, "create_expiration": 5, "admission": true}
+		paths := doc["paths"].(map[string]any)
+		paths["agent_sock"], paths["streams"], paths["signals"], paths["spool"], paths["flows"] = sock, dir+"/streams/", dir+"/signals/", dir+"/spool", flows
+		paths["cons"] = dir + "/cons"
+	})
+	startProducer(t, filepath.Join(dir, "streams"))
+	node := &fakeFiles{playlists: map[string]string{"12": goodLiveEnv().playlist}}
+	s := NewServer(path, http.NotFoundHandler(), node)
+	ask := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/stream/live?token=x", nil)
+		// Minted now: the server judges on the real clock.
+		req.Header.Set("X-XC-Original-URI", "/auth/"+firstHLSToken(func(m map[string]any) { m["activity_start"] = time.Now().Unix() }))
+		req.Header.Set("X-XC-Client-IP", "198.51.100.7")
+		req.Header.Set("User-Agent", testUA)
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := ask()
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/x-mpegurl" || !strings.Contains(rec.Body.String(), "#EXT-X-MEDIA-SEQUENCE:") {
+		t.Fatalf("first HLS request: %d %v %q; stats %v", rec.Code, rec.Header(), rec.Body.String(), s.Stats())
+	}
+	got := a.records[liveUUID()]
+	if got == nil || got["container"] != "hls" || got["pid"] != nil || got["user_id"] != float64(41) || got["server_id"] != float64(3) || got["user_ip"] != "198.51.100.7" {
+		t.Fatalf("the record created in the agent: %v", got)
+	}
+	if len(a.admissions) == 0 {
+		t.Fatalf("the admission asked of the agent: %v", a.admissions)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cons", liveUUID())); err != nil {
+		t.Fatalf("the viewer's marker touched: %v", err)
+	}
+	if s.Stats()["live serve playlist-new"] != 1 {
+		t.Fatalf("stats: %v", s.Stats())
+	}
+
+	// The same link again: a known viewer's refresh, no new admission.
+	n := len(a.admissions)
+	if rec := ask(); rec.Code != 200 || s.Stats()["live serve playlist"] != 1 || len(a.admissions) != n {
+		t.Fatalf("the refresh: %d stats %v admissions %d want %d", rec.Code, s.Stats(), len(a.admissions), n)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// What a live token carries, once it opens: no field, type or shape may panic the judge.
+func FuzzLiveToken(f *testing.F) {
+	f.Add(`{"stream_id":12,"extension":"m3u8","channel_info":{"redirect_id":3},"user_info":{"id":41}}`)
+	f.Add(`{"hmac_id":"5","identifier":7,"extension":"m3u8","channel_info":{"x":1},"user_info":{},"stream_id":"12"}`)
+	f.Add(`{"extension":"m3u8","channel_info":[],"user_info":null}`)
+	f.Add(`[]`)
+	f.Add(`{"stream_id":12,"extension":"ts","uuid":7,"prebuffer":[1],"channel_info":{"redirect_id":3},"user_info":{"id":41,"is_restreamer":"1"}}`)
+	p := tsPolicy()
+	f.Fuzz(func(t *testing.T, plain string) {
+		JudgeLive(p, tok(plain), "198.51.100.7", testUA, testNow, goodLiveEnv().env())
+	})
+}
+
+// Serve-not-defer (serve-only LB): a registered but idle stream is served-and-
+// started instead of deferred not-on-air; an unknown stream and a transition
+// node (serve_only off) still defer.
+func TestJudgeLiveServeOnlyServesIdleRegistered(t *testing.T) {
+	ip := "198.51.100.7"
+	first := func(p *Policy) { p.Live.CreateExpiration, p.Live.Admission, p.TimeOffset = 5, true, 0 }
+
+	t.Run("TS registered idle on serve-only serves", func(t *testing.T) {
+		p := tsPolicy()
+		first(p)
+		p.ServeOnly = true
+		st := goodTSEnv()
+		st.rec, st.fed, st.registered = nil, false, true
+		v, r := JudgeLive(p, firstTSToken(nil), ip, testUA, testNow, st.env())
+		if v.Action != Serve {
+			t.Fatalf("got %s (%s); want Serve", v.Action, v.Reason)
+		}
+		if r == nil || !r.TS {
+			t.Fatalf("want a TS refresh, got %+v", r)
+		}
+	})
+
+	t.Run("TS unregistered on serve-only denies not-on-air", func(t *testing.T) {
+		p := tsPolicy()
+		first(p)
+		p.ServeOnly = true
+		st := goodTSEnv()
+		st.rec, st.fed, st.registered = nil, false, false
+		if v, _ := JudgeLive(p, firstTSToken(nil), ip, testUA, testNow, st.env()); v.Action != Deny || v.Reason != "not-on-air" {
+			t.Fatalf("got %s/%s; want Deny/not-on-air", v.Action, v.Reason)
+		}
+	})
+
+	t.Run("TS registered idle but serve_only off defers", func(t *testing.T) {
+		p := tsPolicy()
+		first(p) // ServeOnly stays false
+		st := goodTSEnv()
+		st.rec, st.fed, st.registered = nil, false, true
+		if v, _ := JudgeLive(p, firstTSToken(nil), ip, testUA, testNow, st.env()); v.Action != PHP || v.Reason != "not-on-air" {
+			t.Fatalf("got %s/%s; want PHP/not-on-air", v.Action, v.Reason)
+		}
+	})
+
+	t.Run("HLS registered idle on serve-only warms up", func(t *testing.T) {
+		p := livePolicy()
+		first(p)
+		p.ServeOnly = true
+		st := goodLiveEnv()
+		st.rec, st.fed, st.playlist, st.registered = nil, false, "", true
+		v, r := JudgeLive(p, firstHLSToken(nil), ip, testUA, testNow, st.env())
+		if v.Action != Serve || v.Reason != "playlist-warmup" {
+			t.Fatalf("got %s/%s; want Serve/playlist-warmup", v.Action, v.Reason)
+		}
+		if r == nil || r.TS || !r.Warmup {
+			t.Fatalf("want an HLS warmup refresh, got %+v", r)
+		}
+	})
+
+	t.Run("HLS unregistered on serve-only denies not-on-air", func(t *testing.T) {
+		p := livePolicy()
+		first(p)
+		p.ServeOnly = true
+		st := goodLiveEnv()
+		st.rec, st.fed, st.playlist, st.registered = nil, false, "", false
+		if v, _ := JudgeLive(p, firstHLSToken(nil), ip, testUA, testNow, st.env()); v.Action != Deny || v.Reason != "not-on-air" {
+			t.Fatalf("got %s/%s; want Deny/not-on-air", v.Action, v.Reason)
+		}
+	})
+}

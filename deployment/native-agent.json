@@ -1,0 +1,8 @@
+{
+  "repository": "mena50056/xcvm-independent",
+  "tag": "native-controls-v1",
+  "asset": "xc_agent-linux-amd64.gz",
+  "sha256": "f81f94b4b347e1a9888b5572e726ada6b6d7eaee559ab8e68fa57a361dd06190",
+  "binary_sha256": "0b4196d373d738460188da73d80a95b243ee5481adf6492e945fcc16be0eb3f6",
+  "version": "0.16.0-independent.1"
+}

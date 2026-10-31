@@ -54,7 +54,7 @@ final class IndependentLbInstall {
             self::run($conn,'for p in /home/xc_vm /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main; do test ! -e "$p" && test ! -L "$p" || { echo "Existing panel found: $p"; exit 1; }; done; ! id xcvm_lab >/dev/null 2>&1; test -z "$(ss -H -lnt \'( sport = :80 or sport = :443 or sport = :8080 or sport = :18080 )\')"');
             $remote=trim(self::run($conn,'umask 077; mktemp -d /root/xcvm-node-install.XXXXXXXX')['output']);
             if(!preg_match('~^/root/xcvm-node-install\.[A-Za-z0-9]{8}$~D',$remote))throw new \RuntimeException('Invalid private remote staging directory');
-            foreach(['trusted-node.py','fetch_release.py','install.py','configure.py'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
+            foreach(['trusted-node.py','fetch_release.py','install.py','configure.py','native-agent.json'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
             self::send($conn,$sftp,$certificate,$remote.'/main.crt');
             $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.3'];
             $planFile=self::privateFile($plan,$temp);self::send($conn,$sftp,$planFile,$remote.'/plan.json');

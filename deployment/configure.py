@@ -110,6 +110,7 @@ php = f'{SRC}/bin/php/bin/php -c {ROOT}/php.ini'
 if role == 'main':
     unit('xcvm-independent-lab', f'{php} -S 127.0.0.1:18080 -t {SRC}/Public {ROOT}/runtime/router.php', 'mariadb.service redis-server.service')
     unit('xcvm-independent-monitor', f'{php} {ROOT}/runtime/monitor.php')
+    unit('xcvm-independent-signals', f'{php} {SRC}/console.php signals')
     unit('xcvm-independent-fanout-sync', f'{php} {SRC}/console.php fanout_sync')
     write(ROOT / 'deployment/maintenance.sh', f'''#!/bin/sh
 set -eu

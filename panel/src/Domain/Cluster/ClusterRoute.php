@@ -91,7 +91,7 @@ final class ClusterRoute {
 			return self::stop($rServerID, $rStop[0], $rStop[1]);
 		}
 		$rStart = self::starts($rData);
-		if ($rStart !== null && self::takesTypedStarts($rServerID)) {
+		if ($rStart !== null && self::takesTypedStarts($rServerID, $rStart[0] === 'stream.start')) {
 			return self::start($rServerID, $rStart[0], $rStart[1], $rStart[2]);
 		}
 		return null;
@@ -115,13 +115,15 @@ final class ClusterRoute {
 	}
 
 	/** Does this node's PHP run typed starts (its agent says FEATURE_TYPED_STARTS)? */
-	private static function takesTypedStarts(int $rServerID): bool {
+	private static function takesTypedStarts(int $rServerID, bool $rLive = false): bool {
 		try {
 			$rNode = empty(SettingsManager::get('cluster_api_enabled')) ? null : NodeRegistry::byServer($rServerID);
 		} catch (\Throwable) {
 			return false;
 		}
-		return $rNode !== null && in_array(self::FEATURE_TYPED_STARTS, explode(',', (string) ($rNode['features'] ?? '')), true);
+		$rFeatures = explode(',', (string) ($rNode['features'] ?? ''));
+		return $rNode !== null && (in_array(self::FEATURE_TYPED_STARTS, $rFeatures, true)
+			|| ($rLive && in_array('native_stream_controls', $rFeatures, true)));
 	}
 
 	/**

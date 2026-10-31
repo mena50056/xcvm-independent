@@ -1,0 +1,200 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// XC_VM_Fanout — https://github.com/Vateron-Media/XC_VM_Fanout
+// See LICENSE and LICENSE-ADDITIONAL-TERMS.md
+
+package server
+
+import (
+	"testing"
+	"time"
+)
+
+func TestSignalStoreOneShot(t *testing.T) {
+	s := newSignalStore()
+	s.set("u1", pendingSignal{text: "hi", fontSize: 20, expires: time.Now().Add(time.Minute)})
+	if !s.peek("u1") {
+		t.Fatal("peek should see the queued signal")
+	}
+	sig, ok := s.take("u1")
+	if !ok || sig.text != "hi" {
+		t.Fatalf("take = %+v, %v; want text=hi", sig, ok)
+	}
+	if _, ok := s.take("u1"); ok {
+		t.Fatal("second take must be empty (one-shot)")
+	}
+	if s.peek("u1") {
+		t.Fatal("peek after take should be false")
+	}
+	if _, ok := s.take(""); ok {
+		t.Fatal("empty uuid must never match")
+	}
+}
+
+func TestSignalStoreExpiry(t *testing.T) {
+	s := newSignalStore()
+	s.set("u2", pendingSignal{text: "old", expires: time.Now().Add(-time.Second)})
+	if s.peek("u2") {
+		t.Fatal("an expired signal must not peek")
+	}
+	if _, ok := s.take("u2"); ok {
+		t.Fatal("an expired signal must not take")
+	}
+}
+
+func TestParseXY(t *testing.T) {
+	if x, y := parseXY("300x150"); x != 300 || y != 150 {
+		t.Fatalf("parseXY(explicit) = %d,%d; want 300,150", x, y)
+	}
+	for i := 0; i < 100; i++ {
+		for _, in := range []string{"", "junk", "10"} {
+			x, y := parseXY(in)
+			if x < 150 || x > 380 || y < 110 || y > 250 {
+				t.Fatalf("parseXY(%q) random out of legacy range: %d,%d", in, x, y)
+			}
+		}
+	}
+}
+
+// TestEscapeDrawtext pins the shape of the two-pass escaping. A -vf value is
+// unescaped twice on its way to drawtext — by the filtergraph parser and then by
+// the option parser — and each pass eats one layer of backslashes, so a character
+// the inner pass cares about needs two. TestDrawtextFilterDrawsTheMessageVerbatim
+// is what proves these strings are the RIGHT ones; this is the cheap unit-level
+// record of them.
+func TestEscapeDrawtext(t *testing.T) {
+	cases := map[string]string{
+		// ':' matters to the option parser only: escaped on the inner pass, and
+		// that backslash then escaped on the outer one.
+		`3:00`: `3\\:00`,
+		// '\' and '\'' matter to both passes, so they come out doubled twice.
+		`a'b`: `a\\\'b`,
+		`a\b`: `a\\\\b`,
+		// ',' ';' '[' ']' end a filter or open a link label: outer pass only.
+		`a,b;c[d]e`: `a\,b\;c\[d\]e`,
+		// '%' is drawtext's own expansion, which drawtextFilter turns off; the
+		// escaper must leave it alone or the banner draws a backslash.
+		`50% off`: `50% off`,
+		// drawtext draws one line.
+		"two\nlines": "two lines",
+		"cr\rlf":     "cr lf",
+		// Plain text is untouched.
+		`channel back at 9`: `channel back at 9`,
+	}
+	for in, want := range cases {
+		if got := escapeDrawtext(in); got != want {
+			t.Errorf("escapeDrawtext(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
+
+func TestSanitizeColor(t *testing.T) {
+	cases := map[string]string{
+		"#FF0000":   "#FF0000",
+		"white@0.8": "white@0.8",
+		"';rm -rf/": "rmrf", // filtergraph-injection chars stripped
+		"":          "white",
+	}
+	for in, want := range cases {
+		if got := sanitizeColor(in); got != want {
+			t.Fatalf("sanitizeColor(%q) = %q; want %q", in, got, want)
+		}
+	}
+}
+
+// TestSignalStoreHotPathSkipsLock: serveLive consults the signal store on EVERY
+// chunk it delivers, for every viewer of every stream. With only the mutex, the
+// whole daemon's fan-out funnelled through one lock to ask a question whose
+// answer is almost always "no". The atomic count must track the map exactly, so
+// the fast path is both cheap and correct.
+func TestSignalStoreHotPathSkipsLock(t *testing.T) {
+	s := newSignalStore()
+	if s.n.Load() != 0 {
+		t.Fatal("fresh store must count 0")
+	}
+	if s.peek("nobody") {
+		t.Fatal("peek on an empty store must be false")
+	}
+
+	s.set("a", pendingSignal{text: "x"})
+	s.set("b", pendingSignal{text: "y"})
+	if s.n.Load() != 2 {
+		t.Fatalf("count = %d after two sets, want 2", s.n.Load())
+	}
+	s.set("a", pendingSignal{text: "replaced"}) // overwrite, not a new entry
+	if s.n.Load() != 2 {
+		t.Fatalf("count = %d after overwriting a key, want 2", s.n.Load())
+	}
+	if !s.peek("a") {
+		t.Error("peek must see a queued signal")
+	}
+
+	if _, ok := s.take("a"); !ok {
+		t.Fatal("take must return the queued signal")
+	}
+	if s.n.Load() != 1 {
+		t.Fatalf("count = %d after take, want 1", s.n.Load())
+	}
+
+	// An expired signal is reaped by peek, and the count must follow.
+	s.set("c", pendingSignal{text: "old", expires: time.Now().Add(-time.Second)})
+	if s.n.Load() != 2 {
+		t.Fatalf("count = %d, want 2", s.n.Load())
+	}
+	if s.peek("c") {
+		t.Error("an expired signal must not peek true")
+	}
+	if s.n.Load() != 1 {
+		t.Fatalf("count = %d after an expired signal was reaped, want 1", s.n.Load())
+	}
+
+	if _, ok := s.take("b"); !ok {
+		t.Fatal("take b")
+	}
+	if s.n.Load() != 0 || s.peek("b") {
+		t.Fatalf("drained store must count 0 and peek false (count=%d)", s.n.Load())
+	}
+}
+
+// TestSignalStoreSweepsStrandedSignals: a signal is cleared by the viewer it was
+// addressed to — and nothing says that viewer ever comes back. The admin
+// messages a uuid that has already disconnected, an HLS viewer that stopped
+// polling, or a uuid this node never serves at all. The entry used to be deleted
+// only by a peek or take for that same uuid, so it sat in the map for the life of
+// the process with n above zero, and from then on EVERY live-TS viewer on the
+// node took the single signalStore mutex for every chunk it was delivered: the
+// node-wide contention the atomic count exists to remove, turned back on by one
+// ordinary admin action. Each further stranded signal also grew the map.
+func TestSignalStoreSweepsStrandedSignals(t *testing.T) {
+	s := newSignalStore()
+	s.set("gone", pendingSignal{text: "to a viewer that already left", expires: time.Now().Add(20 * time.Millisecond)})
+	time.Sleep(40 * time.Millisecond)
+
+	// Another viewer's hot path. It must not merely miss: once the stranded
+	// signal is past its TTL the fast path has to come back, for everyone.
+	for i := 0; i < 5; i++ {
+		if s.peek("someone-else") {
+			t.Fatal("peek matched a uuid that has no signal queued")
+		}
+	}
+	if n := s.n.Load(); n != 0 {
+		t.Fatalf("count = %d after an expired signal was left stranded; every live viewer's peek now takes the global lock", n)
+	}
+	s.mu.Lock()
+	left := len(s.m)
+	s.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("%d expired entr(ies) still held; the map grows by one for every signal nobody picks up", left)
+	}
+
+	// Queueing a signal clears out whatever else has expired, so a node whose
+	// addressed viewers never return does not accumulate them either.
+	s.set("stale", pendingSignal{text: "old", expires: time.Now().Add(10 * time.Millisecond)})
+	time.Sleep(20 * time.Millisecond)
+	s.set("live", pendingSignal{text: "new", expires: time.Now().Add(time.Minute)})
+	if n := s.n.Load(); n != 1 {
+		t.Fatalf("count = %d after queueing one live signal alongside an expired one, want 1", n)
+	}
+	if !s.peek("live") {
+		t.Fatal("the live signal must survive the sweep")
+	}
+}

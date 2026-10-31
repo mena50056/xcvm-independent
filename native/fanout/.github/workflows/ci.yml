@@ -1,0 +1,122 @@
+name: ci
+
+# Every push and pull request: build, vet, check formatting and run the tests,
+# including under the race detector. release.yml runs the same suite via
+# release.sh, but only when a version tag is pushed — so until this existed, a
+# tag published binaries from code nothing had ever compiled, and a formatting
+# slip or a broken test was found by the release rather than by the commit.
+#
+# Go 1.21 matches release.yml and the `go` directive in go.mod: a build that
+# passes here on a newer toolchain and fails there would defeat the point.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      # GOWORK=off everywhere, for the same reason release.sh sets it: a go.work
+      # in a parent directory (a developer's larger workspace) otherwise drags in
+      # sibling modules that are not part of this repo.
+      - name: gofmt
+        run: |
+          unformatted=$(GOWORK=off gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"; echo "$unformatted"
+            exit 1
+          fi
+
+      - name: build
+        run: GOWORK=off go build ./...
+
+      - name: vet
+        run: GOWORK=off go vet ./...
+
+      - name: test
+        run: GOWORK=off go test -count=1 ./...
+
+      # The race detector is where the concurrency this daemon is built on gets
+      # checked: one ring, one producer, and a reader per viewer. -p 1 keeps the
+      # packages from competing for CPU, which is what makes the process and
+      # timing tests (internal/puller especially) flaky on a two-core runner.
+      - name: test -race
+        run: GOWORK=off go test -count=1 -race -p 1 ./...
+
+      # The release builds four static binaries; a cross-compile break (a 32-bit
+      # overflow, say) is invisible to everything above.
+      - name: cross-build the release targets
+        run: |
+          set -e
+          for t in amd64 arm64 armv7 386; do
+            case $t in
+              amd64) GOARCH=amd64; GOARM= ;;
+              arm64) GOARCH=arm64; GOARM= ;;
+              armv7) GOARCH=arm; GOARM=7 ;;
+              386)   GOARCH=386; GOARM= ;;
+            esac
+            echo ">>> linux-$t"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOWORK=off \
+              go build -trimpath -o /tmp/xc_fanout-linux-$t ./cmd/xc_fanout
+            CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOWORK=off \
+              go build -trimpath -o /tmp/xc_agent-linux-$t ./cmd/xc_agent
+            CGO_ENABLED=0 GOOS=linux GOARCH=$GOARCH GOARM=$GOARM GOWORK=off \
+              go build -trimpath -o /tmp/xc_node-linux-$t ./cmd/xc_node
+          done
+
+  # The agent against MAIN's real PHP: every test that takes XCVM_PANEL_DIR
+  # (enrolment, the replica and its blocklist, commands, events, the data
+  # plane), on this commit and XC_VM's main, with the panel's unit-test
+  # database (MariaDB) and a redis-server. They are opt-in on a developer's
+  # machine, so a change on either side that broke them went unseen for weeks.
+  # XC_VM's CI runs the same against this repository's master.
+  interop:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: xcvm-test
+        ports:
+          - 3306:3306
+        options: >-
+          --tmpfs /var/lib/mysql
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      GOWORK: 'off'
+      XCVM_PANEL_DIR: ${{ github.workspace }}/.panel
+      XCVM_TEST_DB_DSN: mysql:host=127.0.0.1;port=3306
+      XCVM_TEST_DB_USER: root
+      XCVM_TEST_DB_PASS: xcvm-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout XC_VM (main)
+        uses: actions/checkout@v4
+        with:
+          repository: Vateron-Media/XC_VM
+          ref: main
+          path: .panel
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: pdo_mysql, redis, igbinary
+      # The cluster-bus contract tests start a redis-server of their own.
+      - name: Install redis-server
+        run: sudo apt-get update -q && sudo apt-get install -y -q redis-server
+      - name: test against the panel
+        run: go test -count=1 ./internal/clusteragent/

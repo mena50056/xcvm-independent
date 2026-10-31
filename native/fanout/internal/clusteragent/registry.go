@@ -1,0 +1,720 @@
+package clusteragent
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// The connection registry (plan, Phase 6): on a node whose CONNECTIONS flow
+// is on, the node's PHP records its viewers here, through the local socket,
+// instead of in MAIN's Redis or lines_live — the stream endpoints' hot path
+// makes no WAN call. Each record is the connection as the endpoints build it
+// (ConnectionTracker's Redis record shape). Every change is mirrored to MAIN
+// as a P0 event, so MAIN's store, which the reaper, the limits and the admin
+// read, stays current:
+//
+//	conn.upsert {record}   a new or changed connection (a change of
+//	                       hls_last_read alone at most every TouchEvery, or
+//	                       none while touches go on P2, touch.go)
+//	conn.remove {uuid}     the node removed it
+//
+// A close decided on MAIN (a kick, a limit, MAIN's reaper) reaches the node
+// as a `conn.close {uuid, remove}` command, applied here without an event:
+// MAIN already did it.
+//
+//	PUT    /v1/conn/{uuid}         upsert, body: the record; with X-XCVM-Admission,
+//	                               a new viewer admitted first, or refused with
+//	                               403 {admit: false, reason} (admission.go)
+//	GET    /v1/conn/{uuid}         the record, or 404
+//	POST   /v1/conn/find           {match: {column: value}} → the first match, or 404
+//	POST   /v1/conn/oldest         {user_id} → the line's oldest open connection, or 404
+//	POST   /v1/conn/{uuid}/touch   {hls_last_read} → the record, or 404
+//	POST   /v1/conn/{uuid}/close   {remove}: a close already made in MAIN's store; no event
+//	POST   /v1/conn/seed           {records, reset}: load records with no event (cluster:seed-connections)
+//	DELETE /v1/conn/{uuid}
+//
+// Every heartbeat carries the registry's Digest. When MAIN's store for the
+// node drifts from it, MAIN asks for the whole registry (conn_snapshot).
+//
+// While MAIN is out of reach these events wait in the P0 spool. Its
+// compaction (compact.go) folds a viewer's upserts that differ only in
+// hls_last_read into one and keeps every other change, remove and close in
+// order. P0 drops none of them.
+//
+// The HLS reaper (Reap): an HLS viewer has no worker to watch, only its
+// playlist requests. One that has made none for HLSReapAfter is ended here
+// (hls_end 1, a P0 conn.upsert), and MAIN closes it as it closes any ended
+// viewer. The time is the node's own: when a request last changed the
+// record's hls_last_read, so neither a clock step nor MAIN being out of reach
+// ends anyone. MAIN leaves its own 30 s rule for such nodes (the agent says
+// "hls_reaper" at hello) until the node falls silent for longer than
+// cluster_orphan_conn_ttl_sec.
+
+// TouchEvery is the most often a change of hls_last_read alone reaches MAIN.
+// A panel that predates the agent's reaper closes an HLS viewer after 30 s
+// without one, so it stays under that.
+var TouchEvery = 10 * time.Second
+
+// HLSReapAfter is how long an HLS viewer may go without a playlist request.
+var HLSReapAfter = 30 * time.Second
+
+// FlowConnections is the CONNECTIONS flow bit: the registry holds the node's viewers.
+const FlowConnections = 64
+
+// connUUID is a connection uuid: a registry key, and the uuid a conn.close or
+// conn.drop command names.
+var connUUID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+type Registry struct {
+	mu     sync.Mutex
+	conns  map[string]map[string]any
+	sentAt map[string]time.Time // last conn.upsert per uuid
+	readAt map[string]time.Time // last change of hls_last_read per uuid (node clock)
+	// The P2 touches (touch.go): the latest hls_last_read per uuid not sent
+	// yet, the last value sent on P0 (it reached MAIN's store) and on either
+	// lane (MAIN has it), and when each uuid's touch last went on P2.
+	pending map[string]int64
+	lastP0  map[string]int64
+	lastAny map[string]int64
+	p2At    map[string]time.Time
+	snap    string
+	dirty   bool
+	emit    func(events []map[string]any) error
+	now     func() time.Time
+	logf    func(string, ...any)
+
+	// P2 reports whether a change of hls_last_read alone goes on the P2 lane
+	// as a pending touch (touch.go) instead of a throttled P0 upsert; nil is
+	// never.
+	P2 func() bool
+
+	// Admit decides a PUT that carries an X-XCVM-Admission header
+	// (admission.go): "" admits, anything else is the refusal's reason. nil
+	// admits every viewer.
+	Admit func(ctx context.Context, arrived time.Time, uuid string, rec map[string]any, header string) string
+}
+
+// NewRegistry loads the node's registry from its snapshot (if any). emit
+// spools events for MAIN.
+func NewRegistry(snap string, emit func([]map[string]any) error, logf func(string, ...any)) *Registry {
+	r := &Registry{conns: map[string]map[string]any{}, snap: snap, emit: emit, now: time.Now, logf: logf}
+	r.reset()
+	if b, err := os.ReadFile(snap); err == nil {
+		var saved map[string]map[string]any
+		if json.Unmarshal(b, &saved) == nil {
+			for k, v := range saved {
+				if connUUID.MatchString(k) && !endedTS(v) {
+					r.conns[k] = v
+					// A restart is not a read, but it gives every viewer a
+					// full HLSReapAfter to show up again.
+					r.readAt[k] = r.now()
+				}
+			}
+		}
+	}
+	return r
+}
+
+// Put records a connection and mirrors it to MAIN. The event is spooled
+// first: a failure leaves the registry as it was, and the node's PHP falls
+// back to MAIN's store for this write.
+func (r *Registry) Put(uuid string, rec map[string]any) error {
+	rec["uuid"] = uuid
+	r.mu.Lock()
+	old := r.conns[uuid]
+	touchOnly := old != nil && sameBut(old, rec, "hls_last_read")
+	p2 := touchOnly && r.P2 != nil && r.P2()
+	send := !p2 && (old == nil || !touchOnly || r.now().Sub(r.sentAt[uuid]) >= TouchEvery)
+	r.mu.Unlock()
+	var events []map[string]any
+	if send {
+		events = []map[string]any{{"type": "conn.upsert", "d": map[string]any{"record": rec}}}
+	}
+	return r.emitThenLocked(events, func() {
+		if old == nil || norm(old["hls_last_read"]) != norm(rec["hls_last_read"]) {
+			r.readAt[uuid] = r.now()
+			if p2 {
+				r.pending[uuid] = intOf(rec["hls_last_read"])
+			}
+		}
+		if endedTS(rec) {
+			delete(r.conns, uuid)
+			r.forgetLocked(uuid)
+			r.dirty = true
+			return
+		}
+		r.conns[uuid] = rec
+		r.dirty = true
+		if send {
+			r.sentP0Locked(uuid, rec)
+		}
+	})
+}
+
+// sentP0Locked notes a P0 conn.upsert of the whole record: it carried the
+// current hls_last_read, so no touch of it is pending.
+func (r *Registry) sentP0Locked(uuid string, rec map[string]any) {
+	r.sentAt[uuid] = r.now()
+	v := intOf(rec["hls_last_read"])
+	r.lastP0[uuid], r.lastAny[uuid] = v, v
+	delete(r.pending, uuid)
+}
+
+// forgetLocked drops everything the registry keeps about a uuid but the record.
+func (r *Registry) forgetLocked(uuid string) {
+	delete(r.sentAt, uuid)
+	delete(r.readAt, uuid)
+	delete(r.pending, uuid)
+	delete(r.lastP0, uuid)
+	delete(r.lastAny, uuid)
+	delete(r.p2At, uuid)
+}
+
+// reset empties the per-uuid bookkeeping.
+func (r *Registry) reset() {
+	r.sentAt = map[string]time.Time{}
+	r.readAt = map[string]time.Time{}
+	r.pending = map[string]int64{}
+	r.lastP0 = map[string]int64{}
+	r.lastAny = map[string]int64{}
+	r.p2At = map[string]time.Time{}
+}
+
+// Reap ends the open HLS viewers with no playlist request for after, and
+// returns how many it ended. Each goes to MAIN as a P0 conn.upsert with
+// hls_end 1 before the registry changes; one whose event cannot be spooled
+// stays open and is tried again on the next pass.
+func (r *Registry) Reap(after time.Duration) int {
+	r.mu.Lock()
+	now := r.now()
+	var stale []map[string]any
+	for uuid, c := range r.conns {
+		if fmt.Sprint(c["container"]) != "hls" || num(c["hls_end"]) != 0 {
+			continue
+		}
+		at, ok := r.readAt[uuid]
+		if !ok {
+			r.readAt[uuid] = now
+			continue
+		}
+		if now.Sub(at) >= after {
+			ended := clone(c)
+			ended["hls_end"] = 1
+			stale = append(stale, ended)
+		}
+	}
+	r.mu.Unlock()
+	n := 0
+	for _, rec := range stale {
+		uuid, _ := rec["uuid"].(string)
+		err := r.emitThenLocked([]map[string]any{{"type": "conn.upsert", "d": map[string]any{"record": rec}}}, func() {
+			// Unless a request re-opened it meanwhile.
+			if c := r.conns[uuid]; c != nil && num(c["hls_end"]) == 0 && norm(c["hls_last_read"]) == norm(rec["hls_last_read"]) {
+				r.conns[uuid] = rec
+				r.sentP0Locked(uuid, rec)
+				r.dirty = true
+				n++
+			}
+		})
+		if err != nil {
+			r.logf("cluster: ending HLS viewer %s: %v", uuid, err)
+		}
+	}
+	return n
+}
+
+// Get returns a copy of a record.
+func (r *Registry) Get(uuid string) map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return clone(r.conns[uuid])
+}
+
+// Touch refreshes hls_last_read and returns the record.
+func (r *Registry) Touch(uuid string, lastRead any) (map[string]any, error) {
+	rec := r.Get(uuid)
+	if rec == nil {
+		return nil, nil
+	}
+	rec["hls_last_read"] = lastRead
+	return rec, r.Put(uuid, rec)
+}
+
+// Find returns the first record matching every column (in uuid order, so it
+// is stable).
+func (r *Registry) Find(match map[string]any) map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range r.sortedKeysLocked() {
+		ok := true
+		for col, want := range match {
+			if fmt.Sprint(r.conns[k][col]) != fmt.Sprint(want) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return clone(r.conns[k])
+		}
+	}
+	return nil
+}
+
+// MaxCountStreams is how many streams one POST /v1/conn/counts may ask for.
+const MaxCountStreams = 10000
+
+// Counts returns how many open viewers (hls_end 0, as Find matches them)
+// each stream asked for has, 0 for one it holds none of.
+func (r *Registry) Counts(streamIDs []string) map[string]int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]int, len(streamIDs))
+	for _, id := range streamIDs {
+		out[id] = 0
+	}
+	for _, c := range r.conns {
+		if fmt.Sprint(c["hls_end"]) != "0" {
+			continue
+		}
+		if n, ok := out[fmt.Sprint(c["stream_id"])]; ok {
+			out[fmt.Sprint(c["stream_id"])] = n + 1
+		}
+	}
+	return out
+}
+
+// Oldest returns a line's oldest open connection (by date_start).
+func (r *Registry) Oldest(userID any) map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var best map[string]any
+	for _, c := range r.conns {
+		if fmt.Sprint(c["user_id"]) != fmt.Sprint(userID) || fmt.Sprint(c["hls_end"]) == "1" {
+			continue
+		}
+		if best == nil || num(c["date_start"]) < num(best["date_start"]) {
+			best = c
+		}
+	}
+	return clone(best)
+}
+
+// FanoutClosed ends the daemon-served TS viewers the fanout reports gone
+// (its GET /events conn_close): one P0 `conn.close {uuid}` each, which MAIN
+// applies as a close of its own row (activity log, store), spooled before the
+// records leave the registry. Only open, non-HLS records with pid 0 qualify: a
+// PHP-served viewer has a worker to watch, and an HLS one the reaper.
+func (r *Registry) FanoutClosed(uuids []string) (int, error) {
+	return r.closeWhere(uuids, func(c map[string]any) bool { return intOf(c["pid"]) == 0 })
+}
+
+// closeWhere ends the open, non-HLS records of uuids that also pass keep:
+// one P0 `conn.close {uuid}` each, spooled before they leave the registry.
+func (r *Registry) closeWhere(uuids []string, pass func(map[string]any) bool) (int, error) {
+	r.mu.Lock()
+	var events []map[string]any
+	var gone []string
+	for _, uuid := range uuids {
+		c := r.conns[uuid]
+		if c == nil || fmt.Sprint(c["container"]) == "hls" || num(c["hls_end"]) != 0 || !pass(c) {
+			continue
+		}
+		events = append(events, map[string]any{"type": "conn.close", "d": map[string]any{"uuid": uuid}})
+		gone = append(gone, uuid)
+	}
+	r.mu.Unlock()
+	if len(events) == 0 {
+		return 0, nil
+	}
+	err := r.emitThenLocked(events, func() {
+		for _, uuid := range gone {
+			delete(r.conns, uuid)
+			r.forgetLocked(uuid)
+		}
+		r.dirty = true
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(gone), nil
+}
+
+// Delete removes a connection and tells MAIN.
+func (r *Registry) Delete(uuid string) error {
+	return r.emitThenLocked([]map[string]any{{"type": "conn.remove", "d": map[string]any{"uuid": uuid}}}, func() {
+		if _, had := r.conns[uuid]; had {
+			delete(r.conns, uuid)
+			r.dirty = true
+		}
+		r.forgetLocked(uuid)
+	})
+}
+
+// emitThenLocked spools events for MAIN first, with r.mu not held, and only
+// once they are spooled applies the change to the registry (apply runs under
+// r.mu): a failure leaves the registry as it was. No events: nothing is
+// spooled and apply runs.
+func (r *Registry) emitThenLocked(events []map[string]any, apply func()) error {
+	if len(events) > 0 {
+		if err := r.emit(events); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	apply()
+	return nil
+}
+
+// Close applies a close MAIN decided: removed, or ended (an HLS viewer's
+// hls_end = 1, as MAIN's own store now says). No event goes back.
+func (r *Registry) Close(uuid string, remove bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if remove || fmt.Sprint(r.conns[uuid]["container"]) == "ts" {
+		delete(r.conns, uuid)
+		r.forgetLocked(uuid)
+	} else if c := r.conns[uuid]; c != nil {
+		c["hls_end"] = 1
+		delete(r.pending, uuid)
+	}
+	r.dirty = true
+}
+
+// ConnDigest is a node's open connections in one short value; MAIN computes
+// the same from its store (Domain\Cluster\ConnectionDigest).
+type ConnDigest struct {
+	Count int    `json:"count"`
+	Users int    `json:"users"`
+	Xor64 string `json:"xor64"`
+}
+
+// Digest summarises the open connections (hls_end not set): their number,
+// their distinct owners, and the XOR of the first 8 bytes of
+// SHA-256(uuid "\n" owner).
+func (r *Registry) Digest() ConnDigest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return digestOf(r.conns)
+}
+
+func digestOf(conns map[string]map[string]any) ConnDigest {
+	users := map[string]bool{}
+	var x uint64
+	n := 0
+	for uuid, c := range conns {
+		if num(c["hls_end"]) != 0 {
+			continue
+		}
+		o := owner(c)
+		n++
+		users[o] = true
+		h := sha256.Sum256([]byte(uuid + "\n" + o))
+		x ^= binary.BigEndian.Uint64(h[:8])
+	}
+	return ConnDigest{Count: n, Users: len(users), Xor64: fmt.Sprintf("%016x", x)}
+}
+
+// owner is a connection's owner as PHP's ConnectionDigest::owner() writes it.
+func owner(c map[string]any) string {
+	if id := intOf(c["user_id"]); id != 0 {
+		return "u:" + strconv.FormatInt(id, 10)
+	}
+	ident := ""
+	if v, ok := c["hmac_identifier"]; ok && v != nil {
+		ident = fmt.Sprint(v)
+	}
+	return "h:" + strconv.FormatInt(intOf(c["hmac_id"]), 10) + ":" + ident
+}
+
+// intOf reads a JSON number or numeric string as PHP's intval() would.
+func intOf(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return i
+	case string:
+		i, _ := strconv.ParseInt(strings.TrimSpace(n), 10, 64)
+		return i
+	case bool:
+		if n {
+			return 1
+		}
+	}
+	return 0
+}
+
+// Records returns a copy of every record, in uuid order.
+func (r *Registry) Records() []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	keys := r.sortedKeysLocked()
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, clone(r.conns[k]))
+	}
+	return out
+}
+
+// sortedKeysLocked returns the registry's uuids in order.
+func (r *Registry) sortedKeysLocked() []string {
+	keys := make([]string, 0, len(r.conns))
+	for k := range r.conns {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// Seed loads records as they are, with no event: MAIN's store already holds
+// them (cluster:seed-connections, before the CONNECTIONS switch). reset
+// empties the registry first. Records without a valid uuid are skipped.
+func (r *Registry) Seed(records []map[string]any, reset bool) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if reset {
+		r.conns = map[string]map[string]any{}
+		r.reset()
+	}
+	n := 0
+	for _, c := range records {
+		uuid, _ := c["uuid"].(string)
+		if c == nil || !connUUID.MatchString(uuid) || endedTS(c) {
+			continue
+		}
+		r.conns[uuid] = c
+		r.sentP0Locked(uuid, c) // MAIN's store holds it as it is
+		r.readAt[uuid] = r.now()
+		n++
+	}
+	r.dirty = true
+	return n
+}
+
+// endedTS identifies a finished TS request. Unlike an HLS session, it has
+// no later playlist request that needs its ended record. MAIN already received
+// the close through Put's event (or decided it through Close); keeping these
+// records forever makes the registry's locked scans and snapshots grow with
+// historical traffic rather than the number of viewers.
+func endedTS(c map[string]any) bool {
+	return fmt.Sprint(c["container"]) == "ts" && num(c["hls_end"]) != 0
+}
+
+// Save writes the snapshot when something changed (written aside, synced, renamed in).
+func (r *Registry) Save() error {
+	r.mu.Lock()
+	if !r.dirty {
+		r.mu.Unlock()
+		return nil
+	}
+	b, err := json.Marshal(r.conns)
+	r.dirty = false
+	r.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return writeFile(r.snap, b, fileWrite{perm: 0o640})
+}
+
+func sameBut(a, b map[string]any, except string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if k == except {
+			continue
+		}
+		w, ok := b[k]
+		if !ok || !reflect.DeepEqual(norm(v), norm(w)) {
+			return false
+		}
+	}
+	return true
+}
+
+// norm compares JSON numbers and PHP's ints alike.
+func norm(v any) any {
+	switch n := v.(type) {
+	case float64, int, int64, json.Number:
+		return fmt.Sprint(n)
+	}
+	return v
+}
+
+func num(v any) float64 {
+	var f float64
+	fmt.Sscan(fmt.Sprint(v), &f)
+	return f
+}
+
+func clone(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// spoolP0 writes events as one P0 spool file (as PHP's EventSpool does).
+func spoolP0(dir string, events []map[string]any) error {
+	var body []byte
+	now := time.Now().UnixMilli()
+	for _, e := range events {
+		e["t"] = now
+		line, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		body = append(append(body, line...), '\n')
+	}
+	p0 := filepath.Join(dir, "p0")
+	if err := os.MkdirAll(p0, 0o750); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%019d-agent-%04x.ndjson", monotonicNs(), rand.Intn(0x10000))
+	return writeFile(filepath.Join(p0, name), body, fileWrite{perm: 0o640, noSync: true})
+}
+
+// spoolP1 writes events as one P1 spool file (the log lane), a sibling of
+// spoolP0; the existing p1 RunEvents goroutine ships them to MAIN.
+func spoolP1(dir string, events []map[string]any) error {
+	var body []byte
+	now := time.Now().UnixMilli()
+	for _, e := range events {
+		e["t"] = now
+		line, err := json.Marshal(e)
+		if err != nil {
+			return err
+		}
+		body = append(append(body, line...), '\n')
+	}
+	p1 := filepath.Join(dir, "p1")
+	if err := os.MkdirAll(p1, 0o750); err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%019d-agent-%04x.ndjson", monotonicNs(), rand.Intn(0x10000))
+	return writeFile(filepath.Join(p1, name), body, fileWrite{perm: 0o640, noSync: true})
+}
+
+// connHandler serves /v1/conn on the local socket.
+func (r *Registry) connHandler(w http.ResponseWriter, req *http.Request) {
+	arrived := time.Now()
+	path := strings.TrimPrefix(req.URL.Path, "/v1/conn/")
+	body := map[string]any{}
+	if req.Method == http.MethodPut || req.Method == http.MethodPost {
+		b, err := io.ReadAll(io.LimitReader(req.Body, MaxSocketBody+1))
+		if err != nil || len(b) > MaxSocketBody || json.Unmarshal(b, &body) != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+	}
+	reply := func(rec map[string]any, err error) {
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		if rec == nil {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rec)
+	}
+	switch {
+	case req.Method == http.MethodPost && path == "find":
+		match, _ := body["match"].(map[string]any)
+		if len(match) == 0 {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		reply(r.Find(match), nil)
+	case req.Method == http.MethodPost && path == "oldest":
+		reply(r.Oldest(body["user_id"]), nil)
+	case req.Method == http.MethodPost && path == "counts":
+		// Every stream's viewers in one call (the on-demand daemon's pass),
+		// where find answers one stream at a time.
+		raw, _ := body["stream_ids"].([]any)
+		if len(raw) == 0 || len(raw) > MaxCountStreams {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		ids := make([]string, 0, len(raw))
+		for _, v := range raw {
+			f, ok := v.(float64)
+			if !ok || f < 0 || f != float64(int64(f)) {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			ids = append(ids, strconv.FormatInt(int64(f), 10))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"counts": r.Counts(ids)})
+	case req.Method == http.MethodPost && path == "seed":
+		raw, _ := body["records"].([]any)
+		records := make([]map[string]any, 0, len(raw))
+		for _, v := range raw {
+			if c, ok := v.(map[string]any); ok {
+				records = append(records, c)
+			}
+		}
+		reset, _ := body["reset"].(bool)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"seeded": r.Seed(records, reset)})
+	case req.Method == http.MethodPost && strings.HasSuffix(path, "/close") && connUUID.MatchString(strings.TrimSuffix(path, "/close")):
+		// A close the node's PHP made in MAIN's store itself (its reaper, its
+		// own kick): the registry follows, with no event.
+		remove, _ := body["remove"].(bool)
+		r.Close(strings.TrimSuffix(path, "/close"), remove)
+		w.WriteHeader(http.StatusNoContent)
+	case req.Method == http.MethodPost && strings.HasSuffix(path, "/touch") && connUUID.MatchString(strings.TrimSuffix(path, "/touch")):
+		reply(r.Touch(strings.TrimSuffix(path, "/touch"), body["hls_last_read"]))
+	case !connUUID.MatchString(path):
+		http.Error(w, "bad request", http.StatusBadRequest)
+	case req.Method == http.MethodPut:
+		if h := req.Header.Get(AdmissionHeader); h != "" && r.Admit != nil {
+			if reason := r.Admit(req.Context(), arrived, path, body, h); reason != "" {
+				// Refused: nothing is stored and no event goes to MAIN.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]any{"admit": false, "reason": reason})
+				return
+			}
+		}
+		err := r.Put(path, body)
+		reply(body, err)
+	case req.Method == http.MethodGet:
+		reply(r.Get(path), nil)
+	case req.Method == http.MethodDelete:
+		if err := r.Delete(path); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "not allowed", http.StatusMethodNotAllowed)
+	}
+}
