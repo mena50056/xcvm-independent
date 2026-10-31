@@ -24,7 +24,7 @@ use XcVm\Core\Util\LayoutRenderer;
         </button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="tab-store" data-bs-toggle="tab" data-bs-target="#pane-store" type="button" role="tab" aria-controls="pane-store" aria-selected="false">
+        <button class="nav-link" id="tab-store" <?= defined('XCVM_INDEPENDENT_LAB') ? 'disabled aria-disabled="true"' : ''; ?> data-bs-toggle="tab" data-bs-target="#pane-store" type="button" role="tab" aria-controls="pane-store" aria-selected="false">
             <i class="icon-base ti tabler-building-store me-1"></i><?= $language::get('module_tab_store'); ?>
         </button>
     </li>
@@ -174,7 +174,7 @@ LayoutRenderer::renderFooter('admin');
         ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
         var POLL_MS = 1500;
-        var STORE_URL = <?= json_encode($storeUrl ?? 'https://www.xcvm.tech'); ?>;
+        var STORE_URL = <?= json_encode($storeUrl ?? ''); ?>;
         var rows = [];
         var job = null;
         var watchedJob = null; // id of a job this page waits on, to announce its end once

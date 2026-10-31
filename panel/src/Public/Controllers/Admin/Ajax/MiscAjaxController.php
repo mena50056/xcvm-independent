@@ -193,6 +193,9 @@ class MiscAjaxController extends BaseAjaxController {
 
 	/** action=save_activation_key — store the panel activation key on disk. */
 	public function saveActivationKey(): never {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			$this->fail(['message' => 'Developer services are disconnected.']);
+		}
 		$this->requireXhr();
 		$this->gate('adv', 'settings');
 

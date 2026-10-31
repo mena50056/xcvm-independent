@@ -55,6 +55,9 @@ class GitHubReleases {
 	 * @param string|null $devRepo Nightly-builds repository merged in on the 'dev' channel
 	 */
 	public function __construct(string $owner, string $repo, ?string $channel = 'stable', ?string $token = null, ?string $devRepo = null) {
+		if (defined('XCVM_INDEPENDENT_LAB') && strcasecmp($owner, 'Vateron-Media') === 0) {
+			throw new \RuntimeException('Developer services are disconnected.');
+		}
 		$this->owner = $owner;
 		$this->repo = $repo;
 		$this->devRepo = $devRepo;

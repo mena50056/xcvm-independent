@@ -61,6 +61,9 @@ final class ModuleStore {
 	 * @return array{ok: bool, reason?: string, extensions?: list<array<string, mixed>>, page?: int, per_page?: int, total?: int, last_page?: int}
 	 */
 	public static function catalogue(string $rApiKey, array $rOptions = [], bool $rRefresh = false, ?callable $rList = null, ?callable $rCheck = null): array {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			return ['ok' => false, 'reason' => 'vendor_disconnected'];
+		}
 		$rOptions = self::options($rOptions);
 
 		if ($rList === null) {

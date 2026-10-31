@@ -36,6 +36,7 @@ class ModuleLicensesCronJob implements CommandInterface {
 	}
 
 	public function execute(array $rArgs): int {
+		if (defined('XCVM_INDEPENDENT_LAB')) { return 0; }
 		$this->setProcessTitle('xc_vm: module licenses');
 
 		// Licensing only applies when the ionCube loader + extension are present.

@@ -25,7 +25,7 @@ class ModulesController extends BaseAdminController {
 		$this->render('modules', [
 			'hasStoreKey' => (string) (SettingsManager::get('platform_api_key') ?? '') !== '',
 			// The store the core extension talks to (its ini setting, else its default).
-			'storeUrl'    => rtrim((string) (ini_get('xcvm_core.server_url') ?: 'https://www.xcvm.tech'), '/'),
+			'storeUrl'    => defined('XCVM_INDEPENDENT_LAB') ? '' : rtrim((string) (ini_get('xcvm_core.server_url') ?: 'https://www.xcvm.tech'), '/'),
 		]);
 	}
 }

@@ -1749,6 +1749,9 @@ class ModuleManager {
 	 * @throws \RuntimeException If the C extension is missing, download fails, or install fails.
 	 */
 	public function downloadFromPlatform(string $storeId, string $version = '', ?string $apiKey = null): string {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			throw new \RuntimeException('Developer services are disconnected.');
+		}
 		$storeId = $this->sanitizeModuleName($storeId);
 		// The copy installed here already (null on a first install). Resolve its
 		// ACTUAL directory (canonical `{name}_{hash5}`, or a legacy bare one):
@@ -1866,6 +1869,9 @@ class ModuleManager {
 	 *                          has no recorded previous version.
 	 */
 	public function rollbackFromPlatform(string $name, ?string $apiKey = null): void {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			throw new \RuntimeException('Developer services are disconnected.');
+		}
 		$name      = $this->sanitizeModuleName($name);
 		$overrides = $this->readOverrides();
 		$entry     = $overrides[$name] ?? [];
@@ -1925,6 +1931,7 @@ class ModuleManager {
 	 * @return bool True if a .lic was written.
 	 */
 	private function acquireModuleLicense(string $storeId, string $slug, ?string $apiKey): bool {
+		if (defined('XCVM_INDEPENDENT_LAB')) { return false; }
 		if (!class_exists('XC_VM') || !function_exists('ioncube_server_data')) {
 			return false;
 		}
@@ -1977,6 +1984,7 @@ class ModuleManager {
 	 * @return bool True if a fresh .lic was written.
 	 */
 	public function renewModuleLicense(string $name, ?string $apiKey = null): bool {
+		if (defined('XCVM_INDEPENDENT_LAB')) { return false; }
 		$name = $this->sanitizeModuleName($name);
 		return $this->acquireModuleLicense($this->storeIdOf($name), $name, $apiKey);
 	}
@@ -2091,6 +2099,9 @@ class ModuleManager {
 	 * @throws \RuntimeException On a missing extension, registration or download failure.
 	 */
 	private function pullFilesFromPlatform(string $slug, string $version, ?string $apiKey): array {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			throw new \RuntimeException('Developer services are disconnected.');
+		}
 		if (!class_exists('XC_VM')) {
 			throw new \RuntimeException('XC_VM extension is not loaded. Install xcvm_core.so and enable it in php.ini.');
 		}

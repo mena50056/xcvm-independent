@@ -176,73 +176,8 @@ class DiagnosticsService {
 	 * @return string|false  API response or false on failure
 	 */
 	public static function submitPanelLogs() {
-		$db = self::db();
-		ini_set('default_socket_timeout', 60);
-
-		// Select only logs not yet marked as sent
-		$db->query("SELECT `id`, `type`, `log_message`, `log_extra`, `line`, `date`, `version` FROM `panel_logs` WHERE `type` <> 'epg' AND IFNULL(`sent`,0)=0 GROUP BY CONCAT(`type`, `log_message`, `log_extra`) ORDER BY `date` DESC LIMIT 1000;");
-
-		$rows = $db->get_rows() ?: [];
-
-		$rAPI = base64_decode(implode('', [
-			'aHR0cHM6L',
-			'y93d3cueG',
-			'N2bS50ZWN',
-			'oL2FwaS92',
-			'MS9yZXBvcnQ='
-		]));
-
-		$errorsForApi = [];
-		$ids = [];
-
-		foreach ($rows as $row) {
-			$ts = isset($row['date']) ? (int) $row['date'] : 0;
-			$errorsForApi[] = [
-				'type'        => $row['type'] ?? '',
-				'log_message' => $row['log_message'] ?? '',
-				'log_extra'   => $row['log_extra'] ?? '',
-				'line'        => isset($row['line']) ? (string) $row['line'] : '',
-				'date'        => $ts > 0 ? gmdate('Y-m-d H:i:s', $ts) : '',
-				// Per-error panel version frozen when the error occurred. The log
-				// server attributes the entry to THIS, not the batch/current version.
-				'version'     => (string) ($row['version'] ?? ''),
-			];
-			if (isset($row['id'])) {
-				$ids[] = (int) $row['id'];
-			}
-		}
-
-		$payload = json_encode([
-			'errors'  => $errorsForApi,
-			'version' => defined('XC_VM_VERSION') ? XC_VM_VERSION : 'unknown',
-		], JSON_UNESCAPED_UNICODE);
-
-		$ch = curl_init();
-		curl_setopt($ch, CURLOPT_URL, $rAPI);
-		curl_setopt($ch, CURLOPT_POST, true);
-		curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-		curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-		curl_setopt($ch, CURLOPT_HTTPHEADER, [
-			'Content-Type: application/json',
-			'Content-Length: ' . strlen($payload),
-		]);
-
-		$response = curl_exec($ch);
-
-		curl_close($ch);
-
-		if ($response !== false) {
-			$responseData = json_decode($response, true);
-			if (isset($responseData['status']) && $responseData['status'] === 'success' && $ids !== []) {
-				// mark sent logs instead of truncating the whole table
-				$idList = implode(',', array_map('intval', $ids));
-				$db->query("UPDATE `panel_logs` SET `sent` = 1 WHERE `id` IN ($idList);");
-			}
-		}
-
-		return $response;
+		// This distribution never sends panel logs to the upstream developer.
+		return false;
 	}
 
 	/**

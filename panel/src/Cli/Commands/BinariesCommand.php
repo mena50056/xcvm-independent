@@ -27,6 +27,10 @@ class BinariesCommand implements CommandInterface {
 	}
 
 	public function execute(array $rArgs): int {
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			fwrite(STDERR, "Use the independent GitHub updater. Legacy binary updates are disabled.\n");
+			return 1;
+		}
 		if (posix_getpwuid(posix_geteuid())['name'] != 'root') {
 			echo "Please run as root!\n";
 			return 1;

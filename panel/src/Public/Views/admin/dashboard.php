@@ -76,7 +76,7 @@ if ($rSettings['save_closed_connection'] && $rSettings['dashboard_map']) {
 // for rejected keys and kept showing it for licensed installs that carry no key
 // file at all. Soft UI hint only; real enforcement lives in the extension, and
 // LicenseGate fails open where it is absent (dev/CI).
-if (!LicenseGate::licensed()):
+if (!defined('XCVM_INDEPENDENT_LAB') && !LicenseGate::licensed()):
     $xmHwid = (class_exists('XC_VM') && method_exists('XC_VM', 'install_id')) ? (string) \XC_VM::install_id() : '';
 ?>
     <div class="alert alert-warning mb-4" role="alert">

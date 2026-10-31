@@ -149,6 +149,7 @@ class ModuleAjaxController extends BaseAjaxController {
 			// Only an extension older than 2.4.0 lists the store by key.
 			'no_api_key'   => 'This core extension lists the store only with a Modules API key: set it in Settings → API, or update the extension.',
 			'no_extension' => 'The store needs the XC_VM core extension, which this PHP does not load.',
+			'vendor_disconnected' => 'Developer services are disconnected.',
 			'invalid_page', 'invalid_per_page', 'invalid_search', 'invalid_sort', 'invalid_options'
 				=> 'The store refused this listing request (' . $rReason . ').',
 			default        => 'The store did not answer (' . $rReason . '). Try again later.',
