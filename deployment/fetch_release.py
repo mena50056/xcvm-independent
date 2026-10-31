@@ -1,4 +1,4 @@
-"""Authenticated private GitHub release downloads; never forwards credentials to CDN."""
+"""Public or authenticated GitHub downloads; never forwards credentials to CDN."""
 import argparse
 import hashlib
 import json
@@ -39,18 +39,20 @@ def fetch_release(repository, tag, role, token_file, destination):
         raise ValueError('An explicit version tag is required')
     if role not in ('main', 'node'):
         raise ValueError('Invalid role')
-    token = token_from_file(token_file)
+    token = token_from_file(token_file) if token_file else None
     opener = urllib.request.build_opener(SafeRedirect())
     base = 'https://api.github.com/repos/' + repository
 
     def get(url, binary=False):
         if not url.startswith(base + '/'):
             raise ValueError('Unexpected API asset URL')
-        req = urllib.request.Request(url, headers={
-            'Authorization': 'Bearer ' + token,
+        headers = {
             'Accept': 'application/octet-stream' if binary else 'application/vnd.github+json',
             'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'XCVM-Independent-Installer',
-        })
+        }
+        if token:
+            headers['Authorization'] = 'Bearer ' + token
+        req = urllib.request.Request(url, headers=headers)
         return opener.open(req, timeout=90)
 
     with get(base + '/releases/tags/' + urllib.parse.quote(tag, safe='')) as r:
@@ -94,7 +96,7 @@ if __name__ == '__main__':
     p.add_argument('--repository', default='mena50056/xcvm-independent')
     p.add_argument('--tag', required=True)
     p.add_argument('--role', choices=['main', 'node'], required=True)
-    p.add_argument('--token-file', required=True)
+    p.add_argument('--token-file', help='Optional: private repositories only')
     p.add_argument('--destination', required=True)
     a = p.parse_args()
     try:

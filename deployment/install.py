@@ -34,7 +34,7 @@ def main():
     p.add_argument('--role', choices=['main', 'node'], required=True)
     p.add_argument('--repository', default='mena50056/xcvm-independent')
     p.add_argument('--tag', required=True)
-    p.add_argument('--token-file', required=True)
+    p.add_argument('--token-file', help='Optional: private repositories only')
     p.add_argument('--server-ip', required=True)
     p.add_argument('--admin-user', default='admin')
     p.add_argument('--hostname')

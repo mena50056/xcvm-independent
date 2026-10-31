@@ -6,13 +6,35 @@ import tarfile
 import tempfile
 import unittest
 import urllib.request
+import hashlib
+from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from fetch_release import SafeRedirect, token_from_file
+from fetch_release import SafeRedirect, token_from_file, fetch_release
 from install import validate_archive
 
 
 class PackagingTests(unittest.TestCase):
+    def test_public_download_without_credentials(self):
+        payload=b'test release payload'
+        filename='xcvm-independent-main-linux-amd64.tar.gz'
+        base='https://api.github.com/repos/owner/repo'
+        manifest=hashlib.sha256(payload).hexdigest()+'  '+filename+'\n'
+        requests=[]
+        class PublicOpener:
+            def open(self, req, timeout):
+                requests.append(req)
+                if '/releases/tags/' in req.full_url:
+                    return io.BytesIO(json.dumps({'tag_name':'v1.0','draft':False,'assets':[
+                        {'name':'SHA256SUMS','url':base+'/releases/assets/1'},
+                        {'name':filename,'url':base+'/releases/assets/2'}]}).encode())
+                return io.BytesIO(manifest.encode() if req.full_url.endswith('/1') else payload)
+        with tempfile.TemporaryDirectory() as temp, patch('fetch_release.urllib.request.build_opener',return_value=PublicOpener()), patch('fetch_release.token_from_file',side_effect=AssertionError('must not read credentials')):
+            result=fetch_release('owner/repo','v1.0','main',None,temp)
+            self.assertEqual(result.read_bytes(),payload)
+        self.assertEqual(len(requests),3)
+        self.assertTrue(all(req.get_header('Authorization') is None for req in requests))
+
     def archive(self, name, kind=tarfile.REGTYPE, link=''):
         memory = io.BytesIO()
         with tarfile.open(fileobj=memory, mode='w') as a:

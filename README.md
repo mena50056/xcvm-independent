@@ -1,11 +1,32 @@
-# XCVM Independent — experimental private distribution
+# XCVM Independent — experimental distribution
 
 مستودع النسخة التجريبية المستقلة. التغيير الحالي في أدوات التنصيب والتجميع؛
 لم نغيّر شكل الواجهة أو طريقة إدارة القنوات والمستخدمين.
 
-المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع خاص.
-مفتاح GitHub هو تصريح لتنزيل الملفات الخاصة، وليس مفتاح تفعيل للبانل.
+المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع عام الآن.
+أداة التنصيب من الوسم `installer-public-v1` تعمل بدون توكن GitHub، وتحمّل
+حزم الإصدار `v0.1.0-lab.3`. خيار `--token-file` اختياري للمستودعات الخاصة فقط.
 لا تُحفظ مفاتيح GitHub أو بيانات السيرفرات في Git.
+
+## تنصيب MAIN على IP بدون دومين أو توكن
+
+على سيرفر Ubuntu 22.04 amd64 فارغ، بحساب root، وافتح المنفذ 443:
+
+```bash
+apt-get update
+apt-get install -y git python3 ca-certificates
+git clone --depth 1 --branch installer-public-v1 https://github.com/mena50056/xcvm-independent.git /root/xcvm-public-install
+cd /root/xcvm-public-install
+read -rp "Server IP: " SERVER_IP
+python3 deployment/install.py --role main --tag v0.1.0-lab.3 --server-ip "$SERVER_IP" --plan
+python3 deployment/install.py --role main --tag v0.1.0-lab.3 --server-ip "$SERVER_IP" --admin-user admin
+cat /opt/xcvm-independent-lab/.runtime-state/main/admin-login.json
+```
+
+الرابط `https://SERVER_IP/lab/login` بشهادة اختبار ذاتية التوقيع.
+هذه أداة تنزيل مُحدّثة تستخدم الحزم المرفوعة سابقًا؛ لا تستخدم أداة
+التنصيب القديمة الموجودة داخل وسم `v0.1.0-lab.3` عند التنصيب بلا توكن.
+التنصيب الكامل من الصفر ما زال غير معتمد؛ إذا ظهر خطأ توقف وافحصه قبل إعادة المحاولة.
 
 ## حدود الإصدار
 
