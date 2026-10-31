@@ -63,7 +63,7 @@ def main():
             def get(url, *args):
                 return json.dumps(manifest).encode() if url == 'manifest' else payload.read_bytes()
             with patch.object(worker, 'ROOT', root), patch.object(worker, 'STATE', state), \
-                 patch.object(worker, 'get', side_effect=get), patch.object(worker, 'restart'), patch.object(worker, 'health'):
+                 patch.object(worker, 'get', side_effect=get), patch.object(worker, 'stop_web'), patch.object(worker, 'restart'), patch.object(worker, 'health'):
                 worker.apply_update(candidate, 'v0.1.0-lab.4')
                 assert target.read_bytes() == content
                 assert target.stat().st_uid == account.pw_uid

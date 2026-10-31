@@ -37,9 +37,27 @@ class UpdateTests(unittest.TestCase):
                     {'tag_name': 'v0.1.0-lab.5', 'draft': False, 'assets': [
                         {'name': name, 'url': worker.API + '/releases/assets/' + str(i)}
                         for i, name in enumerate([worker.MANIFEST, worker.PAYLOAD])]}]
-        with patch.object(worker, 'get', return_value=json.dumps(releases).encode()):
+        def download(url):
+            return json.dumps(releases if '/releases?' in url else self.manifest()).encode()
+        with patch.object(worker, 'get', side_effect=download):
             self.assertEqual('v0.1.0-lab.5', worker.discover('v0.1.0-lab.4')['version'])
             self.assertIsNone(worker.discover('v0.1.0-lab.5'))
+
+    def test_discovery_offers_compatible_intermediate_before_newest(self):
+        releases = []
+        for n in [5, 6]:
+            releases.append({'tag_name': 'v0.1.0-lab.' + str(n), 'assets': [
+                {'name': name, 'url': worker.API + '/releases/assets/' + str(n) + '/' + name}
+                for name in [worker.MANIFEST, worker.PAYLOAD]]})
+        def download(url):
+            if '/releases?' in url:
+                return json.dumps(releases).encode()
+            manifest = self.manifest()
+            if '/6/' in url:
+                manifest.update(version='v0.1.0-lab.6', from_versions=['v0.1.0-lab.5'])
+            return json.dumps(manifest).encode()
+        with patch.object(worker, 'get', side_effect=download):
+            self.assertEqual('v0.1.0-lab.5', worker.discover('v0.1.0-lab.4')['version'])
 
     def test_secrets_binaries_migrations_and_traversal_are_forbidden(self):
         for name in ['runtime/../php.ini', '/etc/passwd', 'panel/src/config/cluster/agent.json',

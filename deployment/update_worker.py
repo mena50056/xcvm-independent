@@ -113,10 +113,15 @@ def discover(current):
             continue
     if not choices:
         return None
-    _, release, assets = max(choices, key=lambda item: item[0])
-    return {'version': release['tag_name'], 'assets': assets,
-            'url': 'https://github.com/' + REPOSITORY + '/releases/tag/' + release['tag_name'],
-            'notes': str(release.get('body') or '')[:12000]}
+    for _, release, assets in sorted(choices, key=lambda item: item[0], reverse=True):
+        try:
+            validate_manifest(json.loads(get(assets[MANIFEST])), release['tag_name'], current)
+        except (ValueError, TypeError, KeyError):
+            continue
+        return {'version': release['tag_name'], 'assets': assets,
+                'url': 'https://github.com/' + REPOSITORY + '/releases/tag/' + release['tag_name'],
+                'notes': str(release.get('body') or '')[:12000]}
+    return None
 
 
 def validate_manifest(data, tag, current):
@@ -186,6 +191,10 @@ def restart():
     subprocess.run(['systemctl', 'restart', 'xcvm-independent-lab'], check=True, timeout=45)
 
 
+def stop_web():
+    subprocess.run(['systemctl', 'stop', 'xcvm-independent-lab'], check=True, timeout=45)
+
+
 def apply_update(candidate, current):
     manifest = json.loads(get(candidate['assets'][MANIFEST]))
     files = validate_manifest(manifest, candidate['version'], current)
@@ -211,6 +220,8 @@ def apply_update(candidate, current):
                 shutil.copy2(target, saved)
         (backup / 'restore.json').write_text(json.dumps({'version': current, 'files': old}))
         try:
+            # Avoid serving a mixture of old and new application files.
+            stop_web()
             for name in files:
                 content = (stage / 'files' / name).read_bytes()
                 with panel_user():
