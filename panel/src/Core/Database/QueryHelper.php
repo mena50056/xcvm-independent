@@ -77,6 +77,14 @@ class QueryHelper {
 				$rRow['column_default'] = null;
 			}
 
+			// Let MariaDB evaluate temporal default expressions instead of binding
+			// CURRENT_TIMESTAMP() as literal text in INSERT/REPLACE statements.
+			if (!array_key_exists($rRow['column_name'], $rData)
+				&& in_array($rRow['data_type'], ['timestamp', 'datetime'], true)
+				&& preg_match('/^current_timestamp(?:\([0-6]?\))?$/i', (string) $rRow['column_default'])) {
+				continue;
+			}
+
 			$rForceDefault = false;
 
 			if ($rRow['is_nullable'] == 'NO' && !$rRow['column_default']) {

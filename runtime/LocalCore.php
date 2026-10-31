@@ -89,6 +89,13 @@ final class XC_VM {
         $r=self::root();$pub=sodium_crypto_sign_publickey(sodium_crypto_sign_seed_keypair(hex2bin($r['seed'])));
         return ['api'=>1,'ext_version'=>'independent-lab-0.1','licensed'=>true,'clock_ok'=>true,'initialised'=>true,'kid'=>substr(hash('sha256',$pub),0,8),'panel_sign_pub'=>$pub,'panel_box_pub'=>sodium_crypto_scalarmult_base(hex2bin($r['box'])),'panel_fp'=>hash('sha256',$pub,true)];
     }
+    public static function cluster_record_class(string $tag,string $payload): string {
+        if ($tag !== 'cmd') return 'G';
+        $doc=json_decode($payload,true,512,JSON_THROW_ON_ERROR);
+        $type=$doc['type']??null;
+        if (!is_string($type) || !in_array($type,\XcVm\Domain\Cluster\CommandBus::TYPES,true)) throw new InvalidArgumentException('Unknown cluster command');
+        return in_array($type,\XcVm\Domain\Cluster\CommandBus::RESTRICTIVE,true)?'R':'G';
+    }
     public static function cluster_sign(string $tag,string $payload): string {
         $r=self::root();return sodium_crypto_sign_detached(PanelSig::input($tag,$payload),sodium_crypto_sign_secretkey(sodium_crypto_sign_seed_keypair(hex2bin($r['seed']))));
     }

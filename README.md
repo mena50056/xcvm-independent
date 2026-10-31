@@ -188,3 +188,11 @@ python3 deployment/build.py --source-output /tmp/xcvm-clean \
 
 ملفات التشغيل الثنائية تُنشر في Releases، ولا تُلزم Git بتخزينها.
 بصمة SHA-256 تكشف تلف الملفات؛ الثقة في الإصدار تعتمد أيضًا على حماية حساب GitHub.
+
+## HLS validation on an independent load balancer
+
+A temporary synthetic H.264/AAC channel was saved through the authenticated panel form handler and assigned only to a fresh load balancer. A temporary viewer requested its HLS URL through MAIN. MAIN redirected to the load balancer; three playlist refreshes advanced the media sequence, and three real MPEG-TS segments returned HTTP 200. FFmpeg decoded 450 video frames across approximately 18 seconds of segments, with AAC audio. TLS hostname and certificate checks remained enabled. The channel, viewer, bouquet, source process and generated node segments were removed afterward.
+
+This validation exposed and fixed three issues in the source and the running test MAIN: temporal SQL defaults must be evaluated by MariaDB, the independent crypto adapter must classify signed commands, and confirmed codec metadata from fanout must clear the pending-analysis flag. The prebuilt v0.1.0-lab.3 payload has not been rebuilt with these changes.
+
+Limitation: the current Go-only agent can acknowledge `node.rpc` / typed start-stop commands with `no PHP on this node`. This is not proof of execution. The test used the authenticated replica/runtime path to obtain the running producer; start/stop administration on PHP-free nodes still needs a separate implementation and validation. HLS delivery passing does not establish that all panel controls work.

@@ -7,6 +7,9 @@ $checks=0;
 function check(bool $ok,string $label): void { global $checks; if(!$ok)throw new RuntimeException('FAIL: '.$label);$checks++;echo 'PASS '.$label.PHP_EOL; }
 function rejects(callable $f,string $label): void {try {$f();}catch(Throwable){check(true,$label);return;}check(false,$label);}
 check(!extension_loaded('xcvm_core'),'proprietary extension absent');
+check(XC_VM::cluster_record_class('cmd',json_encode(['type'=>'stream.stop']))==='R','stop commands remain restrictive');
+check(XC_VM::cluster_record_class('cmd',json_encode(['type'=>'stream.start']))==='G','start commands are classified granting');
+rejects(fn()=>XC_VM::cluster_record_class('cmd',json_encode(['type'=>'unknown.command'])),'unknown commands rejected');
 check(!is_file(getenv('XCVM_LAB_STATE').'/activation_key'),'no official activation key');
 check(XC_VM::license_valid(),'independent capabilities enabled');
 $root=XC_VM::cluster_init();$rootAgain=XC_VM::cluster_init();

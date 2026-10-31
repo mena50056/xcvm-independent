@@ -2354,6 +2354,7 @@ class StreamProcess {
 		}
 		$rInfoWas = $rInfo;
 		if (!empty($rMeta['video_codec']) || !empty($rMeta['audio_codec'])) {
+			if ($rConfirmed) $rWant['to_analyze'] = 0; // Native byte inspection completed analysis.
 			$rVideo = (string) ($rMeta['video_codec'] ?? '') ?: $rRow['video_codec'];
 			$rAudio = (string) ($rMeta['audio_codec'] ?? '') ?: $rRow['audio_codec'];
 			$rWant['video_codec'] = $rVideo;
