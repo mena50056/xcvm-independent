@@ -1,0 +1,9 @@
+{
+  "deployment/trusted-node.py": "0377c4e4f7e6de04c501b1bd616204b972d6d19605007d2956e91930af0e2f73",
+  "deployment/configure.py": "3bd576a5f8823b073f221e2eea47c94b3450763a71996435d29eef9b00ca7075",
+  "deployment/fetch_release.py": "c9f52e0201cf051f55be8ee7b3bebe1834a604f1f4c6297f45f3bebbf1bac9e3",
+  "deployment/install.py": "44f3d282553f16e82b40a51bb6f88e2c10be108b65aae6d939c0afb9283719fe",
+  "panel/src/Cli/Commands/IndependentLbInstall.php": "05f344a502b626c2d70531ad68b33b178cbbd5adeba4b20d83f5b816cd224bbd",
+  "panel/src/Domain/Server/ServerService.php": "0f5aeba5f439b460f553b15287c7954b4795832e1cea7bcee0d8cd3696802e1f",
+  "panel/src/Cli/Commands/ServerInstallCommand.php": "e1d103918308cccdda024722157e95ee6fde59927ecc923d943d54686505c7ee"
+}

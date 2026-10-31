@@ -53,7 +53,7 @@ def copy_source(destination):
     workflow.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PROJECT / '.github/workflows/verify.yml', workflow)
     # Only standalone tests with generated local fixtures are exported.
-    for filename in ['core.php', 'cluster-nodes.php', 'deployment-policy.php', 'run.sh']:
+    for filename in ['core.php', 'cluster-nodes.php', 'deployment-policy.php', 'lb-install-guards.php', 'run.sh']:
         target = destination / 'tests' / filename
         target.parent.mkdir(exist_ok=True)
         shutil.copyfile(PROJECT / 'tests' / filename, target)

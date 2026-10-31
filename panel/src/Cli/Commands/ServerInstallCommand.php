@@ -49,8 +49,7 @@ class ServerInstallCommand implements CommandInterface {
 
 	public function execute(array $rArgs): int {
 		if (defined('XCVM_INDEPENDENT_LAB')) {
-			echo "Use deployment/install.py --role node for the independent private release. Legacy installer disabled.\n";
-			return 1;
+			return IndependentLbInstall::execute($rArgs);
 		}
 		if (posix_getpwuid(posix_geteuid())['name'] != 'xc_vm') {
 			echo "Please run as XC_VM!\n";

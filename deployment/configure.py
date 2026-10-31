@@ -39,6 +39,14 @@ if stage != 'services':
         shutil.copyfile(options['tls_key'], tls / 'server.key')
         (tls / 'server.key').chmod(0o600)
     if role == 'node':
+        if options.get('main_ca_file'):
+            certificate = pathlib.Path(options['main_ca_file']).read_bytes()
+            system_certs = pathlib.Path('/etc/ssl/certs/ca-certificates.crt').read_bytes()
+            ca_file = SRC / 'config/cluster/main-ca-bundle.crt'
+            ca_file.parent.mkdir(parents=True, exist_ok=True)
+            ca_file.write_bytes(certificate + b'\n' + system_certs)
+            ca_file.chmod(0o600)
+            write(SRC / 'config/cluster/main-ca.sha256', __import__('hashlib').sha256(certificate).hexdigest() + '\n', 0o600)
         data = json.loads(pathlib.Path(options['enrollment_file']).read_text())
         if not data.get('server_id') or not data.get('token_sealed') or not data.get('main_urls'):
             raise ValueError('Invalid node enrollment')
@@ -50,8 +58,8 @@ if stage != 'services':
             raise ValueError('Place this node\'s keygen agent.json beside enrollment.json')
         write(SRC / 'config/cluster/agent.json', identity.read_text(), 0o600)
         write(ROOT / '.node-enrollment.json', json.dumps(data), 0o600)
-        write(SRC / 'http.conf', 'listen 8080;\n')
-        write(SRC / 'https.conf', 'listen 443 ssl;\n')
+        write(SRC / 'http.conf', 'listen ' + str(int(options.get('http_port', 8080))) + ';\n')
+        write(SRC / 'https.conf', 'listen ' + str(int(options.get('https_port', 443))) + ' ssl;\n')
         write(ROOT / 'node-id', str(int(data['server_id'])))
     else:
         extensions = SRC / 'bin/php/lib/php/extensions/no-debug-non-zts-20230831'
@@ -97,7 +105,7 @@ fan = SRC / 'bin/xc_fanout'
 cmd = f'{fan}/xc_fanout -sock {fan}/sockets/http.sock -ctl {fan}/sockets/control.sock -config {fan}/config.json -ffmpeg /usr/bin/ffmpeg -fileroots {SRC}/content'
 if role == 'node':
     cmd += f' -front enabled -front-ports-http {SRC}/http.conf -front-ports-https {SRC}/https.conf -front-cert {ROOT}/tls/server.crt -front-key {ROOT}/tls/server.key -front-nginx http://127.0.0.1:1 -front-streams {SRC}/content/streams -gw {fan}/sockets/gw.sock -gw-policy {SRC}/tmp/gateway/policy.json -front-agent-sock {SRC}/config/cluster/agent.sock'
-unit('xcvm-independent-fanout', cmd)
+unit('xcvm-independent-fanout', cmd, extra=('AmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE' if role=='node' else ''))
 php = f'{SRC}/bin/php/bin/php -c {ROOT}/php.ini'
 if role == 'main':
     unit('xcvm-independent-lab', f'{php} -S 127.0.0.1:18080 -t {SRC}/Public {ROOT}/runtime/router.php', 'mariadb.service redis-server.service')
@@ -141,4 +149,5 @@ location / {{ proxy_pass http://127.0.0.1:18080; proxy_set_header Host $host; pr
     subprocess.run(['systemctl', 'restart', 'mariadb'], check=True)
 else:
     sid = int((ROOT / 'node-id').read_text())
-    unit('xcvm-independent-agent', f'{SRC}/bin/xc_agent/xc_agent run -serve-only -seed-fanout -state {SRC}/config/cluster/agent.json -server-id {sid} -fanout-ctl {fan}/sockets/control.sock -fanout-binary {fan}/xc_fanout -ffmpeg /usr/bin/ffmpeg -ffprobe /usr/bin/ffprobe -selfheal-repo= -ffmpeg-repo= -streams {SRC}/content/streams/ -tmp {SRC}/tmp/ -signals {SRC}/signals/ -playlist {SRC}/content/playlists/ -logs {SRC}/tmp/logs/ -gateway-policy {SRC}/tmp/gateway/policy.json -flood-dir {SRC}/tmp/flood/')
+    ca = SRC / 'config/cluster/main-ca-bundle.crt'
+    unit('xcvm-independent-agent', f'{SRC}/bin/xc_agent/xc_agent run -serve-only -seed-fanout -state {SRC}/config/cluster/agent.json -server-id {sid} -fanout-ctl {fan}/sockets/control.sock -fanout-binary {fan}/xc_fanout -ffmpeg /usr/bin/ffmpeg -ffprobe /usr/bin/ffprobe -selfheal-repo= -ffmpeg-repo= -streams {SRC}/content/streams/ -tmp {SRC}/tmp/ -signals {SRC}/signals/ -playlist {SRC}/content/playlists/ -logs {SRC}/tmp/logs/ -gateway-policy {SRC}/tmp/gateway/policy.json -flood-dir {SRC}/tmp/flood/', extra=(f'Environment=SSL_CERT_FILE={ca}' if ca.exists() else ''))

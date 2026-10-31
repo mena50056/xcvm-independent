@@ -422,7 +422,7 @@ class ServerService {
 		// reads servers.serve_only) would read 0 and silently install a PHP LB; and
 		// the worker reads the row to stay serve-only even if the global mode
 		// changes between this queue and the worker's start.
-		$rServeOnly = intval($rData['type']) === 2 && ClusterSettings::newNodesServeOnly(SettingsManager::getAll());
+		$rServeOnly = intval($rData['type']) === 2 && (defined('XCVM_INDEPENDENT_LAB') || ClusterSettings::newNodesServeOnly(SettingsManager::getAll()));
 		$rArray['serve_only'] = $rServeOnly ? 1 : 0;
 
 		$rArray['network_interface'] = 'auto';
@@ -437,7 +437,7 @@ class ServerService {
 		EventDispatcher::dispatch(new ServerSavedEvent([(int) $rInsertID]));
 		// An LB installed in API mode never gets MAIN's database (plan, section
 		// 10): no grant, and a credential-free config.enc (LbInstallFlow).
-		if ($rArray['server_type'] == 0 && !ClusterSettings::newNodesInApiMode(SettingsManager::getAll())) {
+		if (!defined('XCVM_INDEPENDENT_LAB') && $rArray['server_type'] == 0 && !ClusterSettings::newNodesInApiMode(SettingsManager::getAll())) {
 			BackupService::grantPrivileges($rArray['server_ip']);
 		}
 

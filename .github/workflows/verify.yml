@@ -8,7 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 deployment/test_packaging.py
+      - run: python3 deployment/test_node_tls.py
       - run: python3 -m compileall -q deployment
       - run: bash -n deployment/setup.sh
       - run: php -l deployment/provision-main.php && php -l deployment/enroll-node.php && php -l runtime/LocalCore.php
       - run: XCVM_LAB_STATE="$RUNNER_TEMP/xcvm-independent-lab/policy" php tests/deployment-policy.php
+      - run: php tests/lb-install-guards.php
