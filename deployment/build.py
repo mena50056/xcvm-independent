@@ -68,6 +68,12 @@ def runtime_files(php_archive, tools_archive):
                 name = member.name.removeprefix('./')
                 if not member.isfile() or not name.startswith(prefix):
                     continue
+                if prefix == 'bin/php/':
+                    extension = pathlib.PurePosixPath(name).name
+                    allowed_extension = '/lib/php/extensions/' in name and extension in {
+                        'igbinary.so', 'redis.so', 'ssh2.so', 'maxminddb.so', 'opcache.so'}
+                    if name != 'bin/php/bin/php' and not allowed_extension:
+                        continue
                 if prefix == 'bin/xc_' and name not in ('bin/xc_agent/xc_agent', 'bin/xc_fanout/xc_fanout'):
                     continue
                 if any(s in name.lower() for s in ('xcvm_core', 'ioncube', 'php.ini', 'php-fpm.conf')):
