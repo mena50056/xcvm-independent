@@ -12,19 +12,23 @@ import update_worker as common
 
 MANIFEST = 'xcvm-independent-node-update.json'
 PAYLOAD = 'xcvm-independent-node-update.tar.gz'
+POLICY_MANIFEST = 'xcvm-independent-node-policy-update.json'
+POLICY_PAYLOAD = 'xcvm-independent-node-policy-update.tar.gz'
 FILES = {'panel/src/bin/xc_agent/xc_agent': 'xcvm-independent-agent',
          'panel/src/bin/xc_fanout/xc_fanout': 'xcvm-independent-fanout'}
 
 
 def validate(data):
-    if data.get('schema') != 1 or data.get('role') != 'node' or data.get('repository') != common.REPOSITORY:
+    if data.get('schema') not in (1, 2) or data.get('role') != 'node' or data.get('repository') != common.REPOSITORY:
         raise ValueError('Wrong node update identity')
+    if data['schema'] == 2 and (data.get('kind') != 'native-with-vendor-isolation' or data.get('vendor_isolation') is not True):
+        raise ValueError('Invalid fixed node isolation policy')
     common.version(data['version'])
     if not isinstance(data.get('from_versions'), list) or not data['from_versions']:
         raise ValueError('Missing supported node versions')
     for value in data['from_versions']:
         common.version(value)
-    if data.get('kind') != 'native-only' or data.get('database_migrations') != [] or set(data.get('files', {})) != set(FILES):
+    if data.get('kind') != ('native-only' if data['schema'] == 1 else 'native-with-vendor-isolation') or data.get('database_migrations') != [] or set(data.get('files', {})) != set(FILES):
         raise ValueError('Only the two native LB binaries may be updated')
     import re
     if any(not re.fullmatch('[a-f0-9]{64}', digest) for digest in [data.get('sha256', '')] + list(data['files'].values())):
@@ -37,9 +41,10 @@ def catalog():
     result = []
     for release in releases:
         assets = {asset['name']: asset['url'] for asset in release.get('assets', [])}
-        if release.get('draft') or MANIFEST not in assets or PAYLOAD not in assets:
+        manifest, payload = (POLICY_MANIFEST, POLICY_PAYLOAD) if POLICY_MANIFEST in assets else (MANIFEST, PAYLOAD)
+        if release.get('draft') or manifest not in assets or payload not in assets:
             continue
-        data = validate(json.loads(common.get(assets[MANIFEST], binary=True)))
+        data = validate(json.loads(common.get(assets[manifest], binary=True)))
         if data['version'] != release['tag_name']:
             raise ValueError('Node release tag mismatch')
         result.append({'version': data['version'], 'from_versions': data['from_versions'],
@@ -78,7 +83,8 @@ def health():
 def apply(item, current):
     if common.version(item['version']) <= common.version(current):
         raise ValueError('Node update must be newer than installed')
-    data = validate(json.loads(common.get(item['assets'][MANIFEST], binary=True)))
+    manifest, asset = (POLICY_MANIFEST, POLICY_PAYLOAD) if POLICY_MANIFEST in item['assets'] else (MANIFEST, PAYLOAD)
+    data = validate(json.loads(common.get(item['assets'][manifest], binary=True)))
     if data['version'] != item['version'] or current not in data['from_versions']:
         raise ValueError('Incompatible node update')
     backup = common.STATE / 'backups' / ('node-' + str(time.time_ns()))
@@ -86,7 +92,7 @@ def apply(item, current):
     with tempfile.TemporaryDirectory(prefix='xcvm-node-update-', dir=common.STATE) as temp:
         stage = pathlib.Path(temp)
         payload = stage / 'payload.tar.gz'
-        payload.write_bytes(common.get(item['assets'][PAYLOAD], 64 * 1024 * 1024, True))
+        payload.write_bytes(common.get(item['assets'][asset], 64 * 1024 * 1024, True))
         if hashlib.sha256(payload.read_bytes()).hexdigest() != data['sha256']:
             raise ValueError('Node payload checksum mismatch')
         seen = set()
@@ -113,6 +119,9 @@ def apply(item, current):
             if hashlib.sha256(target.read_bytes()).hexdigest() != data['files'][name]:
                 (backup / target.name).write_bytes(target.read_bytes())
                 changed.append((name, service))
+        hosts_before = common.VENDOR_HOSTS.read_bytes() if data['schema'] == 2 else None
+        if hosts_before is not None:
+            (backup / 'hosts').write_bytes(hosts_before)
         try:
             for name, _ in changed:
                 content = (stage / pathlib.Path(name).name).read_bytes()
@@ -128,8 +137,12 @@ def apply(item, current):
                     if attempt == 19:
                         raise
                     time.sleep(1)
+            if data['schema'] == 2:
+                common.isolate_vendor()
             common.atomic(common.STATE / 'node-version.json', json.dumps({'version': item['version']}).encode())
         except Exception:
+            if hosts_before is not None:
+                common.atomic(common.VENDOR_HOSTS, hosts_before, common.VENDOR_HOSTS.stat().st_mode & 0o777)
             for name, _ in changed:
                 content = (backup / pathlib.Path(name).name).read_bytes()
                 with common.panel_user():

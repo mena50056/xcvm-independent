@@ -11,4 +11,6 @@ Applied to the existing independent MAIN as a backed-up hotfix on v0.1.0-lab.7, 
 
 Validation: PHP lint for every changed file; eight behavioral checks in tests/vendor-disconnect.php locally and on the Linux MAIN; own GitHub API HTTP200; unchanged web/fanout PIDs; current authenticated cluster heartbeats; disabled store confirmed in the authenticated UI.
 
-These source changes have not yet been published as a new release. Existing LB hosts were not modified in this change. Preserve upstream copyright and license notices: attribution is not background network traffic.
+Release v0.1.0-lab.8 includes complete MAIN/node bundles, MAIN code updates and the fixed LB isolation-policy update. Fresh installer-public-v9 uses .8. Existing MAINs need panel-updates-v5 helpers for the new node-policy catalog. Preserve upstream copyright and license notices: attribution is not background network traffic.
+
+Policy LB assets use `xcvm-independent-node-policy-update.json` and `.tar.gz` (schema 2), so old helpers ignore them rather than incorrectly report successful isolation. The payload still contains exactly the two native ELF files: the trusted helper applies fixed local hostname entries itself. Failed application restores hosts and binaries and keeps the old version marker. Future policy changes must be reviewed in the helper, never supplied as remote commands.

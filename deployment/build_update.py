@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--from-version', action='append', required=True)
+    parser.add_argument('--vendor-isolation', action='store_true')
     args = parser.parse_args()
     version(args.version)
     for current in args.from_version:
@@ -37,6 +38,8 @@ def main():
     manifest = {'schema': 1, 'kind': 'code-only', 'repository': REPOSITORY, 'role': 'main',
                 'version': args.version, 'from_versions': args.from_version, 'database_migrations': [],
                 'sha256': hashlib.sha256(payload.read_bytes()).hexdigest(), 'files': hashes}
+    if args.vendor_isolation:
+        manifest['vendor_isolation'] = True
     (args.output / MANIFEST).write_text(json.dumps(manifest, indent=2) + '\n')
     print('Built', args.version, len(files), 'files;', payload.stat().st_size, 'bytes')
 

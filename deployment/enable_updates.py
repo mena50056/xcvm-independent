@@ -12,21 +12,7 @@ import time
 ROOT = pathlib.Path('/opt/xcvm-independent-lab')
 STATE = pathlib.Path('/var/lib/xcvm-independent-updates')
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
-FILES = ['panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php',
-         'panel/src/Core/Updates/IndependentUpdates.php',
-         'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php',
-    'panel/src/Public/Controllers/Admin/SettingsController.php',
-         'panel/src/Public/Views/admin/independent_updates.php',
-         'panel/src/Public/Views/admin/header.php',
-         'panel/src/Public/Views/admin/settings.php',
-         'panel/src/Public/routes/admin.php',
-         'panel/src/Core/Updates/IndependentNodeUpdates.php',
-         'panel/src/Cli/Commands/IndependentLbInstall.php',
-         'panel/src/Domain/Server/ServerService.php',
-         'panel/src/Public/Controllers/Admin/ServerInstallController.php',
-         'panel/src/Public/Views/admin/servers.php',
-         'panel/src/Public/Views/admin/server_install.php',
-]
+FILES = ['panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php', 'panel/src/Core/Updates/IndependentUpdates.php', 'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php', 'panel/src/Public/Controllers/Admin/SettingsController.php', 'panel/src/Public/Views/admin/independent_updates.php', 'panel/src/Public/Views/admin/header.php', 'panel/src/Public/Views/admin/settings.php', 'panel/src/Public/routes/admin.php', 'panel/src/Core/Updates/IndependentNodeUpdates.php', 'panel/src/Cli/Commands/IndependentLbInstall.php', 'panel/src/Domain/Server/ServerService.php', 'panel/src/Public/Controllers/Admin/ServerInstallController.php', 'panel/src/Public/Views/admin/servers.php', 'panel/src/Public/Views/admin/server_install.php', 'panel/src/Core/Diagnostics/DiagnosticsService.php', 'panel/src/Core/Module/ModuleStore.php', 'panel/src/Core/Module/ModuleManager.php', 'panel/src/Public/Controllers/Admin/Ajax/MiscAjaxController.php', 'panel/src/Cli/CronJobs/ModuleLicensesCronJob.php', 'panel/src/Cli/Commands/BinariesCommand.php', 'panel/src/Public/Controllers/Admin/ModulesController.php', 'panel/src/Public/Views/admin/modules.php', 'panel/src/Public/Views/admin/dashboard.php', 'panel/src/Public/Controllers/Admin/Ajax/ModuleAjaxController.php', 'panel/src/Core/Updates/GitHubReleases.php']
 
 
 def main():
@@ -53,7 +39,8 @@ def main():
     shutil.copyfile(SOURCE / 'deployment/node_update.py', worker / 'node_update.py')
     (worker / 'update_worker.py').chmod(0o644)
     (worker / 'node_update.py').chmod(0o644)
-    from update_worker import panel_user, atomic, target_path
+    from update_worker import panel_user, atomic, target_path, isolate_vendor
+    isolate_vendor()
     for name in ['deployment/update_worker.py', 'deployment/node_update.py']:
         data = (SOURCE / name).read_bytes()
         with panel_user():

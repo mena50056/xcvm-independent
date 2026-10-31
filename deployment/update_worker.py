@@ -14,6 +14,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import sys
 import urllib.request
 
 ROOT = pathlib.Path('/opt/xcvm-independent-lab')
@@ -45,6 +46,28 @@ def allowed(name):
                'runtime/NetworkExposure.php', 'runtime/cluster-http.php'}
     return (name in runtime or name.startswith(prefixes)) and path.suffix.lower() in {
         '.php', '.js', '.css', '.json', '.svg', '.png', '.jpg', '.webp', '.woff', '.woff2', '.ttf', '.ico', '.map'}
+
+
+VENDOR_HOSTS = pathlib.Path('/etc/hosts')
+VENDOR_DOMAINS = ('xcvm.tech', 'www.xcvm.tech', 'api.xcvm.tech')
+
+
+def isolate_vendor():
+    """Fixed hostnames only: preserve sources, cluster traffic and own GitHub."""
+    path = VENDOR_HOSTS
+    if path.is_symlink() or not path.is_file():
+        raise ValueError('Refusing an unexpected hosts file')
+    before = path.read_bytes().decode('utf-8')
+    required = ['0.0.0.0 ' + ' '.join(VENDOR_DOMAINS), '::1 ' + ' '.join(VENDOR_DOMAINS)]
+    if all(line in before.splitlines() for line in required):
+        return False
+    STATE.mkdir(parents=True, exist_ok=True)
+    backup = STATE / 'hosts.before-vendor-isolation'
+    if not backup.exists():
+        atomic(backup, path.read_bytes(), 0o600)
+    text = before.rstrip('\n') + '\n# XCVM developer isolation\n' + '\n'.join(required) + '\n'
+    atomic(path, text.encode(), path.stat().st_mode & 0o777)
+    return True
 
 
 def atomic(path, data, mode=0o644):
@@ -232,6 +255,8 @@ def apply_update(candidate, current):
                     atomic(target, content)
             restart()
             health()
+            if manifest.get('vendor_isolation') is True:
+                isolate_vendor()
             atomic(STATE / 'version.json', json.dumps({'version': candidate['version']}).encode())
         except Exception:
             for name, existed in old.items():
@@ -299,6 +324,9 @@ def main():
     import fcntl
     if os.geteuid() != 0:
         raise SystemExit('Run the installed worker as root')
+    if sys.argv[1:] == ['isolate-vendor']:
+        isolate_vendor()
+        return
     with (STATE / 'worker.lock').open('a') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

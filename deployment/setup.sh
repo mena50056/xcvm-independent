@@ -20,6 +20,7 @@ mkdir -p "$SRC"/{config/cluster,tmp/{cache,crons,logs,opened_cons,player,flood,g
 chmod 755 "$ROOT"
 ln -s "$SRC" /home/xc_vm
 chmod 755 "$SRC/bin/xc_agent/xc_agent" "$SRC/bin/xc_fanout/xc_fanout"
+python3 "$ROOT/deployment/update_worker.py" isolate-vendor
 python3 "$ROOT/deployment/configure.py" "$ROLE"
 if [[ "$ROLE" == main ]]; then
   apt-get install -y nginx mariadb-server redis-server

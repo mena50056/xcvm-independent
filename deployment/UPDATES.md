@@ -108,3 +108,12 @@ Publish both `xcvm-independent-node-update.json` and
 scripts, tokens, certificates or enrollment files in a node update. Fixture tests
 cover node success, tampering, rollback and preserving identity; these do not
 constitute a live LB update or HLS test.
+
+
+## Vendor-isolation release .8
+
+Use `panel-updates-v5/deployment/bootstrap-updates.py` once on older MAINs to install the new trusted helpers and isolation guards. Fresh `installer-public-v9` includes these helpers automatically and downloads complete .8 MAIN/node bundles. The LB button pins .8.
+
+Schema-2 LB policy assets have separate names (`xcvm-independent-node-policy-update.json` / `.tar.gz`). Old helpers ignore them. New helpers verify both ELF hashes and apply only the hard-coded vendor-hostname isolation policy; no configuration, identity or content is replaced. The .8 binaries are identical to .4/.7 and do not require agent/fanout restarts. The hosts snapshot is restored on failed policy application. Own GitHub and cluster/source URLs are not blocked.
+
+Build with `build_node_update.py --vendor-isolation` and `build_update.py --vendor-isolation`. The policy is part of fresh setup for either role. Never overwrite older release assets or tags.

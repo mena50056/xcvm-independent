@@ -48,12 +48,12 @@ def copy_source(destination):
             shutil.copyfile(path, target)
     for filename in ['README.md', 'NOTICE.md', '.gitignore']:
         shutil.copyfile(PROJECT / filename, destination / filename)
-    shutil.copyfile(PROJECT / 'panel/LICENSE', destination / 'LICENSE')
+    shutil.copyfile(PROJECT / 'panel/LICENSE' if (PROJECT / 'panel/LICENSE').is_file() else PROJECT / 'LICENSE', destination / 'LICENSE')
     workflow = destination / '.github/workflows/verify.yml'
     workflow.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(PROJECT / '.github/workflows/verify.yml', workflow)
     # Only standalone tests with generated local fixtures are exported.
-    for filename in ['core.php', 'cluster-nodes.php', 'deployment-policy.php', 'lb-install-guards.php', 'run.sh']:
+    for filename in ['core.php', 'cluster-nodes.php', 'deployment-policy.php', 'lb-install-guards.php', 'vendor-disconnect.php', 'run.sh']:
         target = destination / 'tests' / filename
         target.parent.mkdir(exist_ok=True)
         shutil.copyfile(PROJECT / 'tests' / filename, target)

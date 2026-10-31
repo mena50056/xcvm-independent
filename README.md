@@ -4,8 +4,8 @@
 Ù„Ù… Ù†ØºÙŠÙ‘Ø± Ø´ÙƒÙ„ Ø§Ù„ÙˆØ§Ø¬Ù‡Ø© Ø£Ùˆ Ø·Ø±ÙŠÙ‚Ø© Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù‚Ù†ÙˆØ§Øª ÙˆØ§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†.
 
 Ø§Ù„Ù…ØµØ¯Ø± ÙˆØ§Ù„Ø¥ØµØ¯Ø§Ø±Ø§Øª: `mena50056/xcvm-independent` â€” Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ Ø¹Ø§Ù… Ø§Ù„Ø¢Ù†.
-Ø§Ù„Ø¥ØµØ¯Ø§Ø± Ø§Ù„ÙƒØ§Ù…Ù„ Ø§Ù„Ø­Ø§Ù„ÙŠ `v0.1.0-lab.4`ØŒ ÙˆÙ…ÙØ«Ø¨Ù‘Øª MAIN Ø§Ù„Ù…Ø«Ø¨Øª Ø¹Ù„Ù‰ Ø§Ù„ÙˆØ³Ù…
-`installer-public-v8`. Ø§Ù„Ø­Ø²Ù… ÙˆØ§Ù„Ù…ØµØ¯Ø± Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ Ø§Ù„Ø¹Ø§Ù…ØŒ Ø¯ÙˆÙ† ØªÙˆÙƒÙ† GitHub
+Ø§Ù„Ø¥ØµØ¯Ø§Ø± Ø§Ù„ÙƒØ§Ù…Ù„ Ø§Ù„Ø­Ø§Ù„ÙŠ `v0.1.0-lab.8`ØŒ ÙˆÙ…ÙØ«Ø¨Ù‘Øª MAIN Ø§Ù„Ù…Ø«Ø¨Øª Ø¹Ù„Ù‰ Ø§Ù„ÙˆØ³Ù…
+`installer-public-v9`. Ø§Ù„Ø­Ø²Ù… ÙˆØ§Ù„Ù…ØµØ¯Ø± Ù…Ù† Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙˆØ¯Ø¹ Ø§Ù„Ø¹Ø§Ù…ØŒ Ø¯ÙˆÙ† ØªÙˆÙƒÙ† GitHub
 Ø£Ùˆ Ù…ÙØªØ§Ø­ ØªÙØ¹ÙŠÙ„ Ø±Ø³Ù…ÙŠ. ÙŠÙ†Ø´Ø¦ Ø§Ù„ØªÙ†ØµÙŠØ¨ Ù…ÙØ§ØªÙŠØ­ Ù…Ø³ØªÙ‚Ù„Ø© ÙˆØ¨ÙŠØ§Ù†Ø§Øª Ø¯Ø®ÙˆÙ„ Ø¬Ø¯ÙŠØ¯Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø³ÙŠØ±ÙØ± Ù†ÙØ³Ù‡.
 
 ## ØªÙ†ØµÙŠØ¨ MAIN Ø¹Ù„Ù‰ IP Ø¨Ø¯ÙˆÙ† ØªØ¯Ø®Ù„
@@ -13,7 +13,7 @@
 Ø´ØºÙ‘Ù„ Ø£Ù…Ø±Ù‹Ø§ ÙˆØ§Ø­Ø¯Ù‹Ø§ Ø¨Ø­Ø³Ø§Ø¨ root Ø¹Ù„Ù‰ Ubuntu 22.04 amd64 ÙØ§Ø±Øº:
 
 ```bash
-python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v8/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
+python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v9/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
 ```
 
 ÙŠÙƒØªØ´Ù IPv4 Ø§Ù„Ø¹Ø§Ù… Ø§Ù„Ù…Ø¹ÙŠÙ‘Ù† Ù„Ù„Ø³ÙŠØ±ÙØ± ØªÙ„Ù‚Ø§Ø¦ÙŠÙ‹Ø§ØŒ ÙˆÙŠØ«Ø¨Øª MAIN ÙˆÙŠØ·Ø¨Ø¹ Ø±Ø§Ø¨Ø· Ø§Ù„Ø¯Ø®ÙˆÙ„
@@ -195,10 +195,16 @@ The original agent acknowledged controls without executing them when PHP was abs
 
 The panel buttons were exercised on a temporary normal H.264/AAC HLS channel: Start produced real video on the load balancer; Stop removed the producer and made existing/fresh HLS requests return 404; the stopped channel stayed stopped after an agent restart; Start restored HLS; Restart changed the encoder PID and restored HLS. Test records and source processes were removed. This validates these live controls, not VOD/root administration or every source format.
 
-`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v8 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
+`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v9 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
 
 ## Independent GitHub update notifications
 
-Fresh MAIN installations using `installer-public-v8` enable hourly release checks and the existing Settings update control automatically. Existing MAIN installations enable it once using [the update setup command](deployment/UPDATES.md). Updating application code requires pressing Update now; checks alone do not install anything. Only compatible, checksummed MAIN update releases are offered. See [update scope and publishing](deployment/UPDATES.md).
+Fresh MAIN installations using `installer-public-v9` enable hourly release checks and the existing Settings update control automatically. Existing MAIN installations enable it once using [the update setup command](deployment/UPDATES.md). Updating application code requires pressing Update now; checks alone do not install anything. Only compatible, checksummed MAIN update releases are offered. See [update scope and publishing](deployment/UPDATES.md).
 
 Independent update notifications now include verified LB versions. Same/older releases never enable Update; see [LB checks, SSH update flow and service upgrade](deployment/UPDATES.md#independent-lb-updates).
+
+## İÕá ÇÊÕÇáÇÊ ÇáãØæøÑ — .8
+
+ÇáÍÒã ÇáßÇãáÉ ááãíä æÇááæÏ ÊÖã ÍÙÑ äØÇŞÇÊ ÇáãØæøÑ ÇáãÚÑæİÉ ãÍáíğÇ. Çáãíä íÑİÖ ÅÑÓÇá ÇáÓÌáÇÊ æãÊÌÑ ÇáãØæøÑ æÊÌÏíÏ ÊÑÇÎíÕå æÇáÊÍÏíËÇÊ ÇáŞÏíãÉ¡ ãÚ ÅÈŞÇÁ ãÓÊæÏÚ ÇáãÓÊÎÏã æãÕÇÏÑ ÇáŞäæÇÊ æÇáßáÇÓÊÑ. ãõËÈÊ Çáãíä installer-public-v9 íËÈÊ .8 æíÖÈØ ÎÏãÉ ÇáÊÍÏíË ÇáÎÇãÓÉ¡ æÒÑ ÊäÕíÈ ÇááæÏ íØáÈ ÍÒãÉ .8.
+
+ÇáÊÑŞíÉ ãä äÓÎÉ ŞÇÆãÉ áíÓÊ ÅÚÇÏÉ ÊäÕíÈ. ãÍÏË ÇááæÏ ÇáÌÏíÏ íŞÈá ÓíÇÓÉ İÕá ËÇÈÊÉ İŞØ¡ Ïæä ÊäİíĞ ÓßÑÈÊÇÊ ãä ÇáÍÒãÉ¡ æáÇ íÚíÏ ÊÔÛíá ÎÏãÇÊ áåÇ äİÓ ÈÕãÇÊ ÇáãáİÇÊ ÇáÊäİíĞíÉ. ÑÇÌÚ deployment/VENDOR-ISOLATION.md. ÍÙÑ ÃÓãÇÁ ÇáäØÇŞÇÊ áíÓ ÌÏÇÑğÇ íãäÚ ÌãíÚ ÇáÇÊÕÇáÇÊ ÇáÎÇÑÌíÉ.

@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--output',type=pathlib.Path,required=True)
     parser.add_argument('--version',required=True)
     parser.add_argument('--from-version',action='append',required=True)
+    parser.add_argument('--vendor-isolation',action='store_true')
     args=parser.parse_args()
     if any(common.version(args.version)<=common.version(value) for value in args.from_version):
         raise ValueError('Native updates must advance the distribution version')
@@ -27,7 +28,7 @@ def main():
             content=source.extractfile(member).read()
             if content[:4]!=b'\x7fELF':raise ValueError('Expected Linux native binary')
             files[name]=content
-    payload=args.output/node.PAYLOAD
+    payload=args.output/(node.POLICY_PAYLOAD if args.vendor_isolation else node.PAYLOAD)
     with tarfile.open(payload,'w:gz') as archive:
         for name,content in files.items():
             member=tarfile.TarInfo(name);member.mode=0o755;member.size=len(content)
@@ -36,8 +37,10 @@ def main():
           'from_versions':args.from_version,'database_migrations':[],
           'files':{name:hashlib.sha256(content).hexdigest() for name,content in files.items()},
           'sha256':hashlib.sha256(payload.read_bytes()).hexdigest()}
+    if args.vendor_isolation:
+        data.update(schema=2,kind='native-with-vendor-isolation',vendor_isolation=True)
     node.validate(data)
-    (args.output/node.MANIFEST).write_text(json.dumps(data,indent=2)+'\n')
+    (args.output/(node.POLICY_MANIFEST if args.vendor_isolation else node.MANIFEST)).write_text(json.dumps(data,indent=2)+'\n')
     print('Built native-only LB update',args.version,payload.stat().st_size,'bytes')
 
 
