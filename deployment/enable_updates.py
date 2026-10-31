@@ -78,8 +78,9 @@ def main():
             saved = backup / name
             saved.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(target, saved)
-    from update_worker import panel_user, atomic, target_path, health, restart
+    from update_worker import panel_user, atomic, target_path, health, restart, stop_web
     try:
+        stop_web()
         for name in FILES:
             data = (SOURCE / name).read_bytes()
             with panel_user():
