@@ -7,7 +7,7 @@ ROLE=${1:?main or node required}
 [[ $(id -u) == 0 && $(uname -m) == x86_64 ]] || { echo 'Root and x86_64 required'; exit 1; }
 source /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 22.04 ]] || { echo 'Only Ubuntu 22.04 amd64 has a runtime bundle'; exit 1; }
-[[ ! -e /home/xc_vm && ! -L /home/xc_vm ]] || { echo 'Existing panel refused'; exit 1; }
+[[ ! -e /home/horus_xc && ! -L /home/horus_xc && ! -e /home/xc_vm && ! -L /home/xc_vm ]] || { echo 'Existing panel refused'; exit 1; }
 if ss -H -lnt '( sport = :443 or sport = :18080 )' | grep -q .; then
   echo 'Required panel ports are occupied; refusing to alter existing services'; exit 1
 fi
@@ -18,7 +18,7 @@ id xcvm_lab >/dev/null 2>&1 || useradd --system --home-dir "$ROOT" --shell /usr/
 SRC="$ROOT/panel/src"
 mkdir -p "$SRC"/{config/cluster,tmp/{cache,crons,logs,opened_cons,player,flood,gateway},signals,content/{streams,archive,vod,playlists},storage/images,bin/xc_fanout/sockets,bin/nginx/conf/codes}
 chmod 755 "$ROOT"
-ln -s "$SRC" /home/xc_vm
+python3 "$ROOT/deployment/ensure_horus_home.py"
 chmod 755 "$SRC/bin/xc_agent/xc_agent" "$SRC/bin/xc_fanout/xc_fanout"
 python3 "$ROOT/deployment/update_worker.py" isolate-vendor
 python3 "$ROOT/deployment/configure.py" "$ROLE"

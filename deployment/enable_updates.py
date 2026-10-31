@@ -21,6 +21,8 @@ def main():
     installed = json.loads((ROOT / 'installed.json').read_text())
     if installed.get('role') != 'main' or installed.get('repository') != 'mena50056/xcvm-independent' or not (ROOT / 'runtime/LocalCore.php').is_file():
         raise SystemExit('Only an existing independent MAIN is supported')
+    from ensure_horus_home import ensure_home
+    ensure_home(ROOT)
     account = pwd.getpwnam('xcvm_lab')
     os.umask(0o077)
     STATE.mkdir(mode=0o755, exist_ok=True)

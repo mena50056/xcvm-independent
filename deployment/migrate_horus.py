@@ -86,9 +86,8 @@ echo 'Horus admin access code ready';
         for name,source in [('worker.py','update_worker.py'),('update_worker.py','update_worker.py'),('node_update.py','node_update.py')]:
             target=worker/name;shutil.copy2(target,backup/('root-'+name));place(target,(a.source/'deployment'/source).read_bytes(),0o644);os.chown(target,0,0)
     if not migrated:exchange_root(OLD,NEW)
-    home=pathlib.Path('/home/xc_vm')
-    if not home.is_symlink() or home.resolve()!=NEW/'panel/src':raise ValueError('Unexpected legacy home alias')
-    temp=home.with_name('.xc_vm.horus-stage-'+str(os.getpid()));temp.symlink_to(NEW/'panel/src');temp.replace(home)
+    from ensure_horus_home import ensure_home
+    ensure_home()
     subprocess.run(['systemctl','daemon-reload'],check=True)
     after=processes();assert before==after,'A running service changed during migration'
     for name,digest in hashes.items():assert hashlib.sha256((NEW/name).read_bytes()).hexdigest()==digest,'Identity changed'

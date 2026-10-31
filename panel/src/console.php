@@ -1,4 +1,4 @@
-#!/home/xc_vm/bin/php/bin/php
+#!/home/horus_xc/bin/php/bin/php
 <?php
 
 use XcVm\Cli\CommandInterface;
@@ -10,14 +10,14 @@ use XcVm\Core\Module\ModuleLoader;
  * XC_VM Console — единая точка входа для CLI-команд и cron-задач.
  *
  * Использование:
- *   /home/xc_vm/console.php <command> [arguments]
- *   /home/xc_vm/console.php --list              # список всех команд
- *   /home/xc_vm/console.php --help              # справка
+ *   /home/horus_xc/console.php <command> [arguments]
+ *   /home/horus_xc/console.php --list              # список всех команд
+ *   /home/horus_xc/console.php --help              # справка
  *
  * Примеры:
- *   /home/xc_vm/console.php startup             # запуск демона startup
- *   /home/xc_vm/console.php cron:servers        # запуск cron servers
- *   /home/xc_vm/console.php watchdog            # запуск демона watchdog
+ *   /home/horus_xc/console.php startup             # запуск демона startup
+ *   /home/horus_xc/console.php cron:servers        # запуск cron servers
+ *   /home/horus_xc/console.php watchdog            # запуск демона watchdog
  *
  * Команды регистрируются ниже явно — добавьте свою команду в секцию
  * "Register commands" после создания класса, реализующего CommandInterface.

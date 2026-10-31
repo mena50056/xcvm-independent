@@ -1,6 +1,6 @@
 {
   "panel/src/Cli/Commands/BinariesCommand.php": "f2abfb9e3adcf5df59fd844368068c341d7012f5983815f22ad5518dbeff7810",
-  "panel/src/Cli/Commands/IndependentLbInstall.php": "8177aae43d13a68e2d8008b5448dd6c1083680d8162f577e333aa48781276ff3",
+  "panel/src/Cli/Commands/IndependentLbInstall.php": "3e7a0e8c3576228df918f2b658ba9aa1d7552a8bae50135fbcc95b8e54e3424c",
   "panel/src/Cli/CronJobs/ModuleLicensesCronJob.php": "742fd52eaa30cc4a50ca866cbeecbac590a4906e0104b1e37f09734b5f9130a9",
   "panel/src/Core/Diagnostics/DiagnosticsService.php": "68baa5343130c9a020fc28aa081fbea24a12c375b2cd64e8d31a81b77296eabf",
   "panel/src/Core/Module/ModuleManager.php": "8f39246eac6358337f6a5452a729f54b78ddcd51971fab9a8523b7e8a4597e41",

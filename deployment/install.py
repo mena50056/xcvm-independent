@@ -53,7 +53,7 @@ def main():
     if not a.plan:
         if os.geteuid() != 0:
             raise SystemExit('Run as root on a fresh server')
-    if pathlib.Path('/opt/xcvm-independent-lab').exists() or pathlib.Path('/opt/xcvm-independent-lab').is_symlink() or ROOT.exists() or ROOT.is_symlink() or pathlib.Path('/home/xc_vm').exists() or pathlib.Path('/home/xc_vm').is_symlink():
+    if pathlib.Path('/home/horus_xc').exists() or pathlib.Path('/home/horus_xc').is_symlink() or pathlib.Path('/opt/xcvm-independent-lab').exists() or pathlib.Path('/opt/xcvm-independent-lab').is_symlink() or ROOT.exists() or ROOT.is_symlink() or pathlib.Path('/home/xc_vm').exists() or pathlib.Path('/home/xc_vm').is_symlink():
         raise SystemExit('Existing panel detected; reinstall/upgrade is deliberately refused')
     if a.role == 'node' and not a.enrollment_file:
         raise SystemExit('A private node enrollment JSON from MAIN is required')

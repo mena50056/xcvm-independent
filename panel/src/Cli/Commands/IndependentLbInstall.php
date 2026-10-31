@@ -54,12 +54,12 @@ final class IndependentLbInstall {
             $pdo->prepare('UPDATE servers SET ssh_hostkey_sha1=?,serve_only=1,status=3 WHERE id=?')->execute([InstallCredentials::normalizeHostKey($presented),$sid]);
             self::run($conn,'test "$(id -u)" = 0; . /etc/os-release; test "$ID:$VERSION_ID:$(uname -m)" = ubuntu:22.04:x86_64; command -v python3 >/dev/null');
             // Refuse before sending an enrollment or modifying packages/services.
-            self::run($conn,'for p in /home/xc_vm /opt/horus_xc /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main; do test ! -e "$p" && test ! -L "$p" || { echo "Existing panel found: $p"; exit 1; }; done; ! id xcvm_lab >/dev/null 2>&1; test -z "$(ss -H -lnt \'( sport = :80 or sport = :443 or sport = :8080 or sport = :18080 )\')"');
+            self::run($conn,'for p in /home/horus_xc /home/xc_vm /opt/horus_xc /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main; do test ! -e "$p" && test ! -L "$p" || { echo "Existing panel found: $p"; exit 1; }; done; ! id xcvm_lab >/dev/null 2>&1; test -z "$(ss -H -lnt \'( sport = :80 or sport = :443 or sport = :8080 or sport = :18080 )\')"');
             $remote=trim(self::run($conn,'umask 077; mktemp -d /root/xcvm-node-install.XXXXXXXX')['output']);
             if(!preg_match('~^/root/xcvm-node-install\.[A-Za-z0-9]{8}$~D',$remote))throw new \RuntimeException('Invalid private remote staging directory');
             foreach(['trusted-node.py','fetch_release.py','install.py','configure.py','native-agent.json'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
             self::send($conn,$sftp,$certificate,$remote.'/main.crt');
-            $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.9'];
+            $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.10'];
             $planFile=self::privateFile($plan,$temp);self::send($conn,$sftp,$planFile,$remote.'/plan.json');
             echo "Checking MAIN TLS and downloading the node package from mena50056/xcvm-independent without a token...\n";
             $result=self::run($conn,'python3 '.escapeshellarg($remote.'/trusted-node.py').' prepare',false);

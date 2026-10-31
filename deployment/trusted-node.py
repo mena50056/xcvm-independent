@@ -27,7 +27,7 @@ def fresh_host():
     release = pathlib.Path('/etc/os-release').read_text()
     if 'ID=ubuntu' not in release or 'VERSION_ID="22.04"' not in release:
         raise ValueError('Ubuntu 22.04 is required')
-    for path in [ROOT, pathlib.Path('/opt/xcvm-independent-lab'), pathlib.Path('/home/xc_vm'), pathlib.Path('/home/xtreamcodes'), pathlib.Path('/home/xui')]:
+    for path in [ROOT, pathlib.Path('/opt/xcvm-independent-lab'), pathlib.Path('/home/horus_xc'), pathlib.Path('/home/xc_vm'), pathlib.Path('/home/xtreamcodes'), pathlib.Path('/home/xui')]:
         if path.exists() or path.is_symlink():
             raise ValueError('Existing panel refused: ' + str(path))
     listeners = subprocess.check_output(['ss', '-H', '-lnt', '( sport = :80 or sport = :443 or sport = :8080 or sport = :18080 )'], text=True)

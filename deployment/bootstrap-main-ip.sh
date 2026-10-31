@@ -18,7 +18,7 @@ stop() { echo "STOP: $*" >&2; exit 1; }
 source /etc/os-release
 [[ "$ID" == ubuntu && "$VERSION_ID" == 22.04 ]] || stop 'Ubuntu 22.04 is required'
 # All read-only checks run before package installation, service or DB changes.
-for path in /home/xc_vm /opt/horus_xc /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /opt/xui /home/streamcreed; do
+for path in /home/horus_xc /home/xc_vm /opt/horus_xc /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /opt/xui /home/streamcreed; do
   [[ ! -e "$path" && ! -L "$path" ]] || stop "Existing panel path found: $path"
 done
 for path in /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main /var/lib/mysql/xcvm_lab_migrate /var/lib/mysql/xtream_iptvpro /var/lib/mysql/xui; do
@@ -85,9 +85,9 @@ APT
 export APT_CONFIG="$work/apt.conf"
 apt-get update
 apt-get install -y git python3 ca-certificates
-git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v10 \
+git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v11 \
   https://github.com/mena50056/xcvm-independent.git "$work/source"
-args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.9 --server-ip "$SERVER_IP" --admin-user admin)
+args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.10 --server-ip "$SERVER_IP" --admin-user admin)
 python3 "$work/source/deployment/install.py" "${args[@]}"
 python3 "$work/source/deployment/enable_updates.py"
 # Allow nginx's supplemental xcvm_lab group to reach the fanout socket only.
