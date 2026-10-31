@@ -16,13 +16,13 @@ from install import validate_archive
 
 
 class PackagingTests(unittest.TestCase):
-    def test_original_host_still_requires_explicit_authorization(self):
-        args=['install.py','--role','main','--tag','v0.1.0-lab.3','--server-ip','45.32.223.254','--plan']
-        with patch.object(sys,'argv',args), self.assertRaisesRegex(SystemExit,'explicitly excluded'):
+    def test_former_host_needs_no_authorization(self):
+        args=['install.py','--role','main','--tag','v0.1.0-lab.4','--server-ip','45.32.223.254','--plan']
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer,'ROOT',pathlib.Path(temp)/'absent'), patch.object(sys,'argv',args):
             installer.main()
 
-    def test_authorization_does_not_override_existing_panel(self):
-        args=['install.py','--role','main','--tag','v0.1.0-lab.3','--server-ip','45.32.223.254','--allow-original-test-host','--plan']
+    def test_former_host_refuses_existing_panel_without_special_flag(self):
+        args=['install.py','--role','main','--tag','v0.1.0-lab.3','--server-ip','45.32.223.254','--plan']
         with tempfile.TemporaryDirectory() as temp, patch.object(installer,'ROOT',pathlib.Path(temp)), patch.object(sys,'argv',args), self.assertRaisesRegex(SystemExit,'Existing panel detected'):
             installer.main()
 

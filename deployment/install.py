@@ -1,4 +1,4 @@
-"""Fresh-server installer. It refuses existing deployments and the original host."""
+"""Fresh-server installer. It refuses existing deployments on every host."""
 import argparse
 import ipaddress
 import json
@@ -11,7 +11,6 @@ import tempfile
 from fetch_release import fetch_release
 
 ROOT = pathlib.Path('/opt/xcvm-independent-lab')
-BLOCKED = '45.32.223.254'
 
 
 def validate_archive(archive):
@@ -42,13 +41,11 @@ def main():
     p.add_argument('--tls-cert')
     p.add_argument('--tls-key')
     p.add_argument('--plan', action='store_true')
-    p.add_argument('--allow-original-test-host', action='store_true', help='Explicitly authorize the former production IP as a fresh test host; existing-panel checks remain mandatory')
+    p.add_argument('--allow-original-test-host', action='store_true', help='Legacy compatibility option; no longer required')
     a = p.parse_args()
     if bool(a.tls_cert) != bool(a.tls_key):
         raise SystemExit('Supply both --tls-cert and --tls-key')
     address = ipaddress.ip_address(a.server_ip)
-    if str(address) == BLOCKED and not a.allow_original_test_host:
-        raise SystemExit('The original production server is explicitly excluded')
     if address.version != 4:
         raise SystemExit('This experimental installer currently supports IPv4')
     if a.hostname and (not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', a.hostname) or a.hostname==str(address)):
@@ -56,9 +53,6 @@ def main():
     if not a.plan:
         if os.geteuid() != 0:
             raise SystemExit('Run as root on a fresh server')
-        local = subprocess.check_output(['ip', '-j', 'address'], text=True)
-        if BLOCKED in local and not a.allow_original_test_host:
-            raise SystemExit('Refusing the original production server')
     if ROOT.exists() or ROOT.is_symlink() or pathlib.Path('/home/xc_vm').exists() or pathlib.Path('/home/xc_vm').is_symlink():
         raise SystemExit('Existing panel detected; reinstall/upgrade is deliberately refused')
     if a.role == 'node' and not a.enrollment_file:

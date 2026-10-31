@@ -93,15 +93,15 @@ else:print('2: eth0 inet '+ip+'/24 scope global eth0')
         self.assertEqual(1, code, output)
         self.assertIn('not assigned', output)
 
-    def test_original_host_authorization_does_not_override_existing_panel(self):
+    def test_former_host_auto_detects_and_still_refuses_existing_panel(self):
         self.env['FIXTURE_IP'] = '45.32.223.254'
-        code, output = self.run_bootstrap('--server-ip=45.32.223.254')
-        self.assertEqual(1, code, output)
-        self.assertIn('explicit test authorization', output)
+        code, output = self.run_bootstrap()
+        self.assertEqual(0, code, output)
+        self.assertIn('Selected MAIN IPv4: 45.32.223.254', output)
         marker = self.paths['/home/xc_vm']
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.touch()
-        code, output = self.run_bootstrap('--server-ip=45.32.223.254', '--allow-original-test-host')
+        code, output = self.run_bootstrap()
         self.assertEqual(1, code, output)
         self.assertIn('Existing panel', output)
 

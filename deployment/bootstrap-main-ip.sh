@@ -3,12 +3,11 @@
 set -euo pipefail
 umask 077
 SERVER_IP=''
-ALLOW_ORIGINAL=0
 CHECK_ONLY=0
 for arg in "$@"; do
   case "$arg" in
     --server-ip=*) SERVER_IP=${arg#*=} ;;
-    --allow-original-test-host) ALLOW_ORIGINAL=1 ;;
+    --allow-original-test-host) : ;; # Legacy argument, no longer required
     --check-only) CHECK_ONLY=1 ;;
     *) echo "Unknown argument: $arg" >&2; exit 2 ;;
   esac
@@ -59,7 +58,6 @@ fi
 for octet in ${SERVER_IP//./ }; do
   (( 10#$octet <= 255 )) || stop 'Invalid IPv4 address'
 done
-[[ "$SERVER_IP" != 45.32.223.254 || "$ALLOW_ORIGINAL" == 1 ]] || stop 'Former production host needs explicit test authorization'
 ip -o -4 addr show | awk '{split($4,a,"/"); print a[1]}' | grep -Fxq "$SERVER_IP" || stop 'Requested IP is not assigned to this server'
 echo "Selected MAIN IPv4: $SERVER_IP"
 if [[ "$CHECK_ONLY" == 1 ]]; then echo 'PASS: read-only fresh-host checks'; exit 0; fi
@@ -87,10 +85,9 @@ APT
 export APT_CONFIG="$work/apt.conf"
 apt-get update
 apt-get install -y git python3 ca-certificates
-git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v3 \
+git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v4 \
   https://github.com/mena50056/xcvm-independent.git "$work/source"
 args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.4 --server-ip "$SERVER_IP" --admin-user admin)
-if [[ "$ALLOW_ORIGINAL" == 1 ]]; then args+=(--allow-original-test-host); fi
 python3 "$work/source/deployment/install.py" "${args[@]}"
 # Allow nginx's supplemental xcvm_lab group to reach the fanout socket only.
 # The separate .runtime-state directory and local keys remain private.
