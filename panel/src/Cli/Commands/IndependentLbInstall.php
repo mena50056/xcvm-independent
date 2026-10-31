@@ -48,6 +48,9 @@ final class IndependentLbInstall {
             $sftp=@ssh2_sftp($fileConn);
             if(!$sftp)throw new \RuntimeException('The node SSH service did not open an SFTP subsystem');
             unset($args[4],$credentials);
+            if (!empty($options['independent-update'])) {
+                return self::updateInstalled($conn,$sftp,$root,$sid,$pdo,$remote,!empty($options['independent-probe']));
+            }
             $pdo->prepare('UPDATE servers SET ssh_hostkey_sha1=?,serve_only=1,status=3 WHERE id=?')->execute([InstallCredentials::normalizeHostKey($presented),$sid]);
             self::run($conn,'test "$(id -u)" = 0; . /etc/os-release; test "$ID:$VERSION_ID:$(uname -m)" = ubuntu:22.04:x86_64; command -v python3 >/dev/null');
             // Refuse before sending an enrollment or modifying packages/services.
@@ -75,11 +78,15 @@ final class IndependentLbInstall {
             }
             if(!$online)throw new \RuntimeException('Node services started but MAIN has not received a fresh authenticated heartbeat; inspect the node agent log');
             $pdo->prepare('UPDATE servers SET status=1,enabled=1,serve_only=1,http_broadcast_port=80,https_broadcast_port=443,enable_https=1 WHERE id=?')->execute([$sid]);
+            \XcVm\Core\Updates\IndependentNodeUpdates::record($sid,$plan['version']);
             @unlink(CACHE_TMP_PATH.'servers');
             echo "SUCCESS: node active; MAIN received an authenticated heartbeat. TLS verification remains enabled.\n";
             return 0;
         } catch(\Throwable $e) {
-            if($sid>0)$pdo->prepare('UPDATE servers SET status=4 WHERE id=? AND is_main=0')->execute([$sid]);
+            if($sid>0) {
+                if (!empty($options['independent-update'])) $pdo->prepare('UPDATE servers SET status=1 WHERE id=? AND is_main=0 AND status=5')->execute([$sid]);
+                else $pdo->prepare('UPDATE servers SET status=4 WHERE id=? AND is_main=0')->execute([$sid]);
+            }
             echo 'FAILED: '.$e->getMessage()."\n";
             return 1;
         } finally {
@@ -91,6 +98,34 @@ final class IndependentLbInstall {
             if($fileConn && function_exists('ssh2_disconnect'))@ssh2_disconnect($fileConn);
             if(is_resource($lock)){flock($lock,LOCK_UN);fclose($lock);}
         }
+    }
+
+    private static function updateInstalled($conn,$sftp,string $root,int $sid,\PDO $pdo,?string &$remote,bool $probe): int {
+        $remote=trim(self::run($conn,'umask 077; mktemp -d /root/xcvm-node-install.XXXXXXXX',false)['output']);
+        if(!preg_match('~^/root/xcvm-node-install\.[A-Za-z0-9]{8}$~D',$remote))throw new \RuntimeException('Invalid node update staging directory');
+        foreach(['update_worker.py','node_update.py'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
+        $command='python3 '.escapeshellarg($remote.'/node_update.py');
+        $data=json_decode(trim(self::run($conn,$command.' inspect',false)['output']),true,512,JSON_THROW_ON_ERROR);
+        $current=(string)($data['version']??'');
+        \XcVm\Core\Updates\IndependentNodeUpdates::record($sid,$current);
+        if($probe){echo "SUCCESS: verified installed LB release: ".$current.". No files or services were changed.\n";return 0;}
+        $candidate=\XcVm\Core\Updates\IndependentNodeUpdates::candidate($current);
+        if(!$candidate)throw new \RuntimeException('No newer compatible LB update is available');
+        $started=(int)(microtime(true)*1000);
+        $pdo->prepare('UPDATE servers SET status=5 WHERE id=? AND is_main=0')->execute([$sid]);
+        $data=json_decode(trim(self::run($conn,$command.' apply '.escapeshellarg($candidate['version']),false,900)['output']),true,512,JSON_THROW_ON_ERROR);
+        if(($data['version']??'')!==$candidate['version'])throw new \RuntimeException('Node update did not report the requested version');
+        $fresh=false;
+        for($i=0;$i<45;$i++){
+            $q=$pdo->prepare('SELECT state,last_seen_at FROM cluster_nodes WHERE server_id=?');$q->execute([$sid]);$heartbeat=$q->fetch(\PDO::FETCH_ASSOC);
+            if($heartbeat && $heartbeat['state']==='active' && (int)$heartbeat['last_seen_at']>=$started){$fresh=true;break;}
+            sleep(2);
+        }
+        if(!$fresh)throw new \RuntimeException('LB services passed local checks but MAIN has not received a fresh authenticated heartbeat');
+        \XcVm\Core\Updates\IndependentNodeUpdates::record($sid,$candidate['version']);
+        $pdo->prepare('UPDATE servers SET status=1 WHERE id=? AND is_main=0')->execute([$sid]);
+        echo 'SUCCESS: LB updated to '.$candidate['version']."; identity and configuration preserved, fresh authenticated heartbeat received.\n";
+        return 0;
     }
 
     public static function validateMainCertificate(string $path,string $ip): void {

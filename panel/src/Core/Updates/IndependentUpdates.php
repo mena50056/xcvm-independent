@@ -16,8 +16,21 @@ final class IndependentUpdates {
 
     public static function badge(): array {
         $status = self::status();
-        return ($status['state'] ?? '') === 'available' && !empty($status['latest'])
-            ? ['version' => ltrim($status['latest'], 'v'), 'url' => $status['url'] ?? ''] : [];
+        $nodes=IndependentNodeUpdates::pending();
+        if(self::available($status))return ['version'=>ltrim($status['latest'],'v'),'url'=>$status['url']??'','panel_url'=>'settings#panel-update','count'=>1+count($nodes)];
+        if($nodes){$item=reset($nodes);return ['version'=>ltrim($item['version'],'v'),'url'=>$item['url']??'','panel_url'=>'servers','count'=>count($nodes)];}
+        return [];
+    }
+
+    public static function newer(string $latest, string $current): bool {
+        $pattern = '/^v\d+\.\d+\.\d+(?:-lab\.\d+)?$/D';
+        return preg_match($pattern, $latest) && preg_match($pattern, $current)
+            && version_compare(substr($latest, 1), substr($current, 1), '>');
+    }
+
+    public static function available(array $status): bool {
+        return ($status['state'] ?? '') === 'available'
+            && self::newer((string) ($status['latest'] ?? ''), (string) ($status['current'] ?? ''));
     }
 
     public static function status(): array {
@@ -30,6 +43,10 @@ final class IndependentUpdates {
         if (!in_array($action, ['check', 'apply'], true)) throw new \RuntimeException('Invalid update action');
         if ($action === 'apply' && !preg_match('/^v\d+\.\d+\.\d+(?:-lab\.\d+)?$/D', $version)) {
             throw new \RuntimeException('Invalid update version');
+        }
+        if ($action === 'apply') {
+            $status = self::status();
+            if (!self::available($status) || $version !== $status['latest']) throw new \RuntimeException('No newer compatible update is available');
         }
         $dir = self::STATE . '/requests';
         if (!is_dir($dir)) throw new \RuntimeException('Update service is not installed');

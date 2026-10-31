@@ -20,6 +20,12 @@ $rCanAdd = Authorization::check('adv', 'add_server');
 $rCanConns = Authorization::check('adv', 'live_connections');
 $rRedis = (bool) SettingsManager::get('redis_handler');
 $rMainVer = $rServers[SERVER_ID]['xc_vm_version'] ?? '';
+$rIndependent = defined('XCVM_INDEPENDENT_LAB');
+$rIndependentRecords = $rIndependent ? \XcVm\Core\Updates\IndependentNodeUpdates::records() : [];
+$rIndependentReleases = $rIndependent ? \XcVm\Core\Updates\IndependentNodeUpdates::catalog() : [];
+$rIndependentMain = $rIndependent ? \XcVm\Core\Updates\IndependentUpdates::status() : [];
+$rIndependentTargets = [];
+
 
 /** Compact coloured progress bar for a 0-100 percentage (cpu / mem). */
 $rBar = static function (int $pct): string {
@@ -70,7 +76,7 @@ $rBar = static function (int $pct): string {
                 <div class="dropdown">
                     <button type="button" class="btn btn-sm btn-label-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="icon-base ti tabler-tool me-1"></i>Bulk</button>
                     <div class="dropdown-menu dropdown-menu-end">
-                        <button type="button" class="dropdown-item" id="op-update-all"><i class="icon-base ti tabler-download me-2"></i>Update All Servers</button>
+                        <button type="button" class="dropdown-item" id="op-update-all" <?= $rIndependent ? 'disabled' : '' ?>><i class="icon-base ti tabler-download me-2"></i>Update All Servers</button>
                         <button type="button" class="dropdown-item" id="op-rolling-update"><i class="icon-base ti tabler-stairs-up me-2"></i><?= $language::get('rolling_update'); ?></button>
                         <button type="button" class="dropdown-item" id="op-restart-services"><i class="icon-base ti tabler-refresh me-2"></i>Restart All Services</button>
                         <button type="button" class="dropdown-item" id="op-update-binaries"><i class="icon-base ti tabler-package me-2"></i>Update All Binaries</button>
@@ -117,6 +123,15 @@ $rBar = static function (int $pct): string {
                     }
                     $rIsMain = ((int) $rServer['is_main'] === 1);
                     $rUpdatable = ($rServer['xc_vm_version'] && $rServer['xc_vm_version'] != $rMainVer);
+                    $rDisplayVersion = $rServer['xc_vm_version'] ?: 'N/A';
+                    $rIndependentTarget = null;
+                    if($rIndependent){
+                        $rDisplayVersion = $rIsMain ? ($rIndependentMain['current']??'N/A') : ($rIndependentRecords[(int)$rServer['id']]['version']??'N/A');
+                        $rIndependentTarget = $rIsMain ? (\XcVm\Core\Updates\IndependentUpdates::available($rIndependentMain) ? $rIndependentMain : null) : \XcVm\Core\Updates\IndependentNodeUpdates::candidate($rDisplayVersion,$rIndependentReleases);
+                        $rUpdatable = $rIndependentTarget !== null;
+                        $rIndependentTargets[(int)$rServer['id']] = $rIsMain ? ($rUpdatable ? 'main' : 'current') : ($rUpdatable ? 'update' : ($rDisplayVersion === 'N/A' && $rIndependentReleases ? 'check' : 'current'));
+                    }
+
                     $rClients = $rRedis ? (int) $rServer['connections'] : (int) ConnectionTracker::getLiveConnections($rServer['id']);
                     ?>
                     <tr id="server-<?= (int) $rServer['id']; ?>">
@@ -128,7 +143,9 @@ $rBar = static function (int $pct): string {
                             <?php if (!$rServer['enabled']): ?>
                                 <i class="icon-base ti tabler-circle-filled text-secondary" data-bs-toggle="tooltip" title="<?= $language::get('disabled'); ?>"></i>
                             <?php elseif ($rServer['server_online']): ?>
-                                <?php if ($rUpdatable): ?>
+                                <?php if ($rIndependent && $rUpdatable && \XcVm\Core\Auth\Authorization::isFullAdmin()): ?>
+                                    <a href="<?= $rIsMain ? 'settings#panel-update' : 'server_install?id='.(int)$rServer['id'].'&amp;update=1' ?>" data-bs-toggle="tooltip" title="<?= htmlspecialchars($language::get('update_available').' — '.($rIndependentTarget['version']??$rIndependentTarget['latest']??''),ENT_QUOTES,'UTF-8') ?>"><i class="icon-base ti tabler-circle-arrow-down-filled text-success"></i></a>
+                                <?php elseif (!$rIndependent && $rUpdatable): ?>
                                     <a href="javascript:void(0)" class="js-api" data-id="<?= (int) $rServer['id']; ?>" data-sub="update" data-bs-toggle="tooltip" title="Update available: v<?= htmlspecialchars((string) $rMainVer, ENT_QUOTES); ?>"><i class="icon-base ti tabler-circle-arrow-down-filled text-success"></i></a>
                                 <?php else: ?>
                                     <i class="icon-base ti tabler-circle-filled text-success" data-bs-toggle="tooltip" title="<?= $language::get('online'); ?>"></i>
@@ -197,8 +214,13 @@ $rBar = static function (int $pct): string {
                         <td class="text-center" data-order="<?= (int) $rWatchDog['cpu']; ?>"><?= $rBar((int) $rWatchDog['cpu']); ?></td>
                         <td class="text-center" data-order="<?= (int) $rWatchDog['total_mem_used_percent']; ?>"><?= $rBar((int) $rWatchDog['total_mem_used_percent']); ?></td>
                         <td class="text-center"><span class="badge bg-label-secondary"><?= number_format(($rServer['server_online'] ? $rServer['ping'] : 0), 0); ?> ms</span></td>
-                        <td class="text-center"><span class="badge bg-label-<?= $rUpdatable ? 'warning' : 'secondary'; ?>"><?= $rServer['xc_vm_version'] ? htmlspecialchars((string) $rServer['xc_vm_version'], ENT_QUOTES) : 'N/A'; ?></span></td>
+                        <td class="text-center"><span class="badge bg-label-<?= $rUpdatable ? 'warning' : 'secondary'; ?>"><?= htmlspecialchars((string)$rDisplayVersion, ENT_QUOTES, 'UTF-8'); ?></span></td>
                         <td class="text-center">
+                            <?php if ($rIndependent && !$rIsMain && \XcVm\Core\Auth\Authorization::isFullAdmin()): ?>
+                                <?php if($rUpdatable): ?><a class="btn btn-sm btn-label-primary" href="server_install?id=<?= (int)$rServer['id'] ?>&amp;update=1"><?= $language::get('update_server') ?></a>
+                                <?php elseif($rDisplayVersion === 'N/A' && $rIndependentReleases): ?><a class="btn btn-sm btn-label-secondary" href="server_install?id=<?= (int)$rServer['id'] ?>&amp;update=1&amp;check=1"><?= $language::get('module_check_updates') ?></a>
+                                <?php else: ?><button type="button" class="btn btn-sm btn-label-secondary" disabled><?= $language::get('update_server') ?></button><?php endif; ?>
+                            <?php endif; ?>
                             <?php if ($rCanEdit): ?>
                                 <div class="dropdown">
                                     <button type="button" class="btn btn-sm btn-icon btn-label-secondary" data-bs-toggle="dropdown" aria-expanded="false"><i class="icon-base ti tabler-dots-vertical"></i></button>
@@ -483,6 +505,11 @@ LayoutRenderer::renderFooter('admin');
             var toolsId = null;
             $('#servers-table tbody').on('click', '.js-tools', function() {
                 toolsId = this.getAttribute('data-id');
+                <?php if($rIndependent): ?>
+                var updateTargets=<?= json_encode($rIndependentTargets, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>, updateTarget=updateTargets[toolsId];
+                $('#serverToolsModal .js-tool[data-tool="update"]').prop('disabled',updateTarget!=='update' && updateTarget!=='main').text(<?= json_encode($language::get('update_server')) ?>);
+                $('#serverToolsModal .js-tool[data-tool="update_binaries"]').prop('disabled',true);
+                <?php endif; ?>
                 if (toolsModal) {
                     toolsModal.show();
                 }
@@ -496,6 +523,14 @@ LayoutRenderer::renderFooter('admin');
                     return;
                 }
                 var url;
+                <?php if($rIndependent): ?>
+                if(tool === 'update' || tool === 'update_binaries'){
+                    var targets=<?= json_encode($rIndependentTargets, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>, target=targets[toolsId];
+                    if(target==='main'){window.location.href='./settings#panel-update';return;}
+                    if(target==='update' || target==='check'){window.location.href='./server_install?id='+encodeURIComponent(toolsId)+'&update=1'+(target==='check'?'&check=1':'');return;}
+                    toast(<?= json_encode($language::get('complete')) ?>,'info');return;
+                }
+                <?php endif; ?>
                 if (tool === 'reinstall') {
                     window.location.href = './server_install?id=' + toolsId;
                     return;

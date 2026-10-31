@@ -230,11 +230,11 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
                                                 </li>
 
                                                 <!-- Update badge -->
-                                                <?php if (!$rMobile && isset($rUpdate['version']) && (defined('XCVM_INDEPENDENT_LAB') || version_compare($rUpdate['version'], XC_VM_VERSION) >= 0)): ?>
+                                                <?php if ((!$rMobile || defined('XCVM_INDEPENDENT_LAB')) && isset($rUpdate['version']) && (defined('XCVM_INDEPENDENT_LAB') || version_compare($rUpdate['version'], XC_VM_VERSION) >= 0)): ?>
                                                     <li class="nav-item">
-                                                        <a class="nav-link btn btn-icon btn-text-secondary rounded-pill text-warning" href="settings"
+                                                        <a class="nav-link btn btn-icon btn-text-secondary rounded-pill text-warning" href="<?= htmlspecialchars($rUpdate['panel_url'] ?? 'settings',ENT_QUOTES,'UTF-8') ?>"
                                                             title="<?= htmlspecialchars($language::get('shell_update_available', ['{version}' => $rUpdate['version']]), ENT_QUOTES); ?>">
-                                                            <i class="icon-base ti tabler-arrow-big-up-lines icon-22px"></i>
+                                                            <i class="icon-base ti tabler-arrow-big-up-lines icon-22px"></i><?php if(defined('XCVM_INDEPENDENT_LAB')): ?><span class="badge rounded-pill bg-danger badge-notifications"><?= (int)($rUpdate['count']??1) ?></span><?php endif; ?>
                                                         </a>
                                                     </li>
                                                 <?php endif; ?>

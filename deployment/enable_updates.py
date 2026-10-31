@@ -18,7 +18,14 @@ FILES = ['panel/src/Core/Updates/IndependentUpdates.php',
          'panel/src/Public/Views/admin/independent_updates.php',
          'panel/src/Public/Views/admin/header.php',
          'panel/src/Public/Views/admin/settings.php',
-         'panel/src/Public/routes/admin.php']
+         'panel/src/Public/routes/admin.php',
+         'panel/src/Core/Updates/IndependentNodeUpdates.php',
+         'panel/src/Cli/Commands/IndependentLbInstall.php',
+         'panel/src/Domain/Server/ServerService.php',
+         'panel/src/Public/Controllers/Admin/ServerInstallController.php',
+         'panel/src/Public/Views/admin/servers.php',
+         'panel/src/Public/Views/admin/server_install.php',
+]
 
 
 def main():
@@ -40,6 +47,16 @@ def main():
     worker.mkdir(parents=True, mode=0o755, exist_ok=True)
     shutil.copyfile(SOURCE / 'deployment/update_worker.py', worker / 'worker.py')
     (worker / 'worker.py').chmod(0o644)
+    # The service's import uses a fixed root-owned copy, outside the web account.
+    shutil.copyfile(SOURCE / 'deployment/update_worker.py', worker / 'update_worker.py')
+    shutil.copyfile(SOURCE / 'deployment/node_update.py', worker / 'node_update.py')
+    (worker / 'update_worker.py').chmod(0o644)
+    (worker / 'node_update.py').chmod(0o644)
+    from update_worker import panel_user, atomic, target_path
+    for name in ['deployment/update_worker.py', 'deployment/node_update.py']:
+        data = (SOURCE / name).read_bytes()
+        with panel_user():
+            atomic(target_path(name), data)
     manifest = json.loads((SOURCE / 'deployment/update-ui-manifest.json').read_text())
     if set(manifest) != set(FILES):
         raise ValueError('Invalid UI manifest')

@@ -360,6 +360,19 @@ class ServerService {
 			exit();
 		}
 
+        $independentUpdate = defined('XCVM_INDEPENDENT_LAB') && !empty($rData['independent_update']);
+        if ($independentUpdate) {
+            if (!Authorization::isFullAdmin() || (int)($rData['type']??0)!==2 || empty($rData['edit'])
+                || !is_string($rData['independent_csrf']??null) || !isset($_SESSION['independent_update_csrf'])
+                || !hash_equals($_SESSION['independent_update_csrf'],$rData['independent_csrf'])) {
+                return ['status'=>STATUS_FAILURE,'data'=>$rData];
+            }
+            $target=$rServers[(int)$rData['edit']]??null;
+            if(!$target || !empty($target['is_main']))return ['status'=>STATUS_FAILURE,'data'=>$rData];
+            $records=\XcVm\Core\Updates\IndependentNodeUpdates::records();
+            if(empty($rData['independent_probe']) && !\XcVm\Core\Updates\IndependentNodeUpdates::candidate((string)($records[(int)$rData['edit']]['version']??'')))return ['status'=>STATUS_FAILURE,'data'=>$rData];
+        }
+
 		$rParentIDs = [];
 		$rUpdateSysctl = isset($rData['update_sysctl']) ? 1 : 0;
 		$rPrivateIP = isset($rData['use_private_ip']) ? 1 : 0;
@@ -382,11 +395,15 @@ class ServerService {
 				return ['status' => STATUS_FAILURE, 'data' => $rData];
 			}
 
-			$db->query('UPDATE `servers` SET `status` = 3, `parent_id` = ? WHERE `id` = ?;', '[' . implode(',', $rParentIDs) . ']', $rServer['id']);
+            if (!$independentUpdate) $db->query('UPDATE `servers` SET `status` = 3, `parent_id` = ? WHERE `id` = ?;', '[' . implode(',', $rParentIDs) . ']', $rServer['id']);
 			// Reinstalling an existing node keeps its own mode: preserve the
 			// serve_only state recorded at its first install (ServerInstallCommand),
 			// not the current global new-node mode, which may have changed since.
 			$rServeOnlyTail = (intval($rData['type']) === 2 && !empty($rServer['serve_only'])) ? ['--serve-only'] : [];
+            if ($independentUpdate) {
+                $rServeOnlyTail[]='--independent-update=1';
+                if(!empty($rData['independent_probe']))$rServeOnlyTail[]='--independent-probe=1';
+            }
 			if ($rData['type'] == 1) {
 				$rCommand = InstallCredentials::command(intval($rData['type']), intval($rServer['id']), intval($rData['ssh_port']), (string) $rData['root_username'], (string) $rData['root_password'], [(string) intval($rData['http_broadcast_port']), (string) intval($rData['https_broadcast_port']), (string) intval($rUpdateSysctl), (string) intval($rPrivateIP), escapeshellarg(json_encode($rParentIDs))], (string) ($rData['expected_hostkey'] ?? ''), !empty($rData['forget_hostkey']));
 			} else {

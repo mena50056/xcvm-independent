@@ -11,6 +11,12 @@ import update_worker as worker
 
 
 class UpdateTests(unittest.TestCase):
+    def test_main_same_or_older_release_is_refused_before_download(self):
+        for tag in ['v0.1.0-lab.4', 'v0.1.0-lab.3']:
+            with patch.object(worker, 'get', side_effect=AssertionError('Must not download')):
+                with self.assertRaisesRegex(ValueError, 'newer'):
+                    worker.apply_update({'version': tag}, 'v0.1.0-lab.4')
+
     def manifest(self, content=b'<?php echo "new";'):
         return {'schema': 1, 'kind': 'code-only', 'role': 'main', 'repository': worker.REPOSITORY,
                 'version': 'v0.1.0-lab.5', 'from_versions': ['v0.1.0-lab.4'], 'database_migrations': [],

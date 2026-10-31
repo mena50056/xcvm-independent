@@ -5,7 +5,7 @@ $updateStatus ??= IndependentUpdates::status();
 $escapeUpdate = static fn($value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $updateText = static fn(string $key): string => $escapeUpdate(Translator::get($key));
 $updateState = $updateStatus['state'] ?? 'pending';
-$updateAvailable = $updateState === 'available';
+$updateAvailable = IndependentUpdates::available($updateStatus);
 $updateBusy = in_array($updateState, ['checking', 'updating'], true);
 $updateStateKeys = ['pending'=>'queued', 'checking'=>'please_wait', 'available'=>'update_available', 'current'=>'complete', 'updating'=>'updating', 'updated'=>'complete', 'error'=>'error'];
 ?>
@@ -18,7 +18,7 @@ $updateStateKeys = ['pending'=>'queued', 'checking'=>'please_wait', 'available'=
           <a href="<?= $escapeUpdate($updateStatus['url']) ?>" class="btn btn-sm <?= $updateAvailable ? 'btn-outline-light' : 'btn-outline-primary' ?>" target="_blank" rel="noopener"><?= $updateText('release_thread') ?> <i class="icon-base ti tabler-arrow-right"></i></a>
         <?php endif; ?>
         <button type="button" class="btn btn-sm <?= $updateAvailable ? 'btn-outline-light' : 'btn-outline-primary' ?>" onclick="XcIndependentUpdate('check')" <?= $updateBusy ? 'disabled' : '' ?>><?= $updateText('module_check_updates') ?></button>
-        <?php if ($updateAvailable): ?><button type="button" class="btn btn-sm btn-light" onclick="UpdateServer()"><?= $updateText('update_server') ?></button><?php endif; ?>
+        <button type="button" class="btn btn-sm <?= $updateAvailable ? 'btn-light' : 'btn-primary' ?>" onclick="UpdateServer()" <?= $updateAvailable ? '' : 'disabled' ?>><?= $updateText('update_server') ?></button>
       </div>
     </div>
     <div class="small mt-2"><?= $updateText('version') ?>: <strong><?= $escapeUpdate($updateStatus['current'] ?? '—') ?></strong> · <?= $updateText($updateStateKeys[$updateState] ?? 'queued') ?></div>

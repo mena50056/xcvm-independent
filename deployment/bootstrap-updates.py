@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import urllib.request
 
-BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v3/'
+BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v4/'
 FILES = {
     'deployment/update_worker.py', 'deployment/enable_updates.py', 'deployment/update-ui-manifest.json',
     'panel/src/Core/Updates/IndependentUpdates.php',
@@ -15,7 +15,15 @@ FILES = {
     'panel/src/Public/Controllers/Admin/SettingsController.php',
     'panel/src/Public/Views/admin/independent_updates.php',
     'panel/src/Public/Views/admin/header.php', 'panel/src/Public/Views/admin/settings.php',
-    'panel/src/Public/routes/admin.php'}
+    'panel/src/Public/routes/admin.php',
+    'deployment/node_update.py',
+    'panel/src/Core/Updates/IndependentNodeUpdates.php',
+    'panel/src/Cli/Commands/IndependentLbInstall.php',
+    'panel/src/Domain/Server/ServerService.php',
+    'panel/src/Public/Controllers/Admin/ServerInstallController.php',
+    'panel/src/Public/Views/admin/servers.php',
+    'panel/src/Public/Views/admin/server_install.php',
+}
 
 
 def download(name):

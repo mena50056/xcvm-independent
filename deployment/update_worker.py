@@ -196,6 +196,8 @@ def stop_web():
 
 
 def apply_update(candidate, current):
+    if version(candidate['version']) <= version(current):
+        raise ValueError('MAIN update must be newer than installed')
     manifest = json.loads(get(candidate['assets'][MANIFEST], binary=True))
     files = validate_manifest(manifest, candidate['version'], current)
     backup = STATE / 'backups' / (str(time.time_ns()) + '-' + current)
@@ -266,6 +268,11 @@ def tick():
     now = int(time.time())
     if not action and now - status.get('checked_at', 0) < 3600:
         return
+    try:
+        import node_update
+        atomic(STATE / 'node-releases.json', json.dumps({'state': 'ready', 'checked_at': now, 'releases': node_update.catalog()}).encode())
+    except Exception as error:
+        atomic(STATE / 'node-releases.json', json.dumps({'state': 'error', 'checked_at': now, 'releases': [], 'error': str(error)[:800]}).encode())
     status.update(current=current, state='checking', error='', checked_at=now)
     save(status)
     try:

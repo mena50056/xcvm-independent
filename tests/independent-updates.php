@@ -19,11 +19,20 @@ namespace XcVm\Public\Controllers\Admin {
 namespace {
     define('XCVM_INDEPENDENT_LAB', true);
     require dirname(__DIR__) . '/panel/src/Core/Updates/IndependentUpdates.php';
+    require dirname(__DIR__) . '/panel/src/Core/Updates/IndependentNodeUpdates.php';
     require dirname(__DIR__) . '/panel/src/Core/Localization/Translator.php';
     $updateLangDir = dirname(__DIR__) . '/panel/src/Core/Localization/lang';
     \XcVm\Core\Localization\Translator::init($updateLangDir);
     require dirname(__DIR__) . '/panel/src/Public/Controllers/Admin/IndependentUpdatesController.php';
     function checkUpdateTest(bool $ok, string $label): void { if (!$ok) throw new \RuntimeException($label); }
+    foreach (['v0.1.0-lab.4', 'v0.1.0-lab.3', 'invalid'] as $version) {
+        checkUpdateTest(!\XcVm\Core\Updates\IndependentUpdates::available(['state'=>'available','current'=>'v0.1.0-lab.4','latest'=>$version]), 'Same, older and invalid versions cannot enable updates');
+    }
+    checkUpdateTest(\XcVm\Core\Updates\IndependentUpdates::newer('v0.1.0-lab.10','v0.1.0-lab.9'), 'Numeric lab version ordering');
+    $catalog=[['version'=>'v0.1.0-lab.7','from_versions'=>['v0.1.0-lab.4']]];
+    checkUpdateTest(\XcVm\Core\Updates\IndependentNodeUpdates::candidate('v0.1.0-lab.4',$catalog)!==null, 'LB own older version offers update');
+    checkUpdateTest(\XcVm\Core\Updates\IndependentNodeUpdates::candidate('v0.1.0-lab.7',$catalog)===null, 'LB same version offers no update');
+    checkUpdateTest(\XcVm\Core\Updates\IndependentNodeUpdates::candidate('v0.1.0-lab.9',$catalog)===null, 'LB newer version cannot downgrade');
     $controller = new \XcVm\Public\Controllers\Admin\IndependentUpdatesController();
     \XcVm\Core\Auth\Authorization::$admin = false;
     ob_start(); $controller->index(); $body = ob_get_clean();
@@ -54,5 +63,8 @@ namespace {
         checkUpdateTest(str_contains($html, htmlspecialchars(\XcVm\Core\Localization\Translator::get('update_server'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')), 'Button follows language ' . $lang);
         checkUpdateTest(!str_contains($html, 'dir="rtl"') && !str_contains($html, '<form'), 'Inherit direction and avoid nested settings forms');
     }
+    $updateStatus=['state'=>'available','current'=>'v0.1.0-lab.7','latest'=>'v0.1.0-lab.7'];
+    ob_start();require dirname(__DIR__).'/panel/src/Public/Views/admin/independent_updates.php';$html=ob_get_clean();
+    checkUpdateTest((bool)preg_match('/onclick="UpdateServer\(\)"\s+disabled/', $html),'Equal version leaves original update button disabled');
     echo "PASS: native update button, en/ar/fr translations, authorization, persistent CSRF and escaped UI\n";
 }

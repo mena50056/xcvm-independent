@@ -10,12 +10,12 @@ update automatically. No GitHub token or vendor activation key is involved.
 Run as root on the already installed independent MAIN:
 
 ```bash
-python3 -c 'import urllib.request; exec(compile(urllib.request.urlopen("https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v3/deployment/bootstrap-updates.py",timeout=60).read(),"bootstrap-updates.py","exec"))'
+python3 -c 'import urllib.request; exec(compile(urllib.request.urlopen("https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v4/deployment/bootstrap-updates.py",timeout=60).read(),"bootstrap-updates.py","exec"))'
 ```
 
 This installs the update page and timer. It follows the panel language and theme, without an extra global banner. It backs up the affected UI files and
 restarts the web service. It does not reinstall the panel. Fresh installations
-using `installer-public-v7` enable this service automatically.
+using `installer-public-v8` enable this service automatically.
 
 Open `https://SERVER_IP/lab/settings#panel-update`. Requests run within a minute.
 The root-owned status is `/var/lib/xcvm-independent-updates/status.json`;
@@ -47,8 +47,8 @@ cannot supply URLs, commands or paths. Only full administrators can queue an
 update, protected by a session CSRF token. The root worker is installed outside
 the panel; code writes and PHP lint run as `xcvm_lab`.
 
-This first updater supports **MAIN application code and UI only**. It does not
-update nodes, proxy software, the updater itself, native agents/fanout/PHP,
+The MAIN updater supports **MAIN application code and UI**. It does not
+update proxy software, the updater itself, native MAIN agents/fanout/PHP,
 vendor dependencies or the database. Configuration, identities, certificates,
 content and private credentials are excluded. Releases requiring database
 migrations are refused. Packages are overlays: removal of obsolete files needs
@@ -67,3 +67,44 @@ permissions, persistent CSRF and HTML escaping. Linux CI also exercises real PHP
 lint and file replacement using an unprivileged panel account. A real installed
 MAIN upgrade still needs deployment verification; fixture tests are not evidence
 of a live-server upgrade.
+
+## Independent LB updates
+
+The MAIN service also checks published native LB update manifests hourly. The
+original navbar update icon shows a count of eligible MAIN/LB updates. In Servers,
+Update is enabled only when the compatible release is strictly newer than that
+LB's verified independent distribution version. Native agent version numbers are
+not substituted for the distribution version. Same or newer installed versions
+stay disabled; unknown old nodes expose Check for updates first.
+
+An existing LB's version is verified through the panel's normal pinned SSH flow,
+using single-use root credentials. Update uses that same SSH form. The helper
+rechecks the actual remote version and GitHub compatibility before writing any
+files. It updates only xc_agent and xc_fanout, verifies the archive and both
+SHA256 hashes, preserves identities/configuration/content, and rolls back binaries
+on failed service/control-socket health. MAIN must receive a fresh authenticated
+heartbeat before reporting success. Only changed binaries trigger service
+restarts; changing fanout can interrupt viewers, so choose a suitable time.
+
+Newly installed LBs record the version of their actual package automatically.
+Older LBs need one SSH version check; their version is never guessed. No SSH
+passwords are kept for future updates. Proxy and bulk updates remain outside this
+independent path; the legacy bulk button is disabled.
+
+Existing MAINs need the one-time service bootstrap v4 to enable the root-owned
+LB release catalog and helpers, even if the MAIN code is already updated. Fresh
+installer-public-v8 MAINs enable it automatically. The initial v0.1.0-lab.7 native
+package uses the same tested binaries as the v0.1.0-lab.4 node bundle. It establishes
+the managed distribution version and will not restart identical binaries.
+
+To build a future LB update from a reviewed/tested native bundle:
+
+```bash
+python3 deployment/build_node_update.py --source-payload dist/node-bundle.tar.gz --output dist/update --version v0.1.0-lab.8 --from-version v0.1.0-lab.7
+```
+
+Publish both `xcvm-independent-node-update.json` and
+`xcvm-independent-node-update.tar.gz` in that exact release. Never put PHP, shell
+scripts, tokens, certificates or enrollment files in a node update. Fixture tests
+cover node success, tampering, rollback and preserving identity; these do not
+constitute a live LB update or HLS test.

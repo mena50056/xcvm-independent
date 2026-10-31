@@ -15,12 +15,15 @@ use XcVm\Domain\Server\ServerRepository;
 $rIsProxy = ($rType == 1);
 $rIsEdit = isset($rServerArr);
 $rIsUpdate = $rIsEdit && RequestManager::has('update');
+$rIndependentUpdate = defined('XCVM_INDEPENDENT_LAB') && $rIsUpdate && !$rIsProxy;
+$rIndependentProbe = $rIndependentUpdate && RequestManager::has('check');
 
 if ($rIsProxy) {
     $rTitle = $rIsEdit ? ($rIsUpdate ? $language::get('update_proxy') : $language::get('reinstall_proxy')) : $language::get('proxy_installation');
 } else {
     $rTitle = $rIsEdit ? ($rIsUpdate ? $language::get('update_server') : $language::get('reinstall_server')) : $language::get('server_installation');
 }
+if($rIndependentProbe)$rTitle=$language::get('module_check_updates');
 $rCoverage = $rIsEdit ? (ServerRepository::getAll()[$rServerArr['id']]['parent_id'] ?? []) : [];
 ?>
 
@@ -37,6 +40,11 @@ $rCoverage = $rIsEdit ? (ServerRepository::getAll()[$rServerArr['id']]['parent_i
                 <?php if ($rIsEdit): ?><input type="hidden" name="edit" value="<?= (int) $rServerArr['id']; ?>"><?php endif; ?>
                 <input type="hidden" id="parent_id" name="parent_id" value="">
                 <input type="hidden" name="type" value="<?= (int) $rType; ?>">
+                <?php if($rIndependentUpdate): ?>
+                <input type="hidden" name="independent_update" value="1">
+                <input type="hidden" name="independent_probe" value="<?= $rIndependentProbe ? '1' : '0' ?>">
+                <input type="hidden" name="independent_csrf" value="<?= htmlspecialchars($_SESSION['independent_update_csrf']??'',ENT_QUOTES,'UTF-8') ?>">
+                <?php endif; ?>
 
                 <ul class="nav nav-tabs" role="tablist">
                     <li class="nav-item"><button type="button" class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details"><i class="icon-base ti tabler-settings me-1"></i><?= $language::get('details'); ?></button></li>
@@ -99,7 +107,9 @@ $rCoverage = $rIsEdit ? (ServerRepository::getAll()[$rServerArr['id']]['parent_i
                                 </div>
                             </div>
                         <?php endif; ?>
-                        <?php if ($rIsUpdate): ?>
+                        <?php if ($rIndependentUpdate): ?>
+                            <div class="alert alert-info"><?= $language::get($rIndependentProbe ? 'module_check_updates' : 'update_available') ?></div>
+                        <?php elseif ($rIsUpdate): ?>
                             <div class="alert alert-info" role="alert"><?= $language::get('server_install_update_notice', [':from' => htmlspecialchars((string) $rServerArr['xc_vm_version'], ENT_QUOTES), ':to' => htmlspecialchars((string) ($allServers[SERVER_ID]['xc_vm_version'] ?? ''), ENT_QUOTES)]); ?></div>
                         <?php else: ?>
                             <div class="alert alert-warning" role="alert">
@@ -108,7 +118,7 @@ $rCoverage = $rIsEdit ? (ServerRepository::getAll()[$rServerArr['id']]['parent_i
                             </div>
                         <?php endif; ?>
                         <?php if (!$rIsProxy): ?>
-                            <div class="text-end"><button type="submit" name="submit_server" class="btn btn-primary"><?= $language::get('install_server'); ?></button></div>
+                            <div class="text-end"><button type="submit" name="submit_server" class="btn btn-primary"><?= $language::get($rIndependentUpdate ? ($rIndependentProbe ? 'module_check_updates' : 'update_server') : 'install_server'); ?></button></div>
                         <?php endif; ?>
                     </div>
 
@@ -138,7 +148,7 @@ $rCoverage = $rIsEdit ? (ServerRepository::getAll()[$rServerArr['id']]['parent_i
                                     </tbody>
                                 </table>
                             </div>
-                            <div class="text-end"><button type="submit" name="submit_server" class="btn btn-primary"><?= $language::get('install_server'); ?></button></div>
+                            <div class="text-end"><button type="submit" name="submit_server" class="btn btn-primary"><?= $language::get($rIndependentUpdate ? ($rIndependentProbe ? 'module_check_updates' : 'update_server') : 'install_server'); ?></button></div>
                         </div>
                     <?php endif; ?>
                 </div>
