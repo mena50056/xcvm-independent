@@ -23,7 +23,7 @@ if (count(get_included_files()) == 1) {
     exit();
 }
 
-$rUpdate  = (json_decode((string) SettingsManager::getAll()['update_data'], true) ?: []);
+$rUpdate = defined('XCVM_INDEPENDENT_LAB') ? [] : (json_decode((string) SettingsManager::getAll()['update_data'], true) ?: []);
 /**
  * Shared navbar helpers (identical contract to legacy header.php). Guarded so a
  * single request only ever defines them once regardless of which header ran.
@@ -298,4 +298,11 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
                                     <div class="content-wrapper">
                                         <div class="container-xxl flex-grow-1 container-p-y">
                                             <?php require __DIR__ . '/topbar.php'; ?>
+<?php if (defined('XCVM_INDEPENDENT_LAB') && Authorization::isFullAdmin()):
+    $independentUpdate = \XcVm\Core\Updates\IndependentUpdates::status(); ?>
+<div class="alert alert-<?= ($independentUpdate['state'] ?? '') === 'available' ? 'info' : 'secondary' ?> d-flex justify-content-between align-items-center" dir="rtl">
+    <span>تحديثات GitHub<?php if (($independentUpdate['state'] ?? '') === 'available'): ?> — إصدار جديد: <?= htmlspecialchars((string) $independentUpdate['latest'], ENT_QUOTES, 'UTF-8') ?><?php endif; ?></span>
+    <a class="btn btn-sm btn-primary" href="independent_updates"><?= ($independentUpdate['state'] ?? '') === 'available' ? 'يتوفر تحديث' : 'إدارة التحديثات' ?></a>
+</div>
+<?php endif; ?>
                                         <?php endif; /* modal vs full-layout body */ ?>

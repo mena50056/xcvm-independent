@@ -38,7 +38,7 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 	<?php endif; ?>
 
 	<?php if (
-		isset($rUpdate) &&
+		!defined('XCVM_INDEPENDENT_LAB') && isset($rUpdate) &&
 		is_array($rUpdate) &&
 		!empty($rUpdate["version"]) &&
 		(

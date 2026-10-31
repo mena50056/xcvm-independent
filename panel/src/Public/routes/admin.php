@@ -215,6 +215,7 @@ $router->get('server_install', [ServerInstallController::class, 'index']);
 // ─── Settings ──────────────────────────────────────
 
 $router->get('settings', [SettingsController::class, 'index']);
+$router->any('independent_updates', [\XcVm\Public\Controllers\Admin\IndependentUpdatesController::class, 'index']);
 $router->get('modules', [ModulesController::class, 'index']);
 $router->any('magscan_settings', [MagscanSettingsController::class, 'index']);
 $router->get('translations', [TranslationsController::class, 'index']);

@@ -1,0 +1,11 @@
+{
+  "deployment/enable_updates.py": "5a3a79f70abb152c677d630ef54320813f13251429396d9d22a4f0b15867054c",
+  "deployment/update-ui-manifest.json": "ab7229cf0d42d46e2a9081677594c31c55c883e889b5517bb47abb4f9a42474f",
+  "deployment/update_worker.py": "01b328b18aae5178efeb2ccd78c7df9f58d2ffc921357571297f7b22ff95c986",
+  "panel/src/Core/Updates/IndependentUpdates.php": "2648d05b9decaca896deaeae0ac6216fa87813c0557fafa945a474638d62d819",
+  "panel/src/Public/Controllers/Admin/IndependentUpdatesController.php": "0d606bac7348855d9038d71552ac79bbdd3f1df11574ec7b13406172dc881e95",
+  "panel/src/Public/Views/admin/header.php": "4a62a6ad2949a6ec24b532f9b149d06d94c58dc0e93d00f5c4ed693cb0c501fe",
+  "panel/src/Public/Views/admin/independent_updates.php": "49553f5da337f0bf7b47d81ee9fa8a9292286f7e33a9f3e69d854cbdd75448de",
+  "panel/src/Public/Views/admin/settings.php": "8d39ab23ab25c78360f085089f4cafb4bc93a674b890e1791012b4cd9b0c1584",
+  "panel/src/Public/routes/admin.php": "e043d8d5c793d9e7884da0b1b6d198f084e165f38406dadfb456ebb11f57e226"
+}

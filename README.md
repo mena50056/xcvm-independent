@@ -5,7 +5,7 @@
 
 المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع عام الآن.
 الإصدار الكامل الحالي `v0.1.0-lab.4`، ومُثبّت MAIN المثبت على الوسم
-`installer-public-v4`. الحزم والمصدر من هذا المستودع العام، دون توكن GitHub
+`installer-public-v5`. الحزم والمصدر من هذا المستودع العام، دون توكن GitHub
 أو مفتاح تفعيل رسمي. ينشئ التنصيب مفاتيح مستقلة وبيانات دخول جديدة على السيرفر نفسه.
 
 ## تنصيب MAIN على IP بدون تدخل
@@ -13,7 +13,7 @@
 شغّل أمرًا واحدًا بحساب root على Ubuntu 22.04 amd64 فارغ:
 
 ```bash
-python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v4/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
+python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v5/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
 ```
 
 يكتشف IPv4 العام المعيّن للسيرفر تلقائيًا، ويثبت MAIN ويطبع رابط الدخول
@@ -195,4 +195,8 @@ The original agent acknowledged controls without executing them when PHP was abs
 
 The panel buttons were exercised on a temporary normal H.264/AAC HLS channel: Start produced real video on the load balancer; Stop removed the producer and made existing/fresh HLS requests return 404; the stopped channel stayed stopped after an agent restart; Start restored HLS; Restart changed the encoder PID and restored HLS. Test records and source processes were removed. This validates these live controls, not VOD/root administration or every source format.
 
-`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v4 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
+`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v5 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.
+
+## Independent GitHub update notifications
+
+Fresh MAIN installations using `installer-public-v5` enable hourly release checks and the administrator update page automatically. Existing MAIN installations enable it once using [the update setup command](deployment/UPDATES.md). Updating application code requires pressing Update now; checks alone do not install anything. Only compatible, checksummed MAIN update releases are offered. See [update scope and publishing](deployment/UPDATES.md).
