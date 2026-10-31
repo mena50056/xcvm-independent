@@ -30,7 +30,7 @@ def main():
     os.umask(0o077)
     account=pwd.getpwnam('xcvm_lab')
     backup=pathlib.Path(tempfile.mkdtemp(prefix='xcvm-lb-button-backup-',dir='/root'))
-    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v1/'
+    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v2/'
     def read(name):
         if args.source:return (args.source/name).read_bytes()
         with urllib.request.urlopen(base+name,timeout=30) as response:return response.read()
@@ -56,7 +56,7 @@ def main():
             stage.replace(ROOT/name)
         with urllib.request.urlopen('http://127.0.0.1:18080/lab/login',timeout=15) as response:
             if response.status!=200:raise RuntimeError('MAIN login health check failed')
-        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v1','installed_at':int(time.time()),'backup':str(backup)},indent=2))
+        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v2','installed_at':int(time.time()),'backup':str(backup)},indent=2))
         print('Independent LB button enabled; MAIN login HTTP 200. Backup: '+str(backup))
     except Exception:
         for name,saved in old.items():

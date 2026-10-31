@@ -11,7 +11,7 @@ use XcVm\Domain\Server\InstallCredentials;
 final class IndependentLbInstall {
     public static function execute(array $args): int {
         [$args,$options]=InstallCredentials::splitOptions($args);
-        $pdo=\XC_VM::db_connect();$sid=(int)($args[1]??0);$conn=false;$remote=null;$lock=null;$temp=[];
+        $pdo=\XC_VM::db_connect();$sid=(int)($args[1]??0);$conn=false;$fileConn=false;$sftp=false;$remote=null;$lock=null;$temp=[];
         try {
             if(isset($options['cred-file'])) {
                 $credentials=InstallCredentials::consume($options['cred-file']);
@@ -41,6 +41,12 @@ final class IndependentLbInstall {
             $refusal=InstallCredentials::checkHostKey($presented,$expected,$stored);
             if($refusal!==null)throw new \RuntimeException($refusal);
             if(!ssh2_auth_password($conn,$args[3],$args[4]))throw new \RuntimeException('SSH authentication failed');
+            // Keep synchronous SFTP separate from the nonblocking command/log channel.
+            $fileConn=SshSession::open($node['server_ip'],$port,$error);
+            if(!$fileConn || !hash_equals(strtolower($presented),strtolower((string)ssh2_fingerprint($fileConn,SSH2_FINGERPRINT_SHA1|SSH2_FINGERPRINT_HEX))))throw new \RuntimeException('File-transfer SSH host key mismatch');
+            if(!ssh2_auth_password($fileConn,$args[3],$args[4]))throw new \RuntimeException('File-transfer SSH authentication failed');
+            $sftp=@ssh2_sftp($fileConn);
+            if(!$sftp)throw new \RuntimeException('The node SSH service did not open an SFTP subsystem');
             unset($args[4],$credentials);
             $pdo->prepare('UPDATE servers SET ssh_hostkey_sha1=?,serve_only=1,status=3 WHERE id=?')->execute([InstallCredentials::normalizeHostKey($presented),$sid]);
             self::run($conn,'test "$(id -u)" = 0; . /etc/os-release; test "$ID:$VERSION_ID:$(uname -m)" = ubuntu:22.04:x86_64; command -v python3 >/dev/null');
@@ -48,17 +54,17 @@ final class IndependentLbInstall {
             self::run($conn,'for p in /home/xc_vm /opt/xcvm-independent-lab /home/xtreamcodes /home/xui /var/lib/mysql/xc_vm /var/lib/mysql/xcvm_lab_main; do test ! -e "$p" && test ! -L "$p" || { echo "Existing panel found: $p"; exit 1; }; done; ! id xcvm_lab >/dev/null 2>&1; test -z "$(ss -H -lnt \'( sport = :80 or sport = :443 or sport = :8080 or sport = :18080 )\')"');
             $remote=trim(self::run($conn,'umask 077; mktemp -d /root/xcvm-node-install.XXXXXXXX')['output']);
             if(!preg_match('~^/root/xcvm-node-install\.[A-Za-z0-9]{8}$~D',$remote))throw new \RuntimeException('Invalid private remote staging directory');
-            foreach(['trusted-node.py','fetch_release.py','install.py','configure.py'] as $file)self::send($conn,$root.'/deployment/'.$file,$remote.'/'.$file);
-            self::send($conn,$certificate,$remote.'/main.crt');
+            foreach(['trusted-node.py','fetch_release.py','install.py','configure.py'] as $file)self::send($conn,$sftp,$root.'/deployment/'.$file,$remote.'/'.$file);
+            self::send($conn,$sftp,$certificate,$remote.'/main.crt');
             $plan=['server_ip'=>$node['server_ip'],'main_ip'=>$main['server_ip'],'main_port'=>$mainPort,'main_url'=>$mainUrl,'http_port'=>80,'https_port'=>443,'version'=>'v0.1.0-lab.3'];
-            $planFile=self::privateFile($plan,$temp);self::send($conn,$planFile,$remote.'/plan.json');
+            $planFile=self::privateFile($plan,$temp);self::send($conn,$sftp,$planFile,$remote.'/plan.json');
             echo "Checking MAIN TLS and downloading the node package from mena50056/xcvm-independent without a token...\n";
             $result=self::run($conn,'python3 '.escapeshellarg($remote.'/trusted-node.py').' prepare',false);
             $keys=json_decode(trim($result['output']),true,512,JSON_THROW_ON_ERROR);
             foreach(['sign_pub','box_pub','eph_pub'] as $key)if(!is_string($keys[$key]??null) || !preg_match('/^[0-9a-f]{64}$/D',$keys[$key]))throw new \RuntimeException('Malformed node public keys');
             if(!is_string($keys['node_uuid']??null) || !preg_match('/^[0-9a-f-]{36}$/D',$keys['node_uuid']))throw new \RuntimeException('Malformed node UUID');
             $enrollment=self::issueEnrollment($sid,$keys,$main,$mainUrl);
-            $enrollmentFile=self::privateFile($enrollment,$temp);self::send($conn,$enrollmentFile,$remote.'/enrollment.json');
+            $enrollmentFile=self::privateFile($enrollment,$temp);self::send($conn,$sftp,$enrollmentFile,$remote.'/enrollment.json');
             echo "Installing the node and starting certificate-verified cluster enrollment...\n";
             self::run($conn,'python3 '.escapeshellarg($remote.'/trusted-node.py').' finish',true,1800);
             $online=false;
@@ -82,6 +88,7 @@ final class IndependentLbInstall {
                 try{self::run($conn,'rm -rf -- '.escapeshellarg($remote),false,30);}catch(\Throwable){}
             }
             if($conn && function_exists('ssh2_disconnect'))@ssh2_disconnect($conn);
+            if($fileConn && function_exists('ssh2_disconnect'))@ssh2_disconnect($fileConn);
             if(is_resource($lock)){flock($lock,LOCK_UN);fclose($lock);}
         }
     }
@@ -107,8 +114,13 @@ final class IndependentLbInstall {
         return $file;
     }
 
-    private static function send($conn,string $source,string $destination): void {
-        if(!is_file($source) || !ssh2_scp_send($conn,$source,$destination,0600))throw new \RuntimeException('Could not transfer a required installation file');
+    private static function send($conn,$sftp,string $source,string $destination): void {
+        if(!is_file($source) || !is_readable($source))throw new \RuntimeException('Required installation file is missing or unreadable on MAIN: '.basename($source));
+        // SFTP does not require an scp executable on a fresh target server.
+        $reader=fopen($source,'rb');$writer=@fopen('ssh2.sftp://'.intval($sftp).$destination,'wb');
+        if(!$reader || !$writer){if(is_resource($reader))fclose($reader);throw new \RuntimeException('SFTP could not open the staging file: '.basename($source));}
+        try{$bytes=stream_copy_to_stream($reader,$writer);}finally{fclose($reader);fclose($writer);}
+        if($bytes!==filesize($source) || !ssh2_sftp_chmod($sftp,$destination,0600))throw new \RuntimeException('SFTP transfer was incomplete: '.basename($source));
         $sum=trim(explode(' ',self::run($conn,'sha256sum '.escapeshellarg($destination),false)['output'])[0]);
         if(!hash_equals(hash_file('sha256',$source),$sum))throw new \RuntimeException('SSH transferred-file checksum mismatch');
     }
@@ -119,7 +131,7 @@ final class IndependentLbInstall {
         $out=ssh2_exec($conn,$wrapped);if(!$out)throw new \RuntimeException('Cannot open SSH command channel');
         $err=ssh2_fetch_stream($out,SSH2_STREAM_STDERR);stream_set_blocking($out,false);stream_set_blocking($err,false);
         $output='';$errors='';$display=['',''];$until=microtime(true)+$timeout;
-        while(!feof($out) || !feof($err)) {
+        try{while(!feof($out) || !feof($err)) {
             foreach([[$out,false],[$err,true]] as [$channel,$isError]){
                 $chunk=stream_get_contents($channel);
                 if($chunk!==false && $chunk!==''){
@@ -136,8 +148,11 @@ final class IndependentLbInstall {
             }
             if(microtime(true)>$until)throw new \RuntimeException('SSH installation stage timed out');
             usleep(20000);
+        }}finally{
+            // Restore stream flags; SFTP uses its own authenticated SSH session.
+            stream_set_blocking($out,true);stream_set_blocking($err,true);
+            fclose($err);fclose($out);
         }
-        fclose($err);fclose($out);
         if($stream)foreach($display as $line)if($line!=='' && !str_contains($line,$marker))echo $line;
         if(!preg_match('/'.preg_quote($marker,'/').'(\d+)\s*$/',$output,$match))throw new \RuntimeException('SSH stage ended without a completion status');
         $output=preg_replace('/\n?'.preg_quote($marker,'/').'\d+\s*$/','',$output);
