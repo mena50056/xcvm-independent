@@ -1,19 +1,20 @@
 {
-  "deployment/enable_updates.py": "f16aa0153fc2a2294e89667381ddbe634e2debfcdd29a6abec67c08da515ac5c",
+  "deployment/enable_updates.py": "dafb5b1cf23e0000950760351b53ea9a1c4e701f044454ee0330350dcd862e18",
   "deployment/node_update.py": "488a82fdb8134a191ee7cdd513a349f180f5de21ec13496ff5c14b92ac4ee9ce",
-  "deployment/update-ui-manifest.json": "6603eb8aeeefdb7027097ccb344f50681e19329fb65e25f12bee635e41836233",
+  "deployment/update-ui-manifest.json": "de31caadb7bed464db53d97ecdeee877ab586208a89be65130c09d00d11e33a8",
   "deployment/update_worker.py": "52ada4eba2eb6822427b808ce7a706e560e543eb810b699e90ed66134af6bdc7",
   "panel/src/Cli/Commands/IndependentLbInstall.php": "645022f1d43b96635b7e83cc22b5e994fb1e2f1d040d3cce7ede6845be614f23",
   "panel/src/Core/Updates/IndependentNodeUpdates.php": "a3c7c5210af7a12c9d4b12c9d97e43e723d820eb555904b896b5722d1670fde9",
   "panel/src/Core/Updates/IndependentUpdates.php": "5a59e6c672aa5aacd2eee42679dbe6f1c0859f4b36bc98557b3ab353ef733f6a",
   "panel/src/Domain/Server/ServerService.php": "3893384dfb6de19075bd383062994af0d52b0db7e41d90195c938006dfbeae00",
+  "panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php": "f99d5c8f2899df6c86beea40725d3835a4a3dcdb876dd326b58e2f6c0c6581b3",
   "panel/src/Public/Controllers/Admin/IndependentUpdatesController.php": "6485b1fecf55fe937b5b81c6062018db45ade9108de1c21212601acfe17f1d69",
   "panel/src/Public/Controllers/Admin/ServerInstallController.php": "cdec002f0664180ec40b7f6c0abbd2aad4e37e8aa53333e01db077ec7d07a234",
   "panel/src/Public/Controllers/Admin/SettingsController.php": "48823fb64e5986e2a8a183356294d212a7a9b8d77f8f84d24b5d26ac0b608d81",
   "panel/src/Public/Views/admin/header.php": "58c844a5aa7e106a968e54ef5154ccaa85b0a5c5b9cab6fa5dd13b4756ca38c0",
   "panel/src/Public/Views/admin/independent_updates.php": "37597ed78f9876d712de90592f2d839fb5c41ac942b36a39227032f5a765fc1f",
   "panel/src/Public/Views/admin/server_install.php": "92d2c1bb689db06ffd8fffaab1061820544bb827c057a8f6f873f852cade31bd",
-  "panel/src/Public/Views/admin/servers.php": "06c6ba26fd6750176f4fdc4fd88c6ddbdd614ebaa9127de0fbcc47f742750e5c",
+  "panel/src/Public/Views/admin/servers.php": "a5f8056e41a251775d8e1e6bf8ae56d152b147811daef82042e2032476ebf410",
   "panel/src/Public/Views/admin/settings.php": "89447a2dc71d108d55344c2a4df84016829e597882c73336069076351b9ae415",
   "panel/src/Public/routes/admin.php": "e043d8d5c793d9e7884da0b1b6d198f084e165f38406dadfb456ebb11f57e226"
 }

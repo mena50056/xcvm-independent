@@ -12,7 +12,8 @@ import time
 ROOT = pathlib.Path('/opt/xcvm-independent-lab')
 STATE = pathlib.Path('/var/lib/xcvm-independent-updates')
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
-FILES = ['panel/src/Core/Updates/IndependentUpdates.php',
+FILES = ['panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php',
+         'panel/src/Core/Updates/IndependentUpdates.php',
          'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php',
     'panel/src/Public/Controllers/Admin/SettingsController.php',
          'panel/src/Public/Views/admin/independent_updates.php',

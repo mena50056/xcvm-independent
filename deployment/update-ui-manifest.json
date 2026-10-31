@@ -10,6 +10,7 @@
   "panel/src/Cli/Commands/IndependentLbInstall.php": "645022f1d43b96635b7e83cc22b5e994fb1e2f1d040d3cce7ede6845be614f23",
   "panel/src/Domain/Server/ServerService.php": "3893384dfb6de19075bd383062994af0d52b0db7e41d90195c938006dfbeae00",
   "panel/src/Public/Controllers/Admin/ServerInstallController.php": "cdec002f0664180ec40b7f6c0abbd2aad4e37e8aa53333e01db077ec7d07a234",
-  "panel/src/Public/Views/admin/servers.php": "06c6ba26fd6750176f4fdc4fd88c6ddbdd614ebaa9127de0fbcc47f742750e5c",
-  "panel/src/Public/Views/admin/server_install.php": "92d2c1bb689db06ffd8fffaab1061820544bb827c057a8f6f873f852cade31bd"
+  "panel/src/Public/Views/admin/servers.php": "a5f8056e41a251775d8e1e6bf8ae56d152b147811daef82042e2032476ebf410",
+  "panel/src/Public/Views/admin/server_install.php": "92d2c1bb689db06ffd8fffaab1061820544bb827c057a8f6f873f852cade31bd",
+  "panel/src/Public/Controllers/Admin/Ajax/ServerAjaxController.php": "f99d5c8f2899df6c86beea40725d3835a4a3dcdb876dd326b58e2f6c0c6581b3"
 }

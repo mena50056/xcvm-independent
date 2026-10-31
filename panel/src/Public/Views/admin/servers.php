@@ -77,7 +77,7 @@ $rBar = static function (int $pct): string {
                     <button type="button" class="btn btn-sm btn-label-primary dropdown-toggle" data-bs-toggle="dropdown"><i class="icon-base ti tabler-tool me-1"></i>Bulk</button>
                     <div class="dropdown-menu dropdown-menu-end">
                         <button type="button" class="dropdown-item" id="op-update-all" <?= $rIndependent ? 'disabled' : '' ?>><i class="icon-base ti tabler-download me-2"></i>Update All Servers</button>
-                        <button type="button" class="dropdown-item" id="op-rolling-update"><i class="icon-base ti tabler-stairs-up me-2"></i><?= $language::get('rolling_update'); ?></button>
+                        <button type="button" class="dropdown-item" id="op-rolling-update" <?= $rIndependent ? 'disabled' : '' ?>><i class="icon-base ti tabler-stairs-up me-2"></i><?= $language::get('rolling_update'); ?></button>
                         <button type="button" class="dropdown-item" id="op-restart-services"><i class="icon-base ti tabler-refresh me-2"></i>Restart All Services</button>
                         <button type="button" class="dropdown-item" id="op-update-binaries"><i class="icon-base ti tabler-package me-2"></i>Update All Binaries</button>
                     </div>

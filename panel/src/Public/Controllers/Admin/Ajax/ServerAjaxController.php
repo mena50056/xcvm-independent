@@ -93,6 +93,7 @@ class ServerAjaxController extends BaseAjaxController {
 		}
 
 		if ($rSub == 'update') {
+            if(defined('XCVM_INDEPENDENT_LAB'))$this->fail(['error'=>'independent_update_required']);
 			$rSent = true;
 			foreach ($this->normalizeServerIds() as $rID) {
 				$rSent = NodeActions::update(intval($rID), $db) && $rSent;
@@ -354,6 +355,7 @@ class ServerAjaxController extends BaseAjaxController {
 
 	/** action=update_binaries — update binaries on the selected servers. */
 	public function updateBinaries(): never {
+        if(defined('XCVM_INDEPENDENT_LAB'))$this->fail(['error'=>'independent_update_required']);
 		$this->requireXhr();
 		$this->gate('adv', 'edit_server');
 
@@ -529,6 +531,7 @@ class ServerAjaxController extends BaseAjaxController {
 
 	/** action=update_all_servers — signal 'update' to every online server. */
 	public function updateAllServers(): never {
+        if(defined('XCVM_INDEPENDENT_LAB'))$this->fail(['error'=>'independent_update_required']);
 		$this->requireXhr();
 		$this->gate('adv', 'servers');
 
@@ -546,6 +549,7 @@ class ServerAjaxController extends BaseAjaxController {
 
 	/** action=rolling_update_start — update the load balancers one at a time (RollingUpdate). */
 	public function rollingUpdateStart(): never {
+        if(defined('XCVM_INDEPENDENT_LAB'))$this->fail(['error'=>'independent_update_required']);
 		$this->requireXhr();
 		$this->gate('adv', 'servers');
 		$this->json(['result' => RollingUpdate::start()]);
