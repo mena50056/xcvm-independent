@@ -25,7 +25,7 @@ def copy_source(destination):
     if destination.exists():
         raise ValueError('Build destination already exists; choose a new directory')
     destination.mkdir(parents=True)
-    for top in ['runtime', 'deployment', 'panel/src', 'panel/docs']:
+    for top in ['runtime', 'deployment', 'panel/src', 'panel/docs', 'native/fanout']:
         for path in sorted((PROJECT / top).rglob('*')):
             rel = path.relative_to(PROJECT)
             parts = rel.parts
@@ -65,7 +65,7 @@ def runtime_files(php_archive, tools_archive):
     for source, prefix in [(php_archive, 'bin/php/'), (tools_archive, 'bin/xc_')]:
         with tarfile.open(source) as archive:
             for member in archive:
-                name = member.name.removeprefix('./')
+                name = member.name.removeprefix('./').removeprefix('panel/src/')
                 if not member.isfile() or not name.startswith(prefix):
                     continue
                 if prefix == 'bin/php/':
@@ -87,10 +87,16 @@ def runtime_files(php_archive, tools_archive):
     return files
 
 
-def build(source, output, php_archive, tools_archive, version):
+def build(source, output, php_archive, tools_archive, version, native_agent=None):
     repository = json.loads((source / 'deployment/repository.json').read_text())['repository']
     output.mkdir(parents=True, exist_ok=True)
     runtime = runtime_files(php_archive, tools_archive)
+    if native_agent is not None:
+        runtime['panel/src/bin/xc_agent/xc_agent'] = pathlib.Path(native_agent).read_bytes()
+    native_manifest = json.loads((source / 'deployment/native-agent.json').read_text())
+    if hashlib.sha256(runtime['panel/src/bin/xc_agent/xc_agent']).hexdigest() != native_manifest['binary_sha256']:
+        raise ValueError('The bundled agent must match the tested native-agent manifest')
+
     sums = []
     for role in ['main', 'node']:
         filename = f'xcvm-independent-{role}-linux-amd64.tar.gz'
@@ -128,12 +134,13 @@ def main():
     p.add_argument('--release-output', type=pathlib.Path, required=True)
     p.add_argument('--php-runtime', type=pathlib.Path, required=True)
     p.add_argument('--go-runtime', type=pathlib.Path, required=True)
-    p.add_argument('--version', default='v0.1.0-lab.3')
+    p.add_argument('--native-agent', type=pathlib.Path, help='Use the tested agent binary pinned in native-agent.json')
+    p.add_argument('--version', default='v0.1.0-lab.4')
     a = p.parse_args()
     if not re.fullmatch(r'v[0-9][A-Za-z0-9_.-]*', a.version):
         raise SystemExit('Invalid version')
     source = copy_source(a.source_output.resolve())
-    build(source, a.release_output.resolve(), a.php_runtime, a.go_runtime, a.version)
+    build(source, a.release_output.resolve(), a.php_runtime, a.go_runtime, a.version, a.native_agent)
     print('Sanitized checkout and release assets built')
 
 

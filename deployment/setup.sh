@@ -23,12 +23,18 @@ chmod 755 "$SRC/bin/xc_agent/xc_agent" "$SRC/bin/xc_fanout/xc_fanout"
 python3 "$ROOT/deployment/configure.py" "$ROLE"
 if [[ "$ROLE" == main ]]; then
   apt-get install -y nginx mariadb-server redis-server
-  systemctl start mariadb redis-server
+  systemctl enable --now mariadb redis-server
   chmod 755 "$SRC/bin/php/bin/php"
   "$SRC/bin/php/bin/php" -c "$ROOT/php.ini" "$ROOT/deployment/provision-main.php"
 fi
 chown -R xcvm_lab:xcvm_lab "$ROOT"
 chmod 700 "$ROOT/.runtime-state" 2>/dev/null || true
+if [[ "$ROLE" == main ]]; then
+  # nginx workers use the supplemental xcvm_lab group for the fanout socket.
+  for path in "$ROOT/panel" "$SRC" "$SRC/bin" "$SRC/bin/xc_fanout" "$SRC/bin/xc_fanout/sockets"; do
+    chmod g+x "$path"
+  done
+fi
 if [[ "$ROLE" == node ]]; then
   install -o xcvm_lab -g xcvm_lab -m600 "$ROOT/.node-enrollment.json" "$SRC/config/cluster/enrollment.json"
   runuser -u xcvm_lab -- "$SRC/bin/xc_agent/xc_agent" install -state "$SRC/config/cluster/agent.json" < "$SRC/config/cluster/enrollment.json"
@@ -38,8 +44,9 @@ python3 "$ROOT/deployment/configure.py" services
 systemctl daemon-reload
 if [[ "$ROLE" == main ]]; then
   nginx -t
+  systemctl enable --now nginx
   systemctl reload nginx
-  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-maintenance.timer
+  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-signals xcvm-independent-maintenance.timer
   echo "MAIN installed. Private login details: $ROOT/.runtime-state/main/admin-login.json"
 else
   systemctl enable --now xcvm-independent-fanout xcvm-independent-agent

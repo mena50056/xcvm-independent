@@ -132,6 +132,11 @@ OnUnitActiveSec=60
 WantedBy=timers.target
 ''')
     write('/etc/nginx/sites-available/xcvm-independent', f'''server {{
+listen 80;
+server_name {options.get('hostname') or options['server_ip']};
+return 308 https://$host$request_uri;
+}}
+server {{
 listen 443 ssl;
 server_name {options.get('hostname') or options['server_ip']};
 ssl_certificate {ROOT}/tls/server.crt;

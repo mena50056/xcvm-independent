@@ -4,41 +4,36 @@
 لم نغيّر شكل الواجهة أو طريقة إدارة القنوات والمستخدمين.
 
 المصدر والإصدارات: `mena50056/xcvm-independent` — المستودع عام الآن.
-أداة التنصيب من الوسم `installer-public-v1` تعمل بدون توكن GitHub، وتحمّل
-حزم الإصدار `v0.1.0-lab.3`. خيار `--token-file` اختياري للمستودعات الخاصة فقط.
-لا تُحفظ مفاتيح GitHub أو بيانات السيرفرات في Git.
+الإصدار الكامل الحالي `v0.1.0-lab.4`، ومُثبّت MAIN المثبت على الوسم
+`installer-public-v3`. الحزم والمصدر من هذا المستودع العام، دون توكن GitHub
+أو مفتاح تفعيل رسمي. ينشئ التنصيب مفاتيح مستقلة وبيانات دخول جديدة على السيرفر نفسه.
 
-## تنصيب MAIN على IP بدون دومين أو توكن
+## تنصيب MAIN على IP بدون تدخل
 
-أمر واحد دون أسئلة، مع السماح الصريح باستخدام السيرفر السابق للتجربة:
-
-```bash
-python3 -c 'import subprocess,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v2/deployment/bootstrap-main-ip.sh"; subprocess.run(["bash","-s","--","--server-ip=45.32.223.254","--allow-original-test-host"],input=urllib.request.urlopen(u,timeout=60).read(),check=True)'
-```
-
-يتوقف قبل تثبيت الحزم إذا وجد مسار بانل أو قاعدة بيانات معروفة أو حساب خدمة
-قديمًا أو منافذ ويب مشغولة. السماح بالعنوان السابق لا يتجاوز فحوص وجود البانل.
-لا ينفذ حذفًا أو ترقية لبانل قائمة. يسجل التنفيذ في ملف خاص داخل `/root`،
-ويطبع بيانات الدخول عند النجاح. يتطلب Ubuntu 22.04 amd64 وroot وPython 3.
-الاختبارات تؤكد عمل حارس الرفض؛ التنصيب الكامل من الصفر ما زال تجريبيًا.
-
-على سيرفر Ubuntu 22.04 amd64 فارغ، بحساب root، وافتح المنفذ 443:
+شغّل أمرًا واحدًا بحساب root على Ubuntu 22.04 amd64 فارغ:
 
 ```bash
-apt-get update
-apt-get install -y git python3 ca-certificates
-git clone --depth 1 --branch installer-public-v1 https://github.com/mena50056/xcvm-independent.git /root/xcvm-public-install
-cd /root/xcvm-public-install
-read -rp "Server IP: " SERVER_IP
-python3 deployment/install.py --role main --tag v0.1.0-lab.3 --server-ip "$SERVER_IP" --plan
-python3 deployment/install.py --role main --tag v0.1.0-lab.3 --server-ip "$SERVER_IP" --admin-user admin
-cat /opt/xcvm-independent-lab/.runtime-state/main/admin-login.json
+python3 -c 'import subprocess,sys,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v3/deployment/bootstrap-main-ip.sh"; sys.exit(subprocess.run(["bash","-s","--"],input=urllib.request.urlopen(u,timeout=60).read()).returncode)'
 ```
 
-الرابط `https://SERVER_IP/lab/login` بشهادة اختبار ذاتية التوقيع.
-هذه أداة تنزيل مُحدّثة تستخدم الحزم المرفوعة سابقًا؛ لا تستخدم أداة
-التنصيب القديمة الموجودة داخل وسم `v0.1.0-lab.3` عند التنصيب بلا توكن.
-التنصيب الكامل من الصفر ما زال غير معتمد؛ إذا ظهر خطأ توقف وافحصه قبل إعادة المحاولة.
+يكتشف IPv4 العام المعيّن للسيرفر تلقائيًا، ويثبت MAIN ويطبع رابط الدخول
+`https://IP/lab/login` واسم admin وكلمة مرور عشوائية. لا يطلب دومينًا أو توكنًا
+أو مفتاح تفعيل. تُنشأ شهادة HTTPS ذاتية التوقيع للـIP.
+
+يتوقف قبل تثبيت الحزم أو تغيير الخدمات إذا وجد مسار بانل معروفًا، أو قاعدة
+بياناتها، أو حسابها أو ملف خدمتها، أو منفذ ويب مشغولًا. لا يحذف بانل قائمة
+ولا يرقيها. تفاصيل التنفيذ تُحفظ في ملف خاص `/root/xcvm-install-*.log`.
+العنوان السابق المحمي يحتاج `--allow-original-test-host` صراحة؛ هذا لا يتجاوز
+فحص وجود بانل. إذا كان للسيرفر أكثر من IP دون مسار افتراضي واضح، استخدم
+`--server-ip=IP` بدل الاكتشاف. الشبكات التي لا تعيّن IP عامًا محليًا ليست ضمن هذا المسار.
+
+حزمة `.4` تضم إصلاحات حفظ القنوات وHLS والتشفير المحلي المستقل، ووكيل اللود
+المختبر `0.16.0-independent.1`، ومسار زر تنصيب اللود من GitHub العام، وخدمة
+signals لتحديث كاش المشاهدة. يشمل فحص النجاح HTTPS فعليًا مع التحقق من شهادة
+IP وفحص SHA-256 للوكيل. إعداد HTTP على المنفذ 80 يحول إلى HTTPS.
+
+اختُبرت حراس الرفض على Linux واختبارات الحزم والتشفير؛ يبقى التنصيب الكامل
+على جهاز فارغ اختبارًا منفصلًا عن فحوص الحزمة. لا تستخدم هذا الأمر لترقية سيرفر قائم.
 
 ## حدود الإصدار
 
@@ -183,7 +178,8 @@ sudo env XCVM_LAB_STATE=/opt/xcvm-independent-lab/.runtime-state/main \
 python3 deployment/build.py --source-output /tmp/xcvm-clean \
   --release-output /tmp/xcvm-release \
   --php-runtime /secure/runtime-input.tar.gz \
-  --go-runtime /secure/go-runtime-input.tar.gz
+  --go-runtime /secure/go-runtime-input.tar.gz \
+  --native-agent /secure/xc_agent-linux-amd64
 ```
 
 ملفات التشغيل الثنائية تُنشر في Releases، ولا تُلزم Git بتخزينها.
@@ -193,10 +189,10 @@ python3 deployment/build.py --source-output /tmp/xcvm-clean \
 
 A temporary synthetic H.264/AAC channel was saved through the authenticated panel form handler and assigned only to a fresh load balancer. A temporary viewer requested its HLS URL through MAIN. MAIN redirected to the load balancer; three playlist refreshes advanced the media sequence, and three real MPEG-TS segments returned HTTP 200. FFmpeg decoded 450 video frames across approximately 18 seconds of segments, with AAC audio. TLS hostname and certificate checks remained enabled. The channel, viewer, bouquet, source process and generated node segments were removed afterward.
 
-This validation exposed and fixed three issues in the source and the running test MAIN: temporal SQL defaults must be evaluated by MariaDB, the independent crypto adapter must classify signed commands, and confirmed codec metadata from fanout must clear the pending-analysis flag. The prebuilt v0.1.0-lab.3 payload has not been rebuilt with these changes.
+This validation exposed and fixed three issues in the source and the running test MAIN: temporal SQL defaults must be evaluated by MariaDB, the independent crypto adapter must classify signed commands, and confirmed codec metadata from fanout must clear the pending-analysis flag. The full v0.1.0-lab.4 MAIN and node payloads include these changes.
 
 The original agent acknowledged controls without executing them when PHP was absent. Native agent release `native-controls-v1` fixes live-stream start, stop and restart inside Go. MAIN routes live starts only when the node advertises `native_stream_controls`; unsupported operations fail explicitly. Stops persist across replica refresh and agent restart. MAIN now runs its signals worker to refresh viewer caches from authenticated stream events.
 
 The panel buttons were exercised on a temporary normal H.264/AAC HLS channel: Start produced real video on the load balancer; Stop removed the producer and made existing/fresh HLS requests return 404; the stopped channel stayed stopped after an agent restart; Start restored HLS; Restart changed the encoder PID and restored HLS. Test records and source processes were removed. This validates these live controls, not VOD/root administration or every source format.
 
-`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Existing MAIN installations need `independent-lb-button-v3`; the prebuilt MAIN v0.1.0-lab.3 bundle itself is unchanged.
+`deployment/native-agent.json` pins the compressed and uncompressed agent SHA-256. The button installer overlays that verified public GitHub release asset on the existing node bundle, with no token. The matching full native source and tests are in `native/fanout`, with the upstream commit and build instructions. Fresh MAIN installations from installer-public-v3 use the complete v0.1.0-lab.4 bundle. Existing installations can use the separate independent-lb-button-v4 source updater; the fresh-host bootstrap always refuses existing panels.

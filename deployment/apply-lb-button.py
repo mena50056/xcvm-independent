@@ -15,6 +15,7 @@ ROOT=pathlib.Path('/opt/xcvm-independent-lab')
 FILES=[
     'deployment/trusted-node.py','deployment/configure.py','deployment/fetch_release.py','deployment/install.py',
     'panel/src/Cli/Commands/IndependentLbInstall.php','panel/src/Domain/Server/ServerService.php',
+    'deployment/setup.sh','deployment/repository.json','deployment/bootstrap-main-ip.sh',
     'deployment/native-agent.json','runtime/LocalCore.php',
     'panel/src/Core/Database/QueryHelper.php','panel/src/Domain/Stream/StreamProcess.php',
     'panel/src/Domain/Cluster/ClusterRoute.php',
@@ -33,7 +34,7 @@ def main():
     os.umask(0o077)
     account=pwd.getpwnam('xcvm_lab')
     backup=pathlib.Path(tempfile.mkdtemp(prefix='xcvm-lb-button-backup-',dir='/root'))
-    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v3/'
+    base='https://raw.githubusercontent.com/mena50056/xcvm-independent/independent-lb-button-v4/'
     def read(name):
         if args.source:return (args.source/name).read_bytes()
         with urllib.request.urlopen(base+name,timeout=30) as response:return response.read()
@@ -70,7 +71,7 @@ def main():
         subprocess.run(['systemctl','is-active','--quiet','xcvm-independent-signals'],check=True)
         with urllib.request.urlopen('http://127.0.0.1:18080/lab/login',timeout=15) as response:
             if response.status!=200:raise RuntimeError('MAIN login health check failed')
-        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v3','installed_at':int(time.time()),'backup':str(backup)},indent=2))
+        (ROOT/'lb-button.json').write_text(json.dumps({'revision':'independent-lb-button-v4','installed_at':int(time.time()),'backup':str(backup)},indent=2))
         print('Independent LB button enabled; MAIN login HTTP 200. Backup: '+str(backup))
     except Exception:
         for name,saved in old.items():

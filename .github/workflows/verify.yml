@@ -8,6 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 deployment/test_packaging.py
+      - run: python3 deployment/test_bootstrap.py
       - run: python3 deployment/test_node_tls.py
       - run: python3 deployment/test_native_agent.py
       - run: python3 -m compileall -q deployment
