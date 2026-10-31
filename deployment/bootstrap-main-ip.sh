@@ -85,7 +85,7 @@ APT
 export APT_CONFIG="$work/apt.conf"
 apt-get update
 apt-get install -y git python3 ca-certificates
-git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v5 \
+git -c credential.helper= -c core.askPass=/bin/false clone --depth 1 --branch installer-public-v6 \
   https://github.com/mena50056/xcvm-independent.git "$work/source"
 args=(--role main --repository mena50056/xcvm-independent --tag v0.1.0-lab.4 --server-ip "$SERVER_IP" --admin-user admin)
 python3 "$work/source/deployment/install.py" "${args[@]}"

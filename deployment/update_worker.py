@@ -115,7 +115,7 @@ def discover(current):
         return None
     for _, release, assets in sorted(choices, key=lambda item: item[0], reverse=True):
         try:
-            validate_manifest(json.loads(get(assets[MANIFEST])), release['tag_name'], current)
+            validate_manifest(json.loads(get(assets[MANIFEST], binary=True)), release['tag_name'], current)
         except (ValueError, TypeError, KeyError):
             continue
         return {'version': release['tag_name'], 'assets': assets,
@@ -196,7 +196,7 @@ def stop_web():
 
 
 def apply_update(candidate, current):
-    manifest = json.loads(get(candidate['assets'][MANIFEST]))
+    manifest = json.loads(get(candidate['assets'][MANIFEST], binary=True))
     files = validate_manifest(manifest, candidate['version'], current)
     backup = STATE / 'backups' / (str(time.time_ns()) + '-' + current)
     backup.mkdir(parents=True, mode=0o700)
@@ -271,7 +271,7 @@ def tick():
     try:
         candidate = discover(current)
         if candidate:
-            manifest = json.loads(get(candidate['assets'][MANIFEST]))
+            manifest = json.loads(get(candidate['assets'][MANIFEST], binary=True))
             validate_manifest(manifest, candidate['version'], current)
         status.update(latest=candidate['version'] if candidate else None,
                       url=candidate['url'] if candidate else None, notes=candidate['notes'] if candidate else '',

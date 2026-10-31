@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import urllib.request
 
-BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v1/'
+BASE = 'https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v2/'
 FILES = {
     'deployment/update_worker.py', 'deployment/enable_updates.py', 'deployment/update-ui-manifest.json',
     'panel/src/Core/Updates/IndependentUpdates.php',

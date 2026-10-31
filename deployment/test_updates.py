@@ -37,7 +37,9 @@ class UpdateTests(unittest.TestCase):
                     {'tag_name': 'v0.1.0-lab.5', 'draft': False, 'assets': [
                         {'name': name, 'url': worker.API + '/releases/assets/' + str(i)}
                         for i, name in enumerate([worker.MANIFEST, worker.PAYLOAD])]}]
-        def download(url):
+        def download(url, *args, **kwargs):
+            if '/releases?' not in url:
+                self.assertTrue(kwargs.get('binary'), 'GitHub asset JSON requires octet-stream Accept')
             return json.dumps(releases if '/releases?' in url else self.manifest()).encode()
         with patch.object(worker, 'get', side_effect=download):
             self.assertEqual('v0.1.0-lab.5', worker.discover('v0.1.0-lab.4')['version'])
@@ -49,9 +51,10 @@ class UpdateTests(unittest.TestCase):
             releases.append({'tag_name': 'v0.1.0-lab.' + str(n), 'assets': [
                 {'name': name, 'url': worker.API + '/releases/assets/' + str(n) + '/' + name}
                 for name in [worker.MANIFEST, worker.PAYLOAD]]})
-        def download(url):
+        def download(url, *args, **kwargs):
             if '/releases?' in url:
                 return json.dumps(releases).encode()
+            self.assertTrue(kwargs.get('binary'), 'Download the manifest contents, not asset metadata')
             manifest = self.manifest()
             if '/6/' in url:
                 manifest.update(version='v0.1.0-lab.6', from_versions=['v0.1.0-lab.5'])
@@ -107,7 +110,7 @@ class UpdateTests(unittest.TestCase):
             manifest = self.manifest()
             manifest['sha256'] = hashlib.sha256(payload.read_bytes()).hexdigest()
             candidate = {'version': manifest['version'], 'assets': {worker.MANIFEST: 'manifest', worker.PAYLOAD: 'payload'}}
-            def download(url, *args):
+            def download(url, *args, **kwargs):
                 return json.dumps(manifest).encode() if url == 'manifest' else payload.read_bytes()
             with patch.object(worker, 'ROOT', install), patch.object(worker, 'STATE', state), \
                  patch.object(worker, 'get', side_effect=download), patch.object(worker, 'panel_user', contextlib.nullcontext), \

@@ -10,12 +10,12 @@ update automatically. No GitHub token or vendor activation key is involved.
 Run as root on the already installed independent MAIN:
 
 ```bash
-python3 -c 'import urllib.request; exec(compile(urllib.request.urlopen("https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v1/deployment/bootstrap-updates.py",timeout=60).read(),"bootstrap-updates.py","exec"))'
+python3 -c 'import urllib.request; exec(compile(urllib.request.urlopen("https://raw.githubusercontent.com/mena50056/xcvm-independent/panel-updates-v2/deployment/bootstrap-updates.py",timeout=60).read(),"bootstrap-updates.py","exec"))'
 ```
 
 This installs the update page and timer. It backs up the affected UI files and
 restarts the web service. It does not reinstall the panel. Fresh installations
-using `installer-public-v5` enable this service automatically.
+using `installer-public-v6` enable this service automatically.
 
 Open `https://SERVER_IP/lab/independent_updates`. Requests run within a minute.
 The root-owned status is `/var/lib/xcvm-independent-updates/status.json`;

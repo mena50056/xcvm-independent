@@ -60,7 +60,7 @@ def main():
                         'sha256': hashlib.sha256(payload.read_bytes()).hexdigest(),
                         'files': {name: hashlib.sha256(content).hexdigest()}}
             candidate = {'version': manifest['version'], 'assets': {worker.MANIFEST: 'manifest', worker.PAYLOAD: 'payload'}}
-            def get(url, *args):
+            def get(url, *args, **kwargs):
                 return json.dumps(manifest).encode() if url == 'manifest' else payload.read_bytes()
             with patch.object(worker, 'ROOT', root), patch.object(worker, 'STATE', state), \
                  patch.object(worker, 'get', side_effect=get), patch.object(worker, 'stop_web'), patch.object(worker, 'restart'), patch.object(worker, 'health'):
