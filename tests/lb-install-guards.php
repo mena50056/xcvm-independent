@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-$base=dirname(__DIR__);$fixture=$base.'/.test-state/lb-button-'.bin2hex(random_bytes(6));
+$base=dirname(__DIR__);$fixture=$base.'/.test-state/xcvm-independent-lab/lb-button-'.bin2hex(random_bytes(6));
 mkdir($fixture.'/panel/src/bin/install',0700,true);mkdir($fixture.'/tls',0700,true);
 putenv('XCVM_LAB_STATE='.$fixture.'/state');require $base.'/runtime/bootstrap.php';
 define('MAIN_HOME',$fixture.'/panel/src/');define('BIN_PATH',MAIN_HOME.'bin/');define('CACHE_TMP_PATH',$fixture.'/cache/');
