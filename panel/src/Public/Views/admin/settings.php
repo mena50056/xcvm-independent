@@ -37,6 +37,8 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 		</div>
 	<?php endif; ?>
 
+	<?php if (defined('XCVM_INDEPENDENT_LAB') && Authorization::isFullAdmin()) require __DIR__ . '/independent_updates.php'; ?>
+
 	<?php if (
 		!defined('XCVM_INDEPENDENT_LAB') && isset($rUpdate) &&
 		is_array($rUpdate) &&
@@ -3432,6 +3434,10 @@ LayoutRenderer::renderFooter('admin');
 		};
 
 		window.UpdateServer = function() {
+            <?php if (defined('XCVM_INDEPENDENT_LAB')): ?>
+            if (window.XcIndependentUpdate) window.XcIndependentUpdate('apply');
+            return;
+            <?php endif; ?>
 			if ($ && $.getJSON) {
 				$.getJSON('./api?action=server&sub=update&server_id=<?= SERVER_ID ?>', function(data) {
 					(window.xcToast || function() {})(

@@ -14,6 +14,7 @@ STATE = pathlib.Path('/var/lib/xcvm-independent-updates')
 SOURCE = pathlib.Path(__file__).resolve().parents[1]
 FILES = ['panel/src/Core/Updates/IndependentUpdates.php',
          'panel/src/Public/Controllers/Admin/IndependentUpdatesController.php',
+    'panel/src/Public/Controllers/Admin/SettingsController.php',
          'panel/src/Public/Views/admin/independent_updates.php',
          'panel/src/Public/Views/admin/header.php',
          'panel/src/Public/Views/admin/settings.php',
@@ -103,7 +104,7 @@ WantedBy=timers.target
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', 'enable', '--now', 'xcvm-independent-updates.timer'], check=True)
     subprocess.run(['systemctl', 'start', 'xcvm-independent-updates.service'], check=True)
-    print('GitHub update checks enabled. Open /lab/independent_updates as a full administrator.')
+    print('GitHub update checks enabled. Open /lab/settings#panel-update as a full administrator.')
 
 
 if __name__ == '__main__':

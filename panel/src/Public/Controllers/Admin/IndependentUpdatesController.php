@@ -5,37 +5,37 @@ namespace XcVm\Public\Controllers\Admin;
 use XcVm\Core\Auth\Authorization;
 use XcVm\Core\Bootstrap\Stage\SessionStage;
 use XcVm\Core\Updates\IndependentUpdates;
+use XcVm\Core\Localization\Translator;
 
 final class IndependentUpdatesController extends BaseAdminController {
     public function index(): void {
         if (!defined('XCVM_INDEPENDENT_LAB') || !Authorization::isFullAdmin()) {
             http_response_code(403);
-            echo 'Administrator access required';
+            echo Translator::get('error');
             return;
         }
         header('Cache-Control: no-store');
-        // AdminScopeBootstrap closes the session before dispatching controllers.
-        if (session_status() === PHP_SESSION_NONE) SessionStage::startSession();
-        $_SESSION['independent_update_csrf'] ??= bin2hex(random_bytes(32));
-        session_write_close();
-        $error = '';
+        IndependentUpdates::csrfToken();
         if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
             if (!is_string($_POST['csrf'] ?? null) || !hash_equals($_SESSION['independent_update_csrf'], $_POST['csrf'])) {
                 http_response_code(403);
-                echo 'Invalid request token';
+                echo Translator::get('error');
                 return;
             }
             try {
                 $action = is_string($_POST['update_action'] ?? null) ? $_POST['update_action'] : '';
                 $version = is_string($_POST['version'] ?? null) ? $_POST['version'] : '';
                 IndependentUpdates::queue($action, $version);
-                header('Location: independent_updates?queued=1', true, 303);
+                header('Location: settings?update_queued=1#panel-update', true, 303);
                 return;
             } catch (\Throwable $exception) {
-                $error = $exception->getMessage();
+                if (session_status() === PHP_SESSION_NONE) SessionStage::startSession();
+                $_SESSION['independent_update_error'] = $exception->getMessage();
+                session_write_close();
+                header('Location: settings?update_failed=1#panel-update', true, 303);
+                return;
             }
         }
-        $this->setTitle('GitHub Updates');
-        $this->render('independent_updates', ['updateStatus' => IndependentUpdates::status(), 'updateError' => $error]);
+        header('Location: settings#panel-update', true, 302);
     }
 }

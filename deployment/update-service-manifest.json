@@ -1,11 +1,12 @@
 {
-  "deployment/enable_updates.py": "5a3a79f70abb152c677d630ef54320813f13251429396d9d22a4f0b15867054c",
-  "deployment/update-ui-manifest.json": "ab7229cf0d42d46e2a9081677594c31c55c883e889b5517bb47abb4f9a42474f",
+  "deployment/enable_updates.py": "7ba23646fe3d928b57a4797ee47dbbc752c44e69844c708adbd92c3353acdc59",
+  "deployment/update-ui-manifest.json": "e76cba51bc95bae5c172f9f4f599b1d883f155741e08125559a4ebb84610e804",
   "deployment/update_worker.py": "ab9ccecf86732fab0d01adbcdab92200b948a0553feaf69d9ebbe05a911f0941",
-  "panel/src/Core/Updates/IndependentUpdates.php": "2648d05b9decaca896deaeae0ac6216fa87813c0557fafa945a474638d62d819",
-  "panel/src/Public/Controllers/Admin/IndependentUpdatesController.php": "0d606bac7348855d9038d71552ac79bbdd3f1df11574ec7b13406172dc881e95",
-  "panel/src/Public/Views/admin/header.php": "4a62a6ad2949a6ec24b532f9b149d06d94c58dc0e93d00f5c4ed693cb0c501fe",
-  "panel/src/Public/Views/admin/independent_updates.php": "49553f5da337f0bf7b47d81ee9fa8a9292286f7e33a9f3e69d854cbdd75448de",
-  "panel/src/Public/Views/admin/settings.php": "8d39ab23ab25c78360f085089f4cafb4bc93a674b890e1791012b4cd9b0c1584",
+  "panel/src/Core/Updates/IndependentUpdates.php": "7d196632832f159d5694f9bd5486ef90612ad9349f6dc9cc1fcb67feeca2b229",
+  "panel/src/Public/Controllers/Admin/IndependentUpdatesController.php": "6485b1fecf55fe937b5b81c6062018db45ade9108de1c21212601acfe17f1d69",
+  "panel/src/Public/Controllers/Admin/SettingsController.php": "48823fb64e5986e2a8a183356294d212a7a9b8d77f8f84d24b5d26ac0b608d81",
+  "panel/src/Public/Views/admin/header.php": "8df7c21f519c6b5a70c4139c8545731a39b8a36a34a318c7fa2dbc7f6228213d",
+  "panel/src/Public/Views/admin/independent_updates.php": "c09d1783e68d4c0002fdb93ffeb8678d36ce2c807cbd1bd6914681834342f8d3",
+  "panel/src/Public/Views/admin/settings.php": "89447a2dc71d108d55344c2a4df84016829e597882c73336069076351b9ae415",
   "panel/src/Public/routes/admin.php": "e043d8d5c793d9e7884da0b1b6d198f084e165f38406dadfb456ebb11f57e226"
 }

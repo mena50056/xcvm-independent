@@ -6,6 +6,20 @@ namespace XcVm\Core\Updates;
 final class IndependentUpdates {
     public const STATE = '/var/lib/xcvm-independent-updates';
 
+    public static function csrfToken(): string {
+        if (session_status() === PHP_SESSION_NONE) \XcVm\Core\Bootstrap\Stage\SessionStage::startSession();
+        $_SESSION['independent_update_csrf'] ??= bin2hex(random_bytes(32));
+        $token = $_SESSION['independent_update_csrf'];
+        session_write_close();
+        return $token;
+    }
+
+    public static function badge(): array {
+        $status = self::status();
+        return ($status['state'] ?? '') === 'available' && !empty($status['latest'])
+            ? ['version' => ltrim($status['latest'], 'v'), 'url' => $status['url'] ?? ''] : [];
+    }
+
     public static function status(): array {
         $path = self::STATE . '/status.json';
         $data = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;

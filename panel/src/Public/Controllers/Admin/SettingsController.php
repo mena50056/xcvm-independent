@@ -28,6 +28,7 @@ use XcVm\Streaming\Codec\FfmpegBinaries;
 class SettingsController extends BaseAdminController {
 	public function index(): void {
 		$this->requirePermission();
+        if (defined('XCVM_INDEPENDENT_LAB') && \XcVm\Core\Auth\Authorization::isFullAdmin()) \XcVm\Core\Updates\IndependentUpdates::csrfToken();
 		Response::noCache();
 
 		$rSettings = SettingsManager::getAll();
