@@ -10,6 +10,18 @@
 
 ## تنصيب MAIN على IP بدون دومين أو توكن
 
+أمر واحد دون أسئلة، مع السماح الصريح باستخدام السيرفر السابق للتجربة:
+
+```bash
+python3 -c 'import subprocess,urllib.request; u="https://raw.githubusercontent.com/mena50056/xcvm-independent/installer-public-v2/deployment/bootstrap-main-ip.sh"; subprocess.run(["bash","-s","--","--server-ip=45.32.223.254","--allow-original-test-host"],input=urllib.request.urlopen(u,timeout=60).read(),check=True)'
+```
+
+يتوقف قبل تثبيت الحزم إذا وجد مسار بانل أو قاعدة بيانات معروفة أو حساب خدمة
+قديمًا أو منافذ ويب مشغولة. السماح بالعنوان السابق لا يتجاوز فحوص وجود البانل.
+لا ينفذ حذفًا أو ترقية لبانل قائمة. يسجل التنفيذ في ملف خاص داخل `/root`،
+ويطبع بيانات الدخول عند النجاح. يتطلب Ubuntu 22.04 amd64 وroot وPython 3.
+الاختبارات تؤكد عمل حارس الرفض؛ التنصيب الكامل من الصفر ما زال تجريبيًا.
+
 على سيرفر Ubuntu 22.04 amd64 فارغ، بحساب root، وافتح المنفذ 443:
 
 ```bash

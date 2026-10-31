@@ -42,11 +42,12 @@ def main():
     p.add_argument('--tls-cert')
     p.add_argument('--tls-key')
     p.add_argument('--plan', action='store_true')
+    p.add_argument('--allow-original-test-host', action='store_true', help='Explicitly authorize the former production IP as a fresh test host; existing-panel checks remain mandatory')
     a = p.parse_args()
     if bool(a.tls_cert) != bool(a.tls_key):
         raise SystemExit('Supply both --tls-cert and --tls-key')
     address = ipaddress.ip_address(a.server_ip)
-    if str(address) == BLOCKED:
+    if str(address) == BLOCKED and not a.allow_original_test_host:
         raise SystemExit('The original production server is explicitly excluded')
     if address.version != 4:
         raise SystemExit('This experimental installer currently supports IPv4')
@@ -56,9 +57,9 @@ def main():
         if os.geteuid() != 0:
             raise SystemExit('Run as root on a fresh server')
         local = subprocess.check_output(['ip', '-j', 'address'], text=True)
-        if BLOCKED in local:
+        if BLOCKED in local and not a.allow_original_test_host:
             raise SystemExit('Refusing the original production server')
-    if ROOT.exists() or pathlib.Path('/home/xc_vm').exists() or pathlib.Path('/home/xc_vm').is_symlink():
+    if ROOT.exists() or ROOT.is_symlink() or pathlib.Path('/home/xc_vm').exists() or pathlib.Path('/home/xc_vm').is_symlink():
         raise SystemExit('Existing panel detected; reinstall/upgrade is deliberately refused')
     if a.role == 'node' and not a.enrollment_file:
         raise SystemExit('A private node enrollment JSON from MAIN is required')

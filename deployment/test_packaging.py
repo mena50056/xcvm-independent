@@ -8,6 +8,7 @@ import unittest
 import urllib.request
 import hashlib
 from unittest.mock import patch
+import install as installer
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from fetch_release import SafeRedirect, token_from_file, fetch_release
@@ -15,6 +16,16 @@ from install import validate_archive
 
 
 class PackagingTests(unittest.TestCase):
+    def test_original_host_still_requires_explicit_authorization(self):
+        args=['install.py','--role','main','--tag','v0.1.0-lab.3','--server-ip','45.32.223.254','--plan']
+        with patch.object(sys,'argv',args), self.assertRaisesRegex(SystemExit,'explicitly excluded'):
+            installer.main()
+
+    def test_authorization_does_not_override_existing_panel(self):
+        args=['install.py','--role','main','--tag','v0.1.0-lab.3','--server-ip','45.32.223.254','--allow-original-test-host','--plan']
+        with tempfile.TemporaryDirectory() as temp, patch.object(installer,'ROOT',pathlib.Path(temp)), patch.object(sys,'argv',args), self.assertRaisesRegex(SystemExit,'Existing panel detected'):
+            installer.main()
+
     def test_public_download_without_credentials(self):
         payload=b'test release payload'
         filename='xcvm-independent-main-linux-amd64.tar.gz'
