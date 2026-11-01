@@ -5,15 +5,16 @@ const root=new URL('../../src/',import.meta.url);
 const partial=fs.readFileSync(new URL('Public/Views/layouts/horus_head.php',root),'utf8');
 const script=partial.match(/<script>([\s\S]*?)<\/script>/)[1];
 function boot(){
- const classes=new Set(),events={},frames=[];let fallback;
- const ctx={document:{documentElement:{classList:{add:v=>classes.add(v),remove:v=>classes.delete(v)}},addEventListener:(n,fn)=>events[n]=fn},window:{addEventListener:(n,fn)=>events[n]=fn},setTimeout:fn=>(fallback=fn,1),clearTimeout:()=>{},requestAnimationFrame:fn=>frames.push(fn)};
+ const classes=new Set(),events={},frames=[],children=[];let fallback;
+ const element={classList:{add:v=>classes.add(v),remove:v=>classes.delete(v)},appendChild:v=>{children.push(v);v.parentNode=element;},removeChild:v=>{children.splice(children.indexOf(v),1);v.parentNode=null;}};
+ const ctx={document:{documentElement:element,createElement:()=>({setAttribute:()=>{},parentNode:null}),addEventListener:(n,fn)=>events[n]=fn},window:{addEventListener:(n,fn)=>events[n]=fn},setTimeout:fn=>(fallback=fn,1),clearTimeout:()=>{},requestAnimationFrame:fn=>frames.push(fn)};
  vm.runInNewContext(script,ctx);
- return {classes,events,frames,timeout:()=>fallback()};
+ return {classes,events,frames,children,timeout:()=>fallback()};
 }
-let page=boot();assert(page.classes.has('horus-booting'),'shell must be gated before content is parsed');
+let page=boot();assert(page.classes.has('horus-booting'),'shell must be gated before content is parsed');assert.equal(page.children.length,1,'loader must be visible during boot');
 page.events.DOMContentLoaded();assert(page.classes.has('horus-booting'));
 page.frames.shift()();assert(page.classes.has('horus-booting'),'first frame must not expose intermediate layout');
-page.frames.shift()();assert(!page.classes.has('horus-booting'),'ready layout must be revealed');
+page.frames.shift()();assert(!page.classes.has('horus-booting'),'ready layout must be revealed');assert.equal(page.children.length,0,'loader must be removed when ready');
 page=boot();page.timeout();assert(!page.classes.has('horus-booting'),'failed scripts must not lock users out');
 page=boot();page.events.pageshow({persisted:true});assert(!page.classes.has('horus-booting'),'browser restore must reveal the page');
 for(const path of ['admin/header.php','layouts/reseller/header.php','admin/login.php','reseller/login.php']){
