@@ -220,9 +220,9 @@ $_resellerMenuSections = [
     <div class="app-brand demo">
         <a href="dashboard" class="app-brand-link">
             <span class="app-brand-logo demo">
-                <img src="assets/img/logo-topbar.png" alt="<?= htmlspecialchars($rSettings['server_name'] ?: 'XC_VM'); ?>" height="24">
+                <img src="assets/xcvm/horus-mark.svg" alt="حورس" height="24">
             </span>
-            <span class="app-brand-text demo menu-text fw-bold ms-3"><?= htmlspecialchars($rSettings['server_name'] ?: 'XC_VM'); ?></span>
+            <span class="app-brand-text demo menu-text fw-bold ms-3">حورس</span>
         </a>
         <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto">
             <i class="icon-base ti menu-toggle-icon d-none d-xl-block"></i>

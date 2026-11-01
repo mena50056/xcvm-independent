@@ -65,7 +65,7 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
 <!doctype html>
 <html
     lang="<?= htmlspecialchars($xmCurrentLang, ENT_QUOTES); ?>"
-    class="layout-navbar-fixed layout-menu-fixed layout-compact"
+    class="layout-navbar-fixed layout-menu-fixed layout-compact xc-console-native"
     dir="<?= $xmIsRtl ? 'rtl' : 'ltr'; ?>"
     data-skin="default"
     data-bs-theme="<?= $xmBsTheme ?>"
@@ -74,17 +74,14 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
 
 <head>
     <meta charset="utf-8">
+    <?php require __DIR__ . '/../horus_head.php'; ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="robots" content="noindex,nofollow">
-    <title><?= htmlspecialchars($rSettings['server_name'] ?: 'XC_VM'); ?><?= isset($_TITLE) ? ' | ' . htmlspecialchars($_TITLE) : ''; ?></title>
-    <link rel="icon" type="image/x-icon" href="assets/img/favicon/favicon.ico">
+    <title>حورس<?= isset($_TITLE) ? ' | ' . htmlspecialchars($_TITLE) : ''; ?></title>
+    <link rel="icon" type="image/svg+xml" href="assets/xcvm/horus-mark.svg">
 
     <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap">
-
     <!-- Icons: Bootstrap 5 chrome uses Tabler (iconify) -->
     <link rel="stylesheet" href="assets/vendor/fonts/iconify-icons.css">
 
@@ -101,11 +98,12 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
     <?php xc_newui_vendor_css(xc_newui_vendors_wanted()); ?>
     <link rel="stylesheet" href="assets/xcvm/custom.css">
     <?php if ($xmIsRtl): ?>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap">
         <link rel="stylesheet" href="assets/xcvm/rtl.css">
     <?php endif; ?>
 
     <?php require __DIR__ . '/../ui_prefs_head.php'; ?>
+<link rel="stylesheet" href="assets/xcvm/console-native.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/console-native.css'); ?>">
+<script defer src="assets/xcvm/console-native.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/console-native.js'); ?>"></script>
 </head>
 
 <?php if (isset($_GET['modal'])): /* iframe modal shell — no sidebar / navbar / topbar */ ?>

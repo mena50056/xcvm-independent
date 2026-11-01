@@ -3,6 +3,17 @@ on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
+  horus-ui:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check panel/src/Public/assets/admin/xcvm/console-native.js
+      - run: node panel/tests/Support/horus-firstpaint.mjs
+      - run: php panel/tests/Support/console-overview-smoke.php
+      - run: find panel/src/Public/Views/admin panel/src/Public/Views/layouts panel/src/Public/Views/reseller -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
   verify:
     runs-on: ubuntu-22.04
     steps:

@@ -29,9 +29,14 @@ if (count(get_included_files()) == 1) {
     <footer class="content-footer footer bg-footer-theme">
         <div class="container-xxl">
             <div class="footer-container d-flex align-items-center justify-content-center py-4 flex-column text-center">
-                <div class="text-body">
-                    <?= AdminHelpers::getFooter(); ?>
+                <div class="xc-horus-rights" dir="rtl">
+                    <strong class="xc-horus-brand">حورس | HORUS</strong>
+                    <span>© <?= date('Y'); ?> حورس — حقوق تصميم وتخصيص الواجهة محفوظة.</span>
                 </div>
+                <details class="xc-upstream-notice" dir="rtl">
+                    <summary>عن النظام والتراخيص</summary>
+                    <div class="mt-2" dir="ltr"><?= AdminHelpers::getFooter(); ?></div>
+                </details>
             </div>
         </div>
     </footer>

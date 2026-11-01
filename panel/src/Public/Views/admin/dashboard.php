@@ -179,6 +179,7 @@ if (!defined('XCVM_INDEPENDENT_LAB') && !LicenseGate::licensed()):
 <?php endforeach; ?>
 
 <!-- Page header -->
+<?php require __DIR__ . '/partials/console_overview.php'; ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
     <h4 class="mb-0">
         <?php if ($xmServerId !== null): ?>

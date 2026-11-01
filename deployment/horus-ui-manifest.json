@@ -1,0 +1,82 @@
+{
+  "files": [
+    {
+      "path": "panel/src/Public/Views/admin/dashboard.php",
+      "sha256": "b811da451f211317c65229ebc3766c73ff7ea8d0f388d5722f0d9a8996e02d0e"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/footer.php",
+      "sha256": "5c2cf78c7274aa6bd630cb85dc9a34f3ed88c5bac09d45a27cd5f961e60c124e"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/header.php",
+      "sha256": "b6fec683573c866834940fafe7b956c105e273a379de7c4bab0313c88a2ced2d"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/login.php",
+      "sha256": "627ae4132a1cdf7d8d01518e30a917f59aad513de5c0aa7a0f205c369a65c8b3"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/menu.php",
+      "sha256": "8fd645ff19e5efff881782d1a72a78432dcfcc465507540eb40109466f2579e9"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/partials/console_overview.php",
+      "sha256": "80261eb665404349de8ad5fd412e7f77d655a95448450d2c3e89c5c66c21178c"
+    },
+    {
+      "path": "panel/src/Public/Views/layouts/horus_head.php",
+      "sha256": "d6638026c6ebb4f049ef147f5e03aabb6d7988925936b18df91fb64da18cc618"
+    },
+    {
+      "path": "panel/src/Public/Views/layouts/reseller/footer.php",
+      "sha256": "d85171874d370221aba0000e1d7eb6439ccc96bf855ef6277d57016bdc0dde0e"
+    },
+    {
+      "path": "panel/src/Public/Views/layouts/reseller/header.php",
+      "sha256": "12a9c0acf15820bd6c9995847d463d61e3a3ed2e0b28efe3ce8006550dbd9774"
+    },
+    {
+      "path": "panel/src/Public/Views/layouts/reseller/menu.php",
+      "sha256": "3a2fec4ee26312d97df5fecd6cf8e747687ea96b448132fc7e2931ca348ae43c"
+    },
+    {
+      "path": "panel/src/Public/Views/reseller/login.php",
+      "sha256": "caeb688d22ef7af46a231340d6ba7314632c4367b5befe1e337ac0ad3580e7c6"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/cairo-panel-400.woff2",
+      "sha256": "b8d612de1925efa48c82db452e0bfe5a80782bc735c3a85561707f8ecc513c34"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/cairo-panel-600.woff2",
+      "sha256": "0e988df1f84ebafe316ced083edcf077c63820c28fcdc88dac05858d2c9dd47a"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/cairo-panel-700.woff2",
+      "sha256": "e473986362dc5d5e826b2de62f97679de4b2bed377d8df92946ce3b6f2ed8242"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/console-native.css",
+      "sha256": "83c68fc631e29778a62a2fcaa65e10d5dd337f03f9f4262e606eb4e570168612"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/console-native.js",
+      "sha256": "7ba8dbc7354d83ab5347dd944a02270e13260217ec099106f9d2d74b803030a9"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-brand.css",
+      "sha256": "d81ae44bf2d13a86fe6b4b55c278bfd0b760a8e17ad8ea364c72ec28d9330a66"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-mark.svg",
+      "sha256": "0fc934fbb5ba355d2a9e604f5d0b3b42078fabda97bfdcb094eb999b3f82a498"
+    }
+  ],
+  "fonts": "Cairo, SIL OFL 1.1",
+  "validation": [
+    "PHP lint",
+    "First-paint readiness and recovery checks",
+    "Isolated local HTTP save/edit and stream/server controls"
+  ]
+}

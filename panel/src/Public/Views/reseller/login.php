@@ -4,7 +4,7 @@
 // with the admin login (single-look dark + red). Auth/flood/redirect handling is
 // done by the reseller controller before this view is included; here we only
 // render. Assets resolve to the admin tree (the reseller code's nginx assets alias points at Public/assets/admin).
-$rBrand = ($rSettings['server_name'] ?? '') ?: 'XC_VM';
+$rBrand = 'حورس';
 $rStatusMessages = [
     STATUS_FAILURE         => 'login_message_1',
     STATUS_INVALID_CODE    => 'login_message_2',
@@ -20,14 +20,13 @@ $rRecaptcha = (bool)($rSettings['recaptcha_enable'] ?? false);
 
 <head>
     <meta charset="UTF-8">
+    <?php require __DIR__ . '/../layouts/horus_head.php'; ?>
     <title data-id="login"><?= htmlspecialchars($rBrand, ENT_QUOTES) ?> | <?= $language::get('login') ?></title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex,nofollow">
-    <link rel="icon" type="image/x-icon" href="assets/img/favicon.ico">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=Share+Tech+Mono&display=swap">
+    <link rel="icon" type="image/svg+xml" href="assets/xcvm/horus-mark.svg">
     <link rel="stylesheet" href="assets/xcvm/login.css">
+<link rel="stylesheet" href="assets/xcvm/horus-brand.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-brand.css'); ?>">
 </head>
 
 <body>
@@ -39,7 +38,7 @@ $rRecaptcha = (bool)($rSettings['recaptcha_enable'] ?? false);
             <section class="login-panel">
                 <span class="panel-frame" aria-hidden="true"></span>
 
-                <div class="panel-logo">
+                <div class="panel-logo"><img class="horus-login-mark" src="assets/xcvm/horus-mark.svg" alt="حورس" width="68" height="68">
                     <div class="panel-logo-main"><?= htmlspecialchars($rBrand, ENT_QUOTES) ?></div>
                     <div class="panel-title"><?= $language::get('reseller_access') ?></div>
                 </div>
@@ -120,7 +119,7 @@ $rRecaptcha = (bool)($rSettings['recaptcha_enable'] ?? false);
                 <span class="panel-divider" aria-hidden="true"></span>
 
                 <div class="panel-foot">
-                    &copy; <?= $rYears ?> <?= \XcVm\Core\Util\AdminHelpers::getAttribution() ?>
+                    <div class="horus-login-rights">© <?= date('Y'); ?> حورس — حقوق تصميم وتخصيص الواجهة محفوظة.</div><details class="horus-login-licenses"><summary>عن النظام والتراخيص</summary><?= \XcVm\Core\Util\AdminHelpers::getAttribution() ?></details>
                 </div>
             </section>
 
