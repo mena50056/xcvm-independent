@@ -801,7 +801,7 @@ LayoutRenderer::renderFooter('admin');
             }
             var u = dlModal.getAttribute('data-username'),
                 p = dlModal.getAttribute('data-password');
-            var text = siteUrl + '/playlist/' + u + '/' + p + '/' + decodeURIComponent(key);
+            var text = siteUrl + '/playlist/' + encodeURIComponent(u) + '/' + encodeURIComponent(p) + '/' + decodeURIComponent(key);
             var outs = Array.prototype.filter.call(outType.options, function(o) {
                 return o.selected;
             }).map(function(o) {
