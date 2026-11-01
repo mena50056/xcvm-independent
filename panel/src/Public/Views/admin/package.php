@@ -28,14 +28,15 @@ $rPackageOutputs = ($rIsEdit && !empty($rPackage['output_formats'])) ? (json_dec
     <h4 class="mb-0"><?= $rIsEdit ? $language::get('edit_package') : $language::get('add_package'); ?></h4>
 </div>
 
-<form id="package-form" autocomplete="off">
+<form class="horus-subscription-editor" id="package-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rPackage['id']; ?>">
     <?php endif; ?>
     <input type="hidden" name="bouquets_selected" id="bouquets_selected" value="">
     <input type="hidden" name="groups_selected" id="groups_selected" value="">
+    <input type="hidden" name="output_formats_present" value="1">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -51,7 +52,7 @@ $rPackageOutputs = ($rIsEdit && !empty($rPackage['output_formats'])) ? (json_dec
                 <div class="tab-pane fade show active" id="tab-details" role="tabpanel">
                     <div class="mb-6">
                         <label class="form-label" for="package_name"><?= $language::get('package_name'); ?></label>
-                        <input type="text" class="form-control" id="package_name" name="package_name" value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['package_name'], ENT_QUOTES) : ''; ?>">
+                        <input type="text" class="form-control" id="package_name" name="package_name" required value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['package_name'], ENT_QUOTES) : ''; ?>">
                     </div>
 
                     <h6 class="mb-3">Trial Package</h6>
@@ -64,7 +65,7 @@ $rPackageOutputs = ($rIsEdit && !empty($rPackage['output_formats'])) ? (json_dec
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="trial_credits"><?= $language::get('credit_cost'); ?></label>
-                            <input type="text" inputmode="numeric" class="form-control" id="trial_credits" name="trial_credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['trial_credits'], ENT_QUOTES) : '0'; ?>">
+                            <input type="number" inputmode="decimal" min="0" step="0.0001" class="form-control" id="trial_credits" name="trial_credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['trial_credits'], ENT_QUOTES) : '0'; ?>">
                         </div>
                     </div>
                     <div class="row mb-6">
@@ -92,7 +93,7 @@ $rPackageOutputs = ($rIsEdit && !empty($rPackage['output_formats'])) ? (json_dec
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="official_credits"><?= $language::get('credit_cost'); ?></label>
-                            <input type="text" inputmode="numeric" class="form-control" id="official_credits" name="official_credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['official_credits'], ENT_QUOTES) : '0'; ?>">
+                            <input type="number" inputmode="decimal" min="0" step="0.0001" class="form-control" id="official_credits" name="official_credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rPackage['official_credits'], ENT_QUOTES) : '0'; ?>">
                         </div>
                     </div>
                     <div class="row">
@@ -248,7 +249,7 @@ $rPackageOutputs = ($rIsEdit && !empty($rPackage['output_formats'])) ? (json_dec
         </div>
     </div>
 
-    <div class="d-flex justify-content-end mb-6">
+    <div class="d-flex justify-content-end mb-6 xc-editor-savebar">
         <button type="submit" class="btn btn-primary" id="package-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
     </div>
 </form>
@@ -261,7 +262,7 @@ LayoutRenderer::renderFooter('admin');
         var errText = <?= json_encode($language::get('error_occured')); ?>;
 
         // Numeric-only guards mirroring the legacy inputFilter (/^\d*$/).
-        ['max_connections', 'trial_duration', 'official_duration', 'trial_credits', 'official_credits'].forEach(function(id) {
+        ['max_connections', 'trial_duration', 'official_duration'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) {
                 el.addEventListener('input', function() {
@@ -345,7 +346,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         window.location.href = dt.location || 'packages';
                         return;
                     }

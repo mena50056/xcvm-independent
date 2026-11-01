@@ -23,9 +23,9 @@ $rCanEdit = Authorization::check('adv', 'edit_package');
 $rFlag = fn($v) => '<i class="icon-base ti tabler-square-filled ' . ($v ? 'text-success' : 'text-body-secondary') . '"></i>';
 ?>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="card-title mb-0"><?= $language::get('packages'); ?></h5>
+<div class="card xc-lines-workspace horus-access-workspace">
+    <div class="card-header"><div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · SUBSCRIPTION PACKAGES</span>
+        <h5 class="card-title mb-0"><?= $language::get('packages'); ?></h5><p class="xc-workspace-caption">Configure subscription terms, access and reseller groups.</p></div>
     </div>
     <div class="card-datatable table-responsive">
         <table id="packages-table" class="table" style="width:100%">
@@ -53,8 +53,8 @@ $rFlag = fn($v) => '<i class="icon-base ti tabler-square-filled ' . ($v ? 'text-
                         <td class="text-center text-nowrap">
                             <?php if ($rCanEdit): ?>
                                 <a href="package?id=<?= (int) $rPackage['id']; ?>" class="btn btn-sm btn-icon btn-label-secondary" title="<?= $language::get('edit_package'); ?>"><i class="icon-base ti tabler-pencil"></i></a>
-                            <?php endif; ?>
                             <button type="button" class="btn btn-sm btn-icon btn-label-danger js-del" data-id="<?= (int) $rPackage['id']; ?>" title="<?= $language::get('delete_package'); ?>"><i class="icon-base ti tabler-trash"></i></button>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endforeach; ?>

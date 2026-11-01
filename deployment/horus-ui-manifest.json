@@ -10,7 +10,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/header.php",
-      "sha256": "b6fec683573c866834940fafe7b956c105e273a379de7c4bab0313c88a2ced2d"
+      "sha256": "f497ad595584e3c9f213f3e72276cf027680a1d5d437df8e474be9a82a5a3920"
     },
     {
       "path": "panel/src/Public/Views/admin/login.php",
@@ -123,6 +123,42 @@
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-series.js",
       "sha256": "f806cec0950592dbcd252ef1f1fe58b4a43d5cb2dac13204d9763602dbf668eb"
+    },
+    {
+      "path": "panel/src/Domain/Line/PackageService.php",
+      "sha256": "e961536b7c9535a84b256a20436a813591571fffa64c999cc924f785825b3308"
+    },
+    {
+      "path": "panel/src/Domain/Bouquet/BouquetService.php",
+      "sha256": "a3238a8aeba06093e8f023b454485e99502774d4d8438a2d082c4f042284c3c0"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/line.php",
+      "sha256": "a0c057565e392f7242adf6e2ab06c8294650fc7202bae7679c68eff63f7e7ca6"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/package.php",
+      "sha256": "3a24dde27cdaee2b664b725f4030baa5358a013e2c90247b957d2a55ccdfd94f"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/bouquet.php",
+      "sha256": "620785fa5aabfe1ca2b651c02be173dc6b0bf1f4e749e9642b0abc1c787fac40"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/packages.php",
+      "sha256": "12a2423e405ac7b6226715cbb84fa66c99a8123e71f695f4ceb0a62db8c55835"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/bouquets.php",
+      "sha256": "fb501e9f4ca79276c37d7808133bc45a94d6ec18827f44a6d320d71e82f9c229"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.js",
+      "sha256": "ea112b38c42d2904a353248c8e47e863b0b2acb73c9f103b6ec63e6cc95d7120"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.css",
+      "sha256": "88b3073ad9213634b90e917d52cdf8d6b68f082f17ab59a8348b548ca412df21"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",

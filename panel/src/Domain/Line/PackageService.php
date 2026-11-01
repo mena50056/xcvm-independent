@@ -46,7 +46,7 @@ class PackageService {
 			unset($rArray['id']);
 		}
 
-		if (strlen($rData['package_name']) == 0) {
+		if (trim((string) ($rData['package_name'] ?? '')) === '') {
 			return ['status' => STATUS_INVALID_NAME, 'data' => $rData];
 		}
 
@@ -58,10 +58,20 @@ class PackageService {
 			}
 		}
 
-		$rArray['groups'] = '[' . implode(',', array_map('intval', json_decode($rData['groups_selected'], true))) . ']';
-		$rArray['bouquets'] = AdminHelpers::sortArrayByArray(array_values(json_decode($rData['bouquets_selected'], true)), array_keys(BouquetService::getOrder()));
+		$rGroups = json_decode((string) ($rData['groups_selected'] ?? ''), true);
+		$rBouquets = json_decode((string) ($rData['bouquets_selected'] ?? ''), true);
+		if (!is_array($rGroups) || !array_is_list($rGroups) || !is_array($rBouquets) || !array_is_list($rBouquets)
+			|| (isset($rData['output_formats']) && !is_array($rData['output_formats']))) {
+			return ['status' => STATUS_FAILURE, 'data' => $rData];
+		}
+		$rArray['groups'] = '[' . implode(',', array_map('intval', $rGroups)) . ']';
+		$rArray['bouquets'] = AdminHelpers::sortArrayByArray(array_values($rBouquets), array_keys(BouquetService::getOrder()));
 		$rArray['bouquets'] = '[' . implode(',', array_map('intval', $rArray['bouquets'])) . ']';
 
+		// Full browser forms explicitly declare an empty selection; partial API edits retain it.
+		if (isset($rData['output_formats_present'])) {
+			$rArray['output_formats'] = '[]';
+		}
 		if (isset($rData['output_formats'])) {
 			$rArray['output_formats'] = [];
 			foreach ($rData['output_formats'] as $rOutput) {

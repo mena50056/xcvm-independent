@@ -60,7 +60,7 @@ if ($rIsEdit && !empty($rLine['custom_data'])) {
     </div>
 <?php endif; ?>
 
-<form id="line-form" autocomplete="off">
+<form class="horus-subscription-editor" id="line-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rLine['id']; ?>">
     <?php endif; ?>
@@ -70,7 +70,7 @@ if ($rIsEdit && !empty($rLine['custom_data'])) {
     <?php endif; ?>
     <input type="hidden" name="bouquet_order" id="bouquet_order" value="" disabled>
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -91,7 +91,7 @@ if ($rIsEdit && !empty($rLine['custom_data'])) {
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="password"><?= $language::get('password'); ?></label>
-                            <input type="text" class="form-control" id="password" name="password" placeholder="<?= $language::get('auto_generate_if_blank'); ?>" value="<?= $rIsEdit ? htmlspecialchars((string) $rLine['password'], ENT_QUOTES) : ''; ?>">
+                            <input type="password" class="form-control" id="password" name="password" placeholder="<?= $language::get('auto_generate_if_blank'); ?>" value="<?= $rIsEdit ? htmlspecialchars((string) $rLine['password'], ENT_QUOTES) : ''; ?>">
                         </div>
                     </div>
 
@@ -551,7 +551,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (window.parent !== window) {
                             window.parent.postMessage('xcModalSaved', '*');
                         } else {

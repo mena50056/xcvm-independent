@@ -53,6 +53,10 @@ class BouquetService {
 			unset($rArray['id']);
 		}
 
+		if (trim((string) ($rData['bouquet_name'] ?? '')) === '') {
+			return ['status' => STATUS_INVALID_NAME, 'data' => $rData];
+		}
+
 		if (is_array(json_decode($rData['bouquet_data'], true))) {
 			$rBouquetData = json_decode($rData['bouquet_data'], true);
 			$rBouquetStreams = $rBouquetData['stream'];

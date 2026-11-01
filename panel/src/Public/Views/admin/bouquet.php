@@ -19,9 +19,9 @@ $rPageLen = (int) ($rSettings['default_entries'] ?? 10) ?: 10;
     <h4 class="mb-0"><?= $rIsEdit ? $language::get('edit_bouquet') : $language::get('add_bouquet'); ?></h4>
 </div>
 
-<div class="card">
+<div class="card horus-bouquet-shell">
     <div class="card-body">
-        <form id="bouquet_form">
+        <form class="horus-subscription-editor horus-bouquet-editor" id="bouquet_form">
             <?php if ($rIsEdit): ?>
                 <input type="hidden" name="edit" value="<?= (int) $rBouquetArr['id']; ?>">
             <?php endif; ?>
@@ -228,7 +228,7 @@ $rPageLen = (int) ($rSettings['default_entries'] ?? 10) ?: 10;
                 </div>
             </div>
 
-            <div class="d-flex justify-content-end gap-2 mt-4">
+            <div class="d-flex justify-content-end gap-2 mt-4 xc-editor-savebar">
                 <button type="button" id="bouquet-next" class="btn btn-label-secondary"><?= $language::get('next'); ?><i class="icon-base ti tabler-chevron-right ms-1"></i></button>
                 <button type="submit" name="submit_bouquet" class="btn btn-primary"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
             </div>
@@ -473,7 +473,7 @@ LayoutRenderer::renderFooter('admin');
                                 result: false
                             };
                         }
-                        if (d && d.result) {
+                        if (d && d.result === true) {
                             if (window.parent !== window) {
                                 window.parent.postMessage('xcModalSaved', '*');
                             } else {

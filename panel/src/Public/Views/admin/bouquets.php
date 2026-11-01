@@ -15,9 +15,9 @@ $rCanEdit = Authorization::check('adv', 'edit_bouquet');
 $rCount = static fn($rJson): string => number_format(count(json_decode((string) $rJson, true) ?: []), 0);
 ?>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="card-title mb-0"><?= $language::get('bouquets'); ?></h5>
+<div class="card xc-lines-workspace horus-access-workspace">
+    <div class="card-header"><div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · CONTENT BOUQUETS</span>
+        <h5 class="card-title mb-0"><?= $language::get('bouquets'); ?></h5><p class="xc-workspace-caption">Organize live channels, movies, series and radio into access bundles.</p></div>
     </div>
     <div class="card-datatable table-responsive">
         <table id="bouquets-table" class="table" style="width:100%">
