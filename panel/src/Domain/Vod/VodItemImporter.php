@@ -1320,6 +1320,9 @@ class VodItemImporter {
 		if ($rItems === []) {
 			return false;
 		}
+		if (!is_dir(WATCH_TMP_PATH) && !@mkdir(WATCH_TMP_PATH, 0770, true) && !is_dir(WATCH_TMP_PATH)) {
+			return false;
+		}
 		$rFile = WATCH_TMP_PATH . 'import_' . bin2hex(random_bytes(8)) . '.jsonl';
 		$rHandle = fopen($rFile, 'w');
 		if ($rHandle === false) {

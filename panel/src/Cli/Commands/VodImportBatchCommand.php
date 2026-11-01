@@ -28,8 +28,8 @@ class VodImportBatchCommand implements CommandInterface {
 	}
 
 	public function execute(array $rArgs): int {
-		if (posix_getpwuid(posix_geteuid())['name'] != 'xc_vm') {
-			echo "Please run as XC_VM!\n";
+		if (!in_array(posix_getpwuid(posix_geteuid())['name'], ['xc_vm', 'xcvm_lab'], true)) {
+			echo "Please run as the panel service account!\n";
 			return 1;
 		}
 		$rFile = self::batchFile((string) ($rArgs[0] ?? ''));

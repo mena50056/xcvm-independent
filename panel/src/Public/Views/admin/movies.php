@@ -28,9 +28,15 @@ $rCanLive = Authorization::check('adv', 'live_connections');
 $rCanPlayer = Authorization::check('adv', 'player');
 ?>
 
-<div class="card">
+<link rel="stylesheet" href="assets/xcvm/horus-movies.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-movies.css'); ?>">
+<script defer src="assets/xcvm/horus-movies.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-movies.js'); ?>"></script>
+<div class="card xc-lines-workspace xc-operations-workspace horus-movies-workspace">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h5 class="card-title mb-0"><?= $language::get('movies'); ?></h5>
+        <div class="xc-workspace-intro">
+            <span class="xc-workspace-eyebrow">HORUS · CINEMA LIBRARY</span>
+            <h5 class="card-title mb-0"><?= $language::get('movies'); ?></h5>
+            <p class="xc-workspace-caption"><?= \XcVm\Core\Localization\Translator::isRtl(\XcVm\Core\Localization\Translator::current()) ? 'أفلامك وأغلفتها ومصادرها، في مكتبة واحدة.' : 'Your movies, artwork and sources, in one organized library.'; ?></p>
+        </div>
         <?php if ($rCanEdit): ?>
             <div id="bulk-bar" class="d-none align-items-center gap-2">
                 <span class="text-body-secondary"><span id="bulk-count">0</span></span>
@@ -38,7 +44,7 @@ $rCanPlayer = Authorization::check('adv', 'player');
             </div>
         <?php endif; ?>
     </div>
-    <div class="card-body border-bottom">
+    <div class="card-body border-bottom xc-lines-filters">
         <div class="row g-3">
             <div class="col-12 col-sm-6 col-lg-3">
                 <label class="form-label" for="filter-category"><?= $language::get('category'); ?></label>
@@ -216,8 +222,10 @@ LayoutRenderer::renderFooter('admin');
                 {
                     data: 'image',
                     orderable: false,
-                    render: function(d) {
-                        return d ? '<a href="resize?maxw=512&maxh=512&url=' + encodeURIComponent(d) + '" target="_blank"><img loading="lazy" src="resize?maxh=58&maxw=32&url=' + encodeURIComponent(d) + '" alt=""></a>' : '';
+                    render: function(d, t, row) {
+                        var image = d ? '<img loading="lazy" decoding="async" width="44" height="64" src="resize?maxh=96&maxw=64&url=' + encodeURIComponent(d) + '" alt="' + esc(row.title || '') + '">' : '';
+                        var cover = '<span class="horus-movie-cover"><i class="icon-base ti tabler-movie" aria-hidden="true"></i>' + image + '</span>';
+                        return d ? '<a class="horus-movie-cover-link" href="resize?maxw=512&maxh=768&url=' + encodeURIComponent(d) + '" target="_blank" rel="noopener noreferrer">' + cover + '</a>' : cover;
                     }
                 },
                 {

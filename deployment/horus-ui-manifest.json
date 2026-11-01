@@ -71,12 +71,29 @@
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-mark.svg",
       "sha256": "0fc934fbb5ba355d2a9e604f5d0b3b42078fabda97bfdcb094eb999b3f82a498"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/movies.php",
+      "sha256": "5b93c1311f06b1973e7bbfe8c4c90fd422380751f1ed9d6d2b7bedd59e817123"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/movie.php",
+      "sha256": "aaee04c33de0106a2d1c11d0a2a5258f0977671c83944ece01da1f497c869578"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-movies.css",
+      "sha256": "767eb64a807053beefae8f3343da623098e02fe8ed05a452222ddf32e756dcbc"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-movies.js",
+      "sha256": "d36644501123513d38e080b62270f89277f915a0c0b4cae0c38a93fc4c0ac27e"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",
   "validation": [
     "PHP lint",
     "First-paint readiness and recovery checks",
-    "Isolated local HTTP save/edit and stream/server controls"
+    "Isolated local HTTP save/edit and stream/server controls",
+    "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI"
   ]
 }

@@ -12,6 +12,9 @@ jobs:
           node-version: '22'
       - run: node --check panel/src/Public/assets/admin/xcvm/console-native.js
       - run: node panel/tests/Support/horus-firstpaint.mjs
+      - run: node --check panel/src/Public/assets/admin/xcvm/horus-movies.js
+      - run: node panel/tests/Support/horus-movies.mjs
+      - run: php panel/tests/Support/horus-movies.php
       - run: php panel/tests/Support/console-overview-smoke.php
       - run: find panel/src/Public/Views/admin panel/src/Public/Views/layouts panel/src/Public/Views/reseller -name '*.php' -print0 | xargs -0 -n1 php -l > /dev/null
   verify:

@@ -24,6 +24,7 @@ use XcVm\Domain\Server\ServerRepository;
 use XcVm\Domain\Stream\CategoryService;
 
 $rIsEdit   = isset($rMovie['id']);
+$rHorusRtl = \XcVm\Core\Localization\Translator::isRtl(\XcVm\Core\Localization\Translator::current());
 $rIsImport = RequestManager::has('import');
 $rProps    = $rMovie['properties'] ?? [];
 $rMovieCat = $rIsEdit ? (json_decode((string) $rMovie['category_id'], true) ?: []) : [];
@@ -48,7 +49,9 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
     </div>
 <?php endif; ?>
 
-<form id="movie-form" autocomplete="off" <?= $rIsImport ? ' enctype="multipart/form-data"' : ''; ?>>
+<link rel="stylesheet" href="assets/xcvm/horus-movies.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-movies.css'); ?>">
+<script defer src="assets/xcvm/horus-movies.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-movies.js'); ?>"></script>
+<form id="movie-form" class="xc-operation-form horus-movie-editor" autocomplete="off" <?= $rIsImport ? ' enctype="multipart/form-data"' : ''; ?>>
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rMovie['id']; ?>">
     <?php endif; ?>
@@ -57,7 +60,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
     <input type="hidden" name="bouquet_create_list" id="bouquet_create_list" value="">
     <input type="hidden" name="category_create_list" id="category_create_list" value="">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell xc-operation-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -73,6 +76,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
         <div class="card-body">
             <div class="tab-content p-0">
                 <div class="tab-pane fade show active" id="tab-details" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('details'); ?></h5>
                     <?php if (!$rIsImport): ?>
                         <div class="row mb-6">
                             <div class="col-md-9">
@@ -111,21 +115,22 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
                             </div>
                         </div>
                     <?php else: ?>
-                        <p class="text-muted small mb-3"><?= $language::get('import_movies_help') ?: 'Importing movies parses your M3U or folder and pushes each item through Watch Folder. Category and bouquet allocation from Watch Folder Settings applies here too.'; ?></p>
-                        <div class="mb-6">
-                            <label class="form-label d-block"><?= $language::get('type'); ?></label>
-                            <div class="form-check form-check-inline">
+                        <p class="horus-import-guide"><?= $language::get('import_movies_help') ?: 'Importing movies parses your M3U or folder and pushes each item through Watch Folder. Category and bouquet allocation from Watch Folder Settings applies here too.'; ?></p>
+                        <div class="mb-6 horus-import-options">
+                            <label class="form-label d-block w-100"><?= $language::get('type'); ?></label>
+                            <div class="form-check form-check-inline horus-import-choice">
                                 <input class="form-check-input" type="radio" id="import_type_1" name="import_kind" value="m3u" checked>
                                 <label class="form-check-label" for="import_type_1"><?= $language::get('m3u'); ?></label>
                             </div>
-                            <div class="form-check form-check-inline">
+                            <div class="form-check form-check-inline horus-import-choice">
                                 <input class="form-check-input" type="radio" id="import_type_2" name="import_kind" value="folder">
                                 <label class="form-check-label" for="import_type_2"><?= $language::get('folder'); ?></label>
                             </div>
                         </div>
                         <div id="import_m3uf_toggle" class="mb-6">
                             <label class="form-label" for="m3u_file"><?= $language::get('m3u_file'); ?></label>
-                            <input type="file" class="form-control" id="m3u_file" name="m3u_file">
+                            <input type="file" class="form-control" id="m3u_file" name="m3u_file" accept=".m3u,audio/x-mpegurl,audio/mpegurl">
+                            <span class="horus-import-file" id="horus-import-file" role="status" hidden></span>
                         </div>
                         <div id="import_folder_toggle" class="mb-6" hidden>
                             <label class="form-label" for="import_folder"><?= $language::get('folder'); ?></label>
@@ -176,6 +181,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
 
                 <?php if (!$rIsImport): ?>
                     <div class="tab-pane fade" id="tab-info" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('information'); ?></h5>
                         <div class="mb-6">
                             <label class="form-label" for="movie_image"><?= $language::get('poster_url'); ?></label>
                             <div class="input-group">
@@ -239,6 +245,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
                 <?php endif; ?>
 
                 <div class="tab-pane fade" id="tab-advanced" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('advanced'); ?></h5>
                     <div class="row g-3 mb-6">
                         <div class="col-md-6">
                             <div class="form-check form-switch">
@@ -302,6 +309,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
                 </div>
 
                 <div class="tab-pane fade" id="tab-server" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('server'); ?></h5>
                     <div class="mb-6">
                         <label class="form-label"><?= $language::get('server_tree'); ?></label>
                         <div id="server_tree" class="border rounded p-2"></div>
@@ -316,7 +324,7 @@ $rTitle = $rIsEdit ? $rMovie['stream_display_name'] : ($rIsImport ? $language::g
     </div>
 
     <div class="d-flex justify-content-end mb-6">
-        <button type="submit" class="btn btn-primary" id="movie-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
+        <button type="submit" class="btn btn-primary" id="movie-submit"><?= $rIsImport ? $language::get('import_movies') : ($rIsEdit ? $language::get('edit') : $language::get('add')); ?></button>
     </div>
 </form>
 
@@ -428,6 +436,9 @@ LayoutRenderer::renderFooter('admin');
             noName: <?= json_encode($language::get('enter_movie_name')); ?>,
             noSource: <?= json_encode($language::get('enter_movie_source')); ?>,
             noM3u: <?= json_encode($language::get('select_m3u_file')); ?>,
+            noFolder: <?= json_encode($rHorusRtl ? 'اختر مجلد الأفلام على السيرفر.' : 'Choose the movie folder on a server.'); ?>,
+            noCategory: <?= json_encode($rHorusRtl ? 'اختر تصنيفًا احتياطيًا عند تعطيل TMDb حتى تكتمل إضافة الأفلام.' : 'Choose a fallback category when TMDb is disabled so the imported movies can be added.'); ?>,
+            noImportSources: <?= json_encode($rHorusRtl ? 'لا توجد مصادر جديدة للاستيراد. راجع الملف أو المجلد؛ المصادر المكررة يتم تجاهلها.' : 'No new sources to import. Check the file or folder; existing sources are skipped.'); ?>,
             parent: <?= json_encode($language::get('parent_directory')); ?>,
             loading: <?= json_encode($language::get('loading')); ?>,
             found: <?= json_encode($language::get('found_results')); ?>,
@@ -823,8 +834,12 @@ LayoutRenderer::renderFooter('admin');
                     xcToast(lang.noSource, 'warning');
                     ok = false;
                 }
-            } else if (!document.getElementById('m3u_file').value && !document.getElementById('import_folder').value) {
-                xcToast(lang.noM3u, 'warning');
+            } else if (document.getElementById('import_type_2').checked ? !document.getElementById('import_folder').value.trim() : !document.getElementById('m3u_file').value) {
+                xcToast(document.getElementById('import_type_2').checked ? lang.noFolder : lang.noM3u, 'warning');
+                ok = false;
+            }
+            if (isImport && document.getElementById('disable_tmdb').checked && !$('#category_id').val().length) {
+                xcToast(lang.noCategory, 'warning');
                 ok = false;
             }
             if (!ok) {
@@ -841,9 +856,11 @@ LayoutRenderer::renderFooter('admin');
             });
             var btn = document.getElementById('movie-submit');
             btn.disabled = true;
+            var payload = new FormData(e.target);
+            if (isImport) window.HorusMovieImport.prepare(payload, document.getElementById('import_type_2').checked ? 'folder' : 'm3u');
             fetch('post.php?action=movie', {
                     method: 'POST',
-                    body: new FormData(e.target),
+                    body: payload,
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest'
                     }
@@ -860,7 +877,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (window.parent !== window) {
                             window.parent.postMessage('xcModalSaved', '*');
                         } else {
@@ -873,7 +890,7 @@ LayoutRenderer::renderFooter('admin');
                         evaluateDirectSource();
                         evaluateSymlink();
                     }
-                    xcToast(lang.errText, 'error');
+                    xcToast(isImport && Number(dt.status) === <?= (int) STATUS_NO_SOURCES; ?> ? lang.noImportSources : lang.errText, 'error');
                 })
                 .catch(function() {
                     btn.disabled = false;

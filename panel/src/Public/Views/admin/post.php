@@ -1286,7 +1286,8 @@ if (1 < $rICount) { ?>
 			case 'movie':
 				if (!empty($rData['import_folder']) || !empty($_FILES['m3u_file']['tmp_name'])) {
 					$rReturn = MovieService::import($rData);
-					echo json_encode(array('result' => true, 'location' => 'movies?status=2', 'status' => $rReturn['status']));
+					$rSuccess = $rReturn['status'] == STATUS_SUCCESS;
+					echo json_encode(array('result' => $rSuccess, 'location' => $rSuccess ? 'movies?status=2' : null, 'status' => $rReturn['status']));
 					exit();
 				}
 
