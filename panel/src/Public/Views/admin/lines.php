@@ -635,13 +635,22 @@ LayoutRenderer::renderFooter('admin');
         document.getElementById('filter-status').addEventListener('change', function() {
             table.ajax.reload();
         });
-        var searchTimer;
-        document.getElementById('filter-search').addEventListener('keyup', function() {
-            var v = this.value;
-            clearTimeout(searchTimer);
-            searchTimer = setTimeout(function() {
-                table.search(v).draw();
+        document.addEventListener('DOMContentLoaded', function() {
+            var searchControl = window.HorusSubscriptions.bindSearch(document.getElementById('filter-search'), function(value) {
+                table.search(value).draw();
             }, 400);
+            var clear = document.getElementById('clearFilters');
+            if (clear) clear.addEventListener('click', function(event) {
+                // Clear all controls together, then issue one reload instead of one per control.
+                event.stopPropagation();
+                searchControl.reset();
+                jQuery('#filter-reseller').val(null).trigger('change.select2');
+                document.getElementById('filter-status').value = '';
+                jQuery('#filter-status').trigger('change.xcWorkspace');
+                if (chkAll) chkAll.checked = false;
+                table.search('');
+                table.ajax.reload();
+            });
         });
 
         // Row single actions.

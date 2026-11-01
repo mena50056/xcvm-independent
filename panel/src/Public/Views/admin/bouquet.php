@@ -295,7 +295,7 @@ LayoutRenderer::renderFooter('admin');
         var rButton = '<button type="button" class="btn-remove btn btn-sm btn-icon btn-label-warning" onClick="toggleBouquet(' + rID + ', \'' + rType + '\');"><i class="icon-base ti tabler-minus"></i></button>';
         // The row id is applied on draw via the review table's createdRow (the node
         // does not exist yet when adds are batched with draw deferred).
-        rTable.row.add([rID, ucwords(rType), rName, rButton]);
+        rTable.row.add([rID, ucwords(rType), $('<span>').text(rName).html(), rButton]);
     }
 
     function delRow(rID, rType) {
@@ -328,6 +328,8 @@ LayoutRenderer::renderFooter('admin');
             function buildPicker(rTableId, rTypeKey, rDataId, rCategorySel) {
                 return $('#' + rTableId).DataTable({
                     serverSide: true,
+                    processing: true,
+                    deferRender: true,
                     info: false,
                     lengthChange: false,
                     pageLength: <?= $rPageLen; ?>,
@@ -361,15 +363,34 @@ LayoutRenderer::renderFooter('admin');
                         }
                     },
                     layout: {
-                        topStart: 'pageLength'
+                        topStart: null,
+                        topEnd: null
                     }
                 });
             }
 
-            var rStreamTable = buildPicker('datatable-stream', 'stream', 'bouquets_streams', '#category_id');
-            var rMoviesTable = buildPicker('datatable-movies', 'movies', 'bouquets_vod', '#category_idv');
-            var rSeriesTable = buildPicker('datatable-series', 'series', 'bouquets_series', '#category_ids');
-            var rRadiosTable = buildPicker('datatable-radios', 'radios', 'bouquets_radios', '#category_idr');
+            // Keep selected ids independent of which picker has been opened.
+            // The initial Details screen sends no content-table requests.
+            var pickers = {};
+            var pickerConfig = {
+                'tab-streams': ['datatable-stream', 'stream', 'bouquets_streams', '#category_id', 'stream_search'],
+                'tab-movies': ['datatable-movies', 'movies', 'bouquets_vod', '#category_idv', 'vod_search'],
+                'tab-series': ['datatable-series', 'series', 'bouquets_series', '#category_ids', 'series_search'],
+                'tab-radios': ['datatable-radios', 'radios', 'bouquets_radios', '#category_idr', 'radios_search']
+            };
+            function ensurePicker(paneId) {
+                if (!pickerConfig[paneId]) return;
+                if (!pickers[paneId]) {
+                    var config = pickerConfig[paneId];
+                    pickers[paneId] = buildPicker(config[0], config[1], config[2], config[3]);
+                    window.HorusSubscriptions.bindSearch(document.getElementById(config[4]), function(value) {
+                        pickers[paneId].search(value).draw();
+                    });
+                } else pickers[paneId].columns.adjust();
+            }
+            $('#bouquet_form [data-bs-toggle="tab"]').on('shown.bs.tab', function() {
+                ensurePicker(this.getAttribute('data-bs-target').slice(1));
+            });
 
             $('#datatable-review').DataTable({
                 info: false,
@@ -382,7 +403,7 @@ LayoutRenderer::renderFooter('admin');
                 createdRow: function(row, data) {
                     // data[1] is the ucwords type (Stream/Movies/Series/Radios); the row id
                     // keys back to rBouquet and lets delRow('#type-id') find it.
-                    $(row).attr('id', ('' + data[1]).toLowerCase() + '-' + data[0]);
+                    if (!row.id) $(row).attr('id', ('' + data[1]).toLowerCase() + '-' + data[0]);
                 },
                 layout: {
                     topStart: 'pageLength',
@@ -396,31 +417,11 @@ LayoutRenderer::renderFooter('admin');
                 });
             }
 
-            // Category filter reloads the matching table; the per-tab search input
-            // drives that table's client-side search().
-            $('#category_id').on('select2:select change', function() {
-                rStreamTable.ajax.reload(null, false);
-            });
-            $('#stream_search').on('keyup', function() {
-                rStreamTable.search($(this).val()).draw();
-            });
-            $('#category_idv').on('select2:select change', function() {
-                rMoviesTable.ajax.reload(null, false);
-            });
-            $('#vod_search').on('keyup', function() {
-                rMoviesTable.search($(this).val()).draw();
-            });
-            $('#category_ids').on('select2:select change', function() {
-                rSeriesTable.ajax.reload(null, false);
-            });
-            $('#series_search').on('keyup', function() {
-                rSeriesTable.search($(this).val()).draw();
-            });
-            $('#category_idr').on('select2:select change', function() {
-                rRadiosTable.ajax.reload(null, false);
-            });
-            $('#radios_search').on('keyup', function() {
-                rRadiosTable.search($(this).val()).draw();
+            // Select2 already emits change; handling both events doubled each request.
+            Object.keys(pickerConfig).forEach(function(paneId) {
+                $(pickerConfig[paneId][3]).on('change', function() {
+                    if (pickers[paneId]) pickers[paneId].ajax.reload();
+                });
             });
 
             // "Next" advances to the following tab; hide it once the last tab is active.

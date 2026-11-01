@@ -1,0 +1,23 @@
+import fs from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../../src/Public/assets/admin/xcvm/horus-subscriptions.js',import.meta.url),'utf8');
+let next=0;const timers=new Map();
+const context={window:{},document:{addEventListener(){}},setTimeout(fn){timers.set(++next,fn);return next;},clearTimeout(id){timers.delete(id);}};
+vm.runInNewContext(source,context);
+const listeners={},calls=[];
+const input={value:'',addEventListener(name,fn){listeners[name]=fn;}};
+const binding=context.window.HorusSubscriptions.bindSearch(input,value=>calls.push(value));
+const tick=()=>{for(const [id,fn] of [...timers]){timers.delete(id);fn();}};
+for(const value of ['H','HD','HDEMO']){input.value=value;listeners.input();}
+assert.equal(timers.size,1);assert.deepEqual(calls,[]);tick();assert.deepEqual(calls,['HDEMO']);
+listeners.input();tick();assert.equal(calls.length,1,'unchanged input must not query again');
+listeners.compositionstart();input.value='حورس';listeners.input();tick();assert.equal(calls.length,1);
+listeners.compositionend();tick();assert.equal(calls.at(-1),'حورس');
+input.value='pasted value';listeners.input();tick();assert.equal(calls.at(-1),'pasted value','paste/mobile input');
+input.value='instant';listeners.input();let prevented=false;
+listeners.keydown({key:'Enter',preventDefault(){prevented=true;}});assert(prevented);assert.equal(calls.at(-1),'instant');assert.equal(timers.size,0);
+listeners.keydown({key:'Escape',preventDefault(){}});assert.equal(input.value,'');assert.equal(calls.at(-1),'');
+const before=calls.length;listeners.keydown({key:'ArrowLeft',preventDefault(){throw Error('unrelated key');}});tick();assert.equal(calls.length,before);
+input.value='pending';listeners.input();binding.reset();tick();assert.equal(input.value,'');assert.equal(calls.length,before,'reset cancels stale requests');
+console.log('PASS: debounced distinct searches, paste, IME, Enter, Escape and no duplicate requests');

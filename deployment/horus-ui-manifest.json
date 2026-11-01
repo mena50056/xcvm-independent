@@ -142,7 +142,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/bouquet.php",
-      "sha256": "620785fa5aabfe1ca2b651c02be173dc6b0bf1f4e749e9642b0abc1c787fac40"
+      "sha256": "45c09f9991ce95e49ef1bfd732b55c7e346299ea8c168c9904ce0aca1961e323"
     },
     {
       "path": "panel/src/Public/Views/admin/packages.php",
@@ -154,11 +154,15 @@
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.js",
-      "sha256": "ea112b38c42d2904a353248c8e47e863b0b2acb73c9f103b6ec63e6cc95d7120"
+      "sha256": "616ed65e26e35fb843ad7ecf1300894c31a067f0914e20ad090f8efaef7ac71d"
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.css",
       "sha256": "88b3073ad9213634b90e917d52cdf8d6b68f082f17ab59a8348b548ca412df21"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/lines.php",
+      "sha256": "42f65202fba35905a4b7408f3fe7b8965ab68ee95b4cf8a6379a1da9947f38af"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",

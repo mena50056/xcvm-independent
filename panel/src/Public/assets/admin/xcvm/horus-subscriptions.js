@@ -1,6 +1,31 @@
 /* Horus subscription workspaces. Original form names and save handlers remain authoritative. */
 (function () {
     'use strict';
+    // One request after typing settles; paste, mobile input and IME composition are supported.
+    window.HorusSubscriptions = {
+        bindSearch(input, apply, delay = 350) {
+            let timer, composing = false, previous = input.value;
+            const flush = () => {
+                clearTimeout(timer);
+                if (composing || input.value === previous) return;
+                previous = input.value;
+                apply(previous);
+            };
+            const schedule = () => { clearTimeout(timer); if (!composing) timer = setTimeout(flush, delay); };
+            input.addEventListener('input', schedule);
+            input.addEventListener('compositionstart', () => { composing = true; clearTimeout(timer); });
+            input.addEventListener('compositionend', () => { composing = false; schedule(); });
+            input.addEventListener('keydown', event => {
+                if (event.isComposing || composing) return;
+                if (event.key === 'Enter') { event.preventDefault(); flush(); }
+                if (event.key === 'Escape') { event.preventDefault(); input.value = ''; flush(); }
+            });
+            return {
+                cancel: () => clearTimeout(timer),
+                reset(value = '') { clearTimeout(timer); input.value = value; previous = value; }
+            };
+        }
+    };
     document.addEventListener('DOMContentLoaded', function () {
         const ar = document.documentElement.dir === 'rtl' || document.documentElement.lang.startsWith('ar');
         const text = (arabic, english) => ar ? arabic : english;
