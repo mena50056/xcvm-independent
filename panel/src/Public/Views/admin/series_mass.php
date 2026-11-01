@@ -18,9 +18,11 @@ use XcVm\Domain\Bouquet\BouquetService;
     <h4 class="mb-0"><?= $language::get('mass_edit_series'); ?> <small class="text-body-secondary" id="selected_count"></small></h4>
 </div>
 
-<div class="card">
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<div class="card horus-series-mass">
     <div class="card-body">
-        <form id="mass-form">
+        <form id="mass-form" class="horus-series-editor">
             <input type="hidden" name="series" id="series" value="">
             <ul class="nav nav-pills flex-wrap mb-4" role="tablist">
                 <li class="nav-item"><button type="button" class="nav-link active" data-bs-toggle="tab" data-bs-target="#series-selection" role="tab"><i class="icon-base ti tabler-device-tv me-1"></i><?= $language::get('series'); ?></button></li>

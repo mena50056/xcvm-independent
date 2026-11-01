@@ -37,7 +37,9 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
     </div>
 <?php endif; ?>
 
-<form id="serie-form" autocomplete="off" <?= $rIsImport ? ' enctype="multipart/form-data"' : ''; ?>>
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<form class="xc-operation-form horus-series-editor" id="serie-form" autocomplete="off" <?= $rIsImport ? ' enctype="multipart/form-data"' : ''; ?>>
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rSeriesArr['id']; ?>">
     <?php endif; ?>
@@ -49,7 +51,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
     <input type="hidden" name="bouquet_create_list" id="bouquet_create_list" value="">
     <input type="hidden" name="category_create_list" id="category_create_list" value="">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell xc-operation-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -66,6 +68,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
         <div class="card-body">
             <div class="tab-content p-0">
                 <div class="tab-pane fade show active" id="tab-details" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('details'); ?></h5>
                     <?php if (!$rIsImport): ?>
                         <div class="row mb-6">
                             <div class="col-md-9">
@@ -94,7 +97,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
                             </div>
                         <?php endif; ?>
                     <?php else: ?>
-                        <p class="text-muted small mb-3"><?= $language::get('import_movies_help') ?: 'Importing parses your M3U or folder and pushes each item through Watch Folder. Category and bouquet allocation from Watch Folder Settings applies here too.'; ?></p>
+                        <p class="horus-series-guide"><?= $language::get('import_movies_help') ?: 'Importing parses your M3U or folder and pushes each item through Watch Folder. Category and bouquet allocation from Watch Folder Settings applies here too.'; ?></p>
                         <div class="mb-6">
                             <label class="form-label d-block"><?= $language::get('type'); ?></label>
                             <div class="form-check form-check-inline">
@@ -108,7 +111,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
                         </div>
                         <div id="import_m3uf_toggle" class="mb-6">
                             <label class="form-label" for="m3u_file"><?= $language::get('m3u_file'); ?></label>
-                            <input type="file" class="form-control" id="m3u_file" name="m3u_file">
+                            <input type="file" class="form-control" id="m3u_file" name="m3u_file" accept=".m3u,audio/x-mpegurl,audio/mpegurl">
                         </div>
                         <div id="import_folder_toggle" class="mb-6" hidden>
                             <label class="form-label" for="import_folder"><?= $language::get('folder'); ?></label>
@@ -143,6 +146,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
 
                 <?php if (!$rIsImport): ?>
                     <div class="tab-pane fade" id="tab-info" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('information'); ?></h5>
                         <div class="mb-6">
                             <label class="form-label" for="cover"><?= $language::get('poster_url'); ?></label>
                             <div class="input-group">
@@ -201,6 +205,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
                     </div>
                 <?php else: ?>
                     <div class="tab-pane fade" id="tab-advanced" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('advanced'); ?></h5>
                         <div class="row g-3 mb-6">
                             <div class="col-md-6">
                                 <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="direct_source" name="direct_source" value="1"><label class="form-check-label" for="direct_source"><?= $language::get('direct_source'); ?></label></div>
@@ -236,6 +241,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
                         </div>
                     </div>
                     <div class="tab-pane fade" id="tab-server" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('server'); ?></h5>
                         <div class="mb-6">
                             <label class="form-label"><?= $language::get('server_tree'); ?></label>
                             <div id="server_tree" class="border rounded p-2"></div>
@@ -251,7 +257,7 @@ $rTitle = $rIsEdit ? $rSeriesArr['title'] : ($rIsImport ? 'Import Series' : 'Add
     </div>
 
     <div class="d-flex justify-content-end mb-6">
-        <button type="submit" class="btn btn-primary" id="serie-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
+        <button type="submit" class="btn btn-primary" id="serie-submit"><?= $rIsImport ? $language::get('import_series') : ($rIsEdit ? $language::get('edit') : $language::get('add')); ?></button>
     </div>
 </form>
 
@@ -562,7 +568,7 @@ LayoutRenderer::renderFooter('admin');
                     xcToast(errText, 'error');
                     return;
                 }
-            } else if (!document.getElementById('m3u_file').value && !document.getElementById('import_folder').value) {
+            } else if ((document.getElementById('import_type_2').checked ? !document.getElementById('import_folder').value.trim() : !document.getElementById('m3u_file').value)) {
                 xcToast(errText, 'error');
                 return;
             }
@@ -578,9 +584,11 @@ LayoutRenderer::renderFooter('admin');
             });
             var btn = document.getElementById('serie-submit');
             btn.disabled = true;
+            var payload = new FormData(e.target);
+            if (isImport) window.HorusSeriesImport.prepare(payload, document.getElementById('import_type_2').checked ? 'folder' : 'm3u');
             fetch('post.php?action=serie', {
                     method: 'POST',
-                    body: new FormData(e.target),
+                    body: payload,
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest'
                     }
@@ -597,7 +605,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (window.parent !== window) {
                             window.parent.postMessage('xcModalSaved', '*');
                         } else {

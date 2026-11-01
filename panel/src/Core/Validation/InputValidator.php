@@ -62,7 +62,30 @@ class InputValidator {
 				return !empty($rData['stream_display_name']) || isset($rData['review']) || isset($_FILES['m3u_file']);
 
 			case 'processEpisode':
-				return !empty($rData['series']) && is_numeric($rData['season_num'] ?? null) && (isset($rData['multi']) || is_numeric($rData['episode'] ?? null));
+				$rInteger = static fn($rValue): bool => is_scalar($rValue) && ctype_digit((string) $rValue);
+				if (!$rInteger($rData['series'] ?? null) || intval($rData['series']) < 1 || !$rInteger($rData['season_num'] ?? null)) {
+					return false;
+				}
+				// Season zero is valid for specials; episode numbers start at one.
+				if (isset($rData['multi'])) {
+					if (!$rInteger($rData['server'] ?? null) || intval($rData['server']) < 1 || !is_string($rData['season_folder'] ?? null) || trim($rData['season_folder']) === '') {
+						return false;
+					}
+					$rEpisodes = [];
+					foreach ($rData as $rKey => $rFilename) {
+						if (preg_match('/^episode_([0-9]+)_name$/', $rKey, $rMatch)) {
+							$rNumber = $rData['episode_' . $rMatch[1] . '_num'] ?? null;
+							if (!is_string($rFilename) || trim($rFilename) === '' || basename($rFilename) !== $rFilename || !$rInteger($rNumber) || intval($rNumber) < 1 || isset($rEpisodes[intval($rNumber)])) {
+								return false;
+							}
+							$rEpisodes[intval($rNumber)] = true;
+						}
+					}
+					return $rEpisodes !== [];
+				}
+				return $rInteger($rData['episode'] ?? null) && intval($rData['episode']) > 0
+					&& is_string($rData['stream_display_name'] ?? null) && trim($rData['stream_display_name']) !== ''
+					&& is_string($rData['stream_source'] ?? null) && trim($rData['stream_source']) !== '';
 
 			case 'processSeries':
 				return !empty($rData['title']);
@@ -214,7 +237,7 @@ class InputValidator {
 	}
 
 	/**
-	 * Рекурсивный парсинг входных данных.
+	 * Очистка значения входных данных.
 	 */
 	public static function parseIncomingRecursively(&$rData, $rInput = [], $rIteration = 0) {
 		if ($rIteration >= 20 || !is_array($rData)) {
@@ -231,7 +254,7 @@ class InputValidator {
 	}
 
 	/**
-	 * Очистка ключа входных данных.
+	 * Очистка значения входных данных.
 	 */
 	public static function parseCleanKey($rKey) {
 		if ($rKey === '') {

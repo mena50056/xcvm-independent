@@ -33,9 +33,11 @@ $rCanPlayer = Authorization::check('adv', 'player');
 $rFilters = [1 => 'encoded', 2 => 'encoding', 3 => 'down', 4 => 'ready', 5 => 'direct', 6 => 'duplicate', 7 => 'transcoding'];
 ?>
 
-<div class="card">
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<div class="card xc-lines-workspace xc-operations-workspace horus-series-workspace">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h5 class="card-title mb-0"><?= $language::get('episodes'); ?></h5>
+        <div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · EPISODE WORKSPACE</span><h5 class="card-title mb-0"><?= $language::get('episodes'); ?></h5><p class="xc-workspace-caption"><?= \XcVm\Core\Localization\Translator::isRtl(\XcVm\Core\Localization\Translator::current()) ? 'إدارة حلقاتك ومصادرها وتوزيعها على السيرفرات.' : 'Manage episode sources, status and server assignments.'; ?></p></div>
         <div class="d-flex flex-wrap align-items-center gap-2">
             <?php if ($rCanEdit): ?>
                 <div id="bulk-bar" class="d-none align-items-center gap-2">
@@ -51,7 +53,7 @@ $rFilters = [1 => 'encoded', 2 => 'encoding', 3 => 'down', 4 => 'ready', 5 => 'd
             <?php endif; ?>
         </div>
     </div>
-    <div class="card-body border-bottom">
+    <div class="card-body border-bottom xc-lines-filters">
         <div class="row g-3">
             <div class="col-12 col-sm-6 col-lg-3">
                 <label class="form-label" for="filter-series"><?= $language::get('series') ?: 'Series'; ?></label>

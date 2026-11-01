@@ -1852,7 +1852,7 @@ if (1 < $rICount) { ?>
 			case 'serie':
 				if (!empty($rData['import_folder']) || !empty($_FILES['m3u_file']['tmp_name'])) {
 					$rReturn = SeriesService::import($rData);
-					echo json_encode(array('result' => true, 'location' => 'series?status=2', 'status' => $rReturn['status']));
+					echo json_encode(array('result' => $rReturn['status'] == STATUS_SUCCESS, 'location' => $rReturn['status'] == STATUS_SUCCESS ? 'series?status=2' : null, 'status' => $rReturn['status']));
 					exit();
 				}
 

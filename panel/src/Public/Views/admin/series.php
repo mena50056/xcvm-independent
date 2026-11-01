@@ -27,9 +27,11 @@ $rCanEpisodes = Authorization::check('adv', 'episodes');
 $rCanAddEpisode = Authorization::check('adv', 'add_episode');
 ?>
 
-<div class="card">
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<div class="card xc-lines-workspace xc-operations-workspace horus-series-workspace">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <h5 class="card-title mb-0"><?= $language::get('series'); ?></h5>
+        <div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · SERIES LIBRARY</span><h5 class="card-title mb-0"><?= $language::get('series'); ?></h5><p class="xc-workspace-caption"><?= \XcVm\Core\Localization\Translator::isRtl(\XcVm\Core\Localization\Translator::current()) ? 'المسلسلات والمواسم والحلقات في مكتبة واحدة.' : 'Series, seasons and episodes in one organized library.'; ?></p></div>
         <div id="bulk-bar" class="d-none align-items-center gap-2">
             <span class="text-body-secondary"><span id="bulk-count">0</span></span>
             <?php if ($rCanEditSeries): ?>
@@ -37,7 +39,7 @@ $rCanAddEpisode = Authorization::check('adv', 'add_episode');
             <?php endif; ?>
         </div>
     </div>
-    <div class="card-body border-bottom">
+    <div class="card-body border-bottom xc-lines-filters">
         <div class="row g-3">
             <div class="col-12 col-sm-6 col-lg-4">
                 <label class="form-label" for="filter-category"><?= $language::get('category'); ?></label>
@@ -192,7 +194,8 @@ LayoutRenderer::renderFooter('admin');
                     data: 'cover',
                     orderable: false,
                     render: function(d) {
-                        return d ? '<a href="resize?maxw=512&maxh=512&url=' + encodeURIComponent(d) + '" target="_blank"><img loading="lazy" src="resize?maxh=58&maxw=32&url=' + encodeURIComponent(d) + '" alt=""></a>' : '';
+                        var poster = '<span class="horus-series-cover"><i class="icon-base ti tabler-device-tv" aria-hidden="true"></i>' + (d ? '<img loading="lazy" decoding="async" width="44" height="64" src="resize?maxh=96&maxw=64&url=' + encodeURIComponent(d) + '" alt="">' : '') + '</span>';
+                        return d ? '<a href="resize?maxw=512&maxh=768&url=' + encodeURIComponent(d) + '" target="_blank" rel="noopener noreferrer">' + poster + '</a>' : poster;
                     }
                 },
                 {

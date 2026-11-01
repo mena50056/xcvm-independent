@@ -16,10 +16,12 @@ use XcVm\Core\Util\AdminHelpers;
 use XcVm\Core\Util\Topbar;
 
 $xmTopbarPage = AdminHelpers::getPageName();
+$xmTopbarStream = $xmTopbarPage === 'stream_view' ? \XcVm\Domain\Stream\StreamRepository::getById((int) RequestManager::get('id')) : null;
 $xmTopbarItems = Topbar::items($xmTopbarPage, [
     'rMobile' => $rMobile ?? false,
     'rID' => RequestManager::get('id'),
-    'rSID' => RequestManager::get('sid'),
+    'rSID' => $xmTopbarStream['series_no'] ?? RequestManager::get('sid'),
+    'rStreamType' => $xmTopbarStream['type'] ?? null,
     'rMulti' => RequestManager::has('multi'),
 ]);
 

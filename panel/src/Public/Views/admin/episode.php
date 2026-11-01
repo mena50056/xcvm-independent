@@ -63,7 +63,9 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
     <?php endforeach; ?>
 <?php endif; ?>
 
-<form id="episode-form" autocomplete="off">
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<form class="xc-operation-form horus-series-editor" id="episode-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rEpisode['id']; ?>">
     <?php endif; ?>
@@ -78,7 +80,7 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
     <input type="hidden" name="server_tree_data" id="server_tree_data" value="">
     <input type="hidden" id="tmdb_language" value="<?= htmlspecialchars((string) $rTmdbLang, ENT_QUOTES); ?>">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell xc-operation-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -94,6 +96,7 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
         <div class="card-body">
             <div class="tab-content p-0">
                 <div class="tab-pane fade show active" id="tab-details" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('details'); ?></h5>
                     <?php if (!$rMulti): ?>
                         <div class="mb-6">
                             <label class="form-label" for="series_name"><?= $language::get('series_name'); ?></label>
@@ -168,6 +171,7 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
 
                 <?php if (!$rMulti): ?>
                     <div class="tab-pane fade" id="tab-info" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('information'); ?></h5>
                         <div class="mb-6">
                             <label class="form-label" for="movie_image"><?= $language::get('image_url'); ?></label>
                             <div class="input-group">
@@ -197,6 +201,7 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
                 <?php endif; ?>
 
                 <div class="tab-pane fade" id="tab-advanced" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('advanced'); ?></h5>
                     <div class="row g-3 mb-6">
                         <div class="col-md-6">
                             <div class="form-check form-switch">
@@ -264,6 +269,7 @@ $rTitle = $rIsEdit ? $rEpisode['stream_display_name'] : ($rMulti ? $language::ge
                 </div>
 
                 <div class="tab-pane fade" id="tab-server" role="tabpanel">
+                    <h5 class="xc-operation-section-title"><?= $language::get('server'); ?></h5>
                     <div class="mb-6">
                         <label class="form-label"><?= $language::get('server_tree'); ?></label>
                         <div id="server_tree" class="border rounded p-2"></div>
@@ -555,13 +561,9 @@ LayoutRenderer::renderFooter('admin');
                     $(data.data).each(function(id, item) {
                         $('#episode_' + item[0] + '_num').val(item[1]);
                     });
-                    var nextEpisode = 1;
-                    $('[id^=episode_][id$=_num]').each(function() {
-                        if (!$(this).val()) {
-                            $(this).val(nextEpisode);
-                        }
-                        nextEpisode++;
-                    });
+                    var fields = $('[id^=episode_][id$=_num]');
+                    var numbers = window.HorusEpisodeNumbers.fill(fields.map(function() { return $(this).val(); }).get());
+                    fields.each(function(index) { $(this).val(numbers[index]); });
                 }, 'json');
                 bootstrap.Modal.getInstance(fbModal).hide();
             });
@@ -728,7 +730,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (dt.location) {
                             window.location = dt.location;
                         }

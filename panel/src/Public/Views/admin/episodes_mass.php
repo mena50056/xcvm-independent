@@ -18,9 +18,11 @@ use XcVm\Domain\Stream\StreamConfigRepository;
     <h4 class="mb-0"><?= $language::get('mass_edit_episodes'); ?> <small class="text-body-secondary" id="selected_count"></small></h4>
 </div>
 
-<div class="card">
+<link rel="stylesheet" href="assets/xcvm/horus-series.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.css'); ?>">
+<script defer src="assets/xcvm/horus-series.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-series.js'); ?>"></script>
+<div class="card horus-series-mass">
     <div class="card-body">
-        <form id="mass-form">
+        <form id="mass-form" class="horus-series-editor">
             <input type="hidden" name="server_tree_data" id="server_tree_data" value="">
             <input type="hidden" name="od_tree_data" id="od_tree_data" value="">
             <input type="hidden" name="streams" id="streams" value="">

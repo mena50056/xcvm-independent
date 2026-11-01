@@ -9,6 +9,7 @@ use XcVm\Core\Events\Stream\StreamsChangedEvent;
 use XcVm\Core\Http\ApiClient;
 use XcVm\Core\Util\AdminHelpers;
 use XcVm\Core\Util\ImageUtils;
+use XcVm\Core\Validation\InputValidator;
 use XcVm\Domain\Stream\StreamProcess;
 use XcVm\Domain\Stream\StreamRepository;
 use XcVm\Infrastructure\Database\DatabaseAware;
@@ -34,6 +35,9 @@ class EpisodeService {
 	 */
 	public static function process(array $rData) {
 		$rData = Authorization::dropFfmpegArguments($rData);
+		if (!InputValidator::validate('processEpisode', $rData)) {
+			return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
+		}
 		global $rSettings;
 		$db = self::db();
 		if (isset($rData['edit'])) {
@@ -111,7 +115,10 @@ class EpisodeService {
 					$rTMDB = new \TMDB($rSettings['tmdb_api_key']);
 				}
 
-				$rJSON = json_decode($rTMDB->getSeason($rData['tmdb_id'], intval($rData['season_num']))->getJSON(), true);
+				$rJSON = ['episodes' => []];
+				if (intval($rData['tmdb_id'] ?? 0) > 0 && !empty($rSettings['tmdb_api_key'])) {
+					$rJSON = json_decode($rTMDB->getSeason($rData['tmdb_id'], intval($rData['season_num']))->getJSON(), true) ?: ['episodes' => []];
+				}
 
 				foreach ($rData as $rKey => $rFilename) {
 					$rSplit = explode('_', $rKey);
@@ -120,7 +127,7 @@ class EpisodeService {
 						if ((string) $rData['episode_' . $rSplit[1] . '_num'] !== '') {
 							$rImportArray = ['filename' => '', 'properties' => [], 'name' => '', 'episode' => 0, 'target_container' => ''];
 							$rEpisodeNum = intval($rData['episode_' . $rSplit[1] . '_num']);
-							$rImportArray['filename'] = 's:' . $rData['server'] . ':' . $rData['season_folder'] . $rFilename;
+							$rImportArray['filename'] = 's:' . $rData['server'] . ':' . rtrim($rData['season_folder'], '/') . '/' . $rFilename;
 							$rImage = '';
 
 							if (isset($rData['addName1']) && isset($rData['addName2'])) {
@@ -268,7 +275,7 @@ class EpisodeService {
 		}
 
 		if (isset($rData['multi'])) {
-			return ['status' => STATUS_SUCCESS_MULTI, 0 => ['series_id' => $rData['series']]];
+			return ['status' => STATUS_SUCCESS_MULTI, 'data' => ['series_id' => $rData['series']]];
 		}
 
 		return ['status' => STATUS_SUCCESS, 'data' => ['series_id' => $rData['series'], 'insert_id' => $rInsertID]];

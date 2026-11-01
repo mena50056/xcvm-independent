@@ -87,6 +87,42 @@
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-movies.js",
       "sha256": "d36644501123513d38e080b62270f89277f915a0c0b4cae0c38a93fc4c0ac27e"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/series.php",
+      "sha256": "19380ab6a11e662cffa96cea6e607852556aa425aa976fd6fbe37f884bea23df"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/serie.php",
+      "sha256": "f6d58f17538ba9bf0e83df0513fa066032fbce6a24b1c991888340f6fd9048a3"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/episodes.php",
+      "sha256": "3febfe23bb692aa2d879fa30bcc56d2d13f39cddca4bb2197bbb1f4e7b8d6210"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/episode.php",
+      "sha256": "9f202b789535032b82140f98f259beaac88847a6808312d84a9aa4d0a4c0f88b"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/series_mass.php",
+      "sha256": "7b87f830158b6bc61d745335960ac72cd6e4abbbfb44c246d54da968854de9b6"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/episodes_mass.php",
+      "sha256": "00a8c07478721d59c744d676d5d9cf01207886adf77d5d0532bddcc24e5ffdc5"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/topbar.php",
+      "sha256": "dba279a999ea91a761145e92f9a866a1da511d8347c3d7410441497a8fb1e26e"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-series.css",
+      "sha256": "b0d2cfa3da415f3aa996d9c049804f50635ff3d1136799f3c890e9d349332e1c"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-series.js",
+      "sha256": "f806cec0950592dbcd252ef1f1fe58b4a43d5cb2dac13204d9763602dbf668eb"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",
@@ -94,6 +130,7 @@
     "PHP lint",
     "First-paint readiness and recovery checks",
     "Isolated local HTTP save/edit and stream/server controls",
-    "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI"
+    "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI",
+    "Series: real TMDb lookup; isolated create/edit, M3U and season-folder imports; desktop/mobile forms and bulk edit"
   ]
 }
