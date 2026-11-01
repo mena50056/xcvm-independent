@@ -57,6 +57,10 @@ final class XC_VM {
         $dsn=$d['dsn'] ?? 'mysql:host='.$d['host'].';port='.($d['port']??3306).';dbname='.($migrate?'xc_vm_migrate':$d['name']).';charset=utf8mb4';
         return new PDO($dsn,$d['user']??null,$d['pass']??null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
     }
+    public static function db_dump(string $filename,array $ignore=[]): bool {
+        if(!empty(self::config_server()['is_lb']))throw new RuntimeException('Backups belong to MAIN');
+        return \XcVm\Core\Backup\IndependentDatabaseDump::create(self::load('config.enc')['db'],$filename,$ignore,dirname(__DIR__).'/panel/src/backups');
+    }
     public static function redis_connect(): Redis {
         $r=self::load('config.enc')['redis'];$c=new Redis();$c->connect($r['host'],$r['port'],3);
         if (($r['auth']??'')!=='') $c->auth($r['auth']); return $c;

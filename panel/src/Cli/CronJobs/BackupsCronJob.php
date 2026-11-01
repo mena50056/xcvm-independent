@@ -36,6 +36,7 @@ class BackupsCronJob implements CommandInterface {
 			return 1;
 		}
 
+		$this->registerShutdown();
 		ini_set('display_errors', 1);
 		ini_set('display_startup_errors', 1);
 		error_reporting(32757);
@@ -68,16 +69,17 @@ class BackupsCronJob implements CommandInterface {
 		}
 
 		$rCreated = null;
-		if (isset($rBackups) && $rBackups != 'off' || $rForce) {
-			if ($rLastBackup + $rPeriod[$rBackups] <= time() || $rForce) {
-				if (!$rForce) {
-					$db->query('UPDATE `settings` SET `last_backup` = ?;', time());
-				}
+		if (isset($rPeriod[$rBackups]) || $rForce) {
+			if ($rForce || $rLastBackup + $rPeriod[$rBackups] <= time()) {
 				$db->close_mysql();
 				$rFilename = MAIN_HOME . 'backups/backup_' . date('Y-m-d_H:i:s') . '.sql';
 
-				if (BackupService::create($rFilename)) {
+				$rDumped = BackupService::create($rFilename);
+				if (!$rDumped) { throw new \RuntimeException('Database backup failed; no completed backup was created.'); }
+				if ($rDumped) {
 					$rCreated = basename($rFilename);
+					$db->db_connect();
+					$db->query('UPDATE `settings` SET `last_backup` = ?;', time());
 					if (SettingsManager::get('dropbox_remote')) {
 						file_put_contents($rFilename . '.uploading', time());
 						$rResponse = BackupService::uploadRemote(basename($rFilename), $rFilename);

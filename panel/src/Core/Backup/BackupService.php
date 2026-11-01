@@ -63,6 +63,7 @@ class BackupService {
 	 * @return bool Whether the dump finished; one that did not leaves no file
 	 */
 	public static function create(string $filename): bool {
+		if (file_exists($filename) || is_link($filename)) { return false; }
 		$rDumped = (bool) \XC_VM::db_dump($filename, self::$ignoreTables);
 		clearstatcache(true, $filename);
 		if ($rDumped && is_file($filename) && 0 < filesize($filename)) {

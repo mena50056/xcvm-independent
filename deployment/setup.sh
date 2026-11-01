@@ -16,7 +16,7 @@ apt-get update
 apt-get install -y ca-certificates ffmpeg libssl3 libonig5 libzip4 libsodium23 libmaxminddb0 libssh2-1 libxml2 libcurl3-gnutls libsqlite3-0 libpng16-16 libjpeg-turbo8 libfreetype6 libxslt1.1 libicu70 sudo python3 openssl
 id xcvm_lab >/dev/null 2>&1 || useradd --system --home-dir "$ROOT" --shell /usr/sbin/nologin xcvm_lab
 SRC="$ROOT/panel/src"
-mkdir -p "$SRC"/{config/cluster,tmp/{cache,crons,logs,opened_cons,player,flood,gateway},signals,content/{streams,archive,vod,playlists},storage/images,bin/xc_fanout/sockets,bin/nginx/conf/codes}
+mkdir -p "$SRC"/{config/cluster,tmp/{cache,crons,logs,opened_cons,player,flood,gateway},signals,content/{streams,archive,vod,playlists},storage/images,backups,bin/xc_fanout/sockets,bin/nginx/conf/codes}
 chmod 755 "$ROOT"
 python3 "$ROOT/deployment/ensure_horus_home.py"
 chmod 755 "$SRC/bin/xc_agent/xc_agent" "$SRC/bin/xc_fanout/xc_fanout"
@@ -47,7 +47,7 @@ if [[ "$ROLE" == main ]]; then
   nginx -t
   systemctl enable --now nginx
   systemctl reload nginx
-  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-signals xcvm-independent-maintenance.timer
+  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-signals xcvm-independent-maintenance.timer xcvm-independent-backups.timer
   echo "MAIN installed. Private login details: $ROOT/.runtime-state/main/admin-login.json"
 else
   systemctl enable --now xcvm-independent-fanout xcvm-independent-agent

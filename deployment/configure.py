@@ -110,6 +110,17 @@ php = f'{SRC}/bin/php/bin/php -c {ROOT}/php.ini'
 if role == 'main':
     unit('xcvm-independent-lab', f'{php} -S 127.0.0.1:18080 -t {SRC}/Public {ROOT}/runtime/router.php', 'mariadb.service redis-server.service')
     unit('xcvm-independent-monitor', f'{php} {ROOT}/runtime/monitor.php')
+    unit('xcvm-independent-backups', f'{php} {SRC}/console.php cron:backups', 'mariadb.service', extra='Type=oneshot\nUMask=0077\nTimeoutStartSec=1800')
+    backup_unit = pathlib.Path('/etc/systemd/system/xcvm-independent-backups.service')
+    backup_unit.write_text(backup_unit.read_text().replace('Restart=on-failure', 'Restart=no'))
+    write('/etc/systemd/system/xcvm-independent-backups.timer', """[Unit]
+Description=Check the configured local database backup schedule
+[Timer]
+OnBootSec=300
+OnUnitActiveSec=900
+[Install]
+WantedBy=timers.target
+""")
     unit('xcvm-independent-signals', f'{php} {SRC}/console.php signals')
     unit('xcvm-independent-fanout-sync', f'{php} {SRC}/console.php fanout_sync')
     write(ROOT / 'deployment/maintenance.sh', f'''#!/bin/sh

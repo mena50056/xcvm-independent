@@ -8,6 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: php tests/vendor-disconnect.php
+      - run: php tests/independent-backups.php
       - run: python3 deployment/test_vendor_isolation.py
       - run: python3 deployment/test_horus_paths.py
       - run: python3 deployment/test_horus_home.py
