@@ -30,6 +30,7 @@ endif;
     }
 </style>
 
+<?php $hmPage = 'panel_logs'; $hmTitle = 'panel_errors'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('panel_errors'); ?></h5>
@@ -51,6 +52,8 @@ endif;
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -67,6 +70,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#panel-logs-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',
@@ -93,7 +99,7 @@ LayoutRenderer::renderFooter('admin');
                 {
                     data: 'date',
                     className: 'text-nowrap',
-                    responsivePriority: 1,
+                    responsivePriority: 3,
                     render: function(d) {
                         return esc(fmtDate(d));
                     }
@@ -114,7 +120,7 @@ LayoutRenderer::renderFooter('admin');
                 {
                     data: 'message',
                     className: 'panel-log-msg',
-                    responsivePriority: 3,
+                    responsivePriority: 1,
                     render: function(d, t, row) {
                         var m = esc(d);
                         if (row.extra) {
@@ -135,8 +141,7 @@ LayoutRenderer::renderFooter('admin');
         });
 
         // Download JSON — wired to the topbar "Download log" button (the shell
-        // renders the panel_logs action buttons; the endpoint removes the logs
-        // after export). Clear Logs is handled generically in footer.php via the
+        // renders the panel_logs action buttons; export preserves the original rows). Clear Logs is handled generically in footer.php via the
         // shared #btn-clear-logs / #xcClearLogsModal wiring (data-log-type=panel_logs).
         var confirmText = <?= json_encode($language::get('clear_confirm')); ?>;
         var errText = <?= json_encode($language::get('error_occured')); ?>;
@@ -149,7 +154,7 @@ LayoutRenderer::renderFooter('admin');
         };
         var dlBtn = document.getElementById('btn-download-log');
         if (dlBtn) dlBtn.addEventListener('click', function() {
-            var proceed = window.xcConfirm ? window.xcConfirm(confirmText) : Promise.resolve(window.confirm(confirmText));
+            var proceed = Promise.resolve(true);
             proceed.then(function(ok) {
                 if (!ok) {
                     return;
@@ -163,6 +168,7 @@ LayoutRenderer::renderFooter('admin');
                         return r.json();
                     })
                     .then(function(data) {
+                        if (!data || data.result !== true) throw new Error('Export failed');
                         var blob = new Blob([JSON.stringify(data.data || [], null, 2)], {
                             type: 'application/json'
                         });

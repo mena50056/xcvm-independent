@@ -15,12 +15,13 @@ use XcVm\Domain\Server\ServerRepository;
 $rServerId = (int) RequestManager::get('server');
 ?>
 
+<?php $hmPage = 'process_monitor'; $hmTitle = 'process_monitor'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <h4 class="mb-0"><?= $language::get('process_monitor'); ?></h4>
     <a href="process_monitor?server=<?= $rServerId; ?>" class="btn btn-sm btn-label-secondary"><i class="icon-base ti tabler-refresh me-1"></i><?= $language::get('refresh'); ?></a>
 </div>
 
-<?php if (!$rMobile && count($rFS) > 0): ?>
+<?php if (count($rFS) > 0): ?>
     <?php $rSpaceIssue = false; ?>
     <div class="card mb-4">
         <div class="card-datatable table-responsive">
@@ -210,6 +211,8 @@ $rServerId = (int) RequestManager::get('server');
         </table>
     </div>
 </div>
+
+</section>
 
 <?php
 LayoutRenderer::renderFooter('admin');

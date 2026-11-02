@@ -21,6 +21,7 @@ $rUptimeFmt = static function (int $rUptime): string {
 $rRtmpBase = htmlspecialchars((string) (ServerRepository::getAll()[$rServerId]['rtmp_server'] ?? ''), ENT_QUOTES);
 ?>
 
+<?php $hmPage = 'rtmp_monitor'; $hmTitle = 'rtmp_monitor'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
     <h4 class="mb-0"><?= $language::get('rtmp_monitor'); ?></h4>
     <a href="rtmp_monitor?server=<?= $rServerId; ?>" class="btn btn-sm btn-label-secondary"><i class="icon-base ti tabler-refresh me-1"></i><?= $language::get('refresh'); ?></a>
@@ -120,6 +121,8 @@ $rRtmpBase = htmlspecialchars((string) (ServerRepository::getAll()[$rServerId]['
         </table>
     </div>
 </div>
+
+</section>
 
 <?php
 LayoutRenderer::renderFooter('admin');

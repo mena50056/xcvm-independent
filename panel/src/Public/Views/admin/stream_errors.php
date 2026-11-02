@@ -30,6 +30,7 @@ endif;
     }
 </style>
 
+<?php $hmPage = 'stream_errors'; $hmTitle = 'stream_errors'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('stream_errors'); ?></h5>
@@ -68,6 +69,7 @@ endif;
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -84,6 +86,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#stream-errors-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

@@ -29,6 +29,7 @@ endif;
     }
 </style>
 
+<?php $hmPage = 'mysql_syslog'; $hmTitle = 'system_logs'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('system_logs'); ?></h5>
@@ -64,6 +65,8 @@ endif;
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -88,6 +91,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#syslog-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

@@ -10,7 +10,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/header.php",
-      "sha256": "e6143eae684f06f663b2c3941fad2c8997b3d51dc1676623bbc39399faf414d4"
+      "sha256": "7fce95b2b16ac946699706d7c2ee2f5d4735865147e620a5c29831f61baf5caa"
     },
     {
       "path": "panel/src/Public/Views/admin/login.php",
@@ -263,6 +263,114 @@
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-devices.js",
       "sha256": "8f6a377b42f285f192459b77634733af71f3fed7fd33d0262969cb0276ea3f7d"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/live_connections.php",
+      "sha256": "80f4991141ceafd979507ea4d9410c85a59a57113dad1d2f5f03c31c50cea635"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/process_monitor.php",
+      "sha256": "5bfacecba8fc7fa6f64fef761f288f425587269c586179b574bc050050aacb5b"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/rtmp_monitor.php",
+      "sha256": "c83d7c23c760f0cff7205aac937c34886dc4391b6e39a2756df7899e88881612"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/user_logs.php",
+      "sha256": "aedc1610042f18ad49c9b6636750884386865e5bf00fa674a130617a2cb438b3"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/restream_logs.php",
+      "sha256": "e680975f71d861b8418fe810c357ccda5301c353d353db1ccc9f78e1a25f1672"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/panel_logs.php",
+      "sha256": "df02c41e8076388581d6a12a9a8902c74dfd17ccecdea51b830724a6500e34a0"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/mysql_syslog.php",
+      "sha256": "820ad6909db3b9291cdd4aaa0185f63ee0b1226d79e5b6b75142cc50c25351c7"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/login_logs.php",
+      "sha256": "3b44e2c7fb33765dc1a5428bc64236c9c5696ce5e167d90966ce35f54d1aa4ed"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/credit_logs.php",
+      "sha256": "92a10bcadf2088316878f3fede2a775a2b8b5864afa95d33fb073792eef6bb57"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/client_logs.php",
+      "sha256": "93e76f8041700bc969cbf59e5b51eb7ba97249c313e53b856cbeccca33af6ca9"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/partials/horus_monitor.php",
+      "sha256": "e52efdae8a1c9c3307866421e0ea0941ce01cb1fea104441c227427c3cfee80c"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-monitor.js",
+      "sha256": "506602e23fb92e8d864b3d3e795b7ff7f998902a036a01e7ff0729704afb701d"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-monitor.css",
+      "sha256": "6d99f3986e28858bc8e2cacd9be27c56a46c8473e40c68325040d4f3de77c58c"
+    },
+    {
+      "path": "panel/src/Core/Diagnostics/DiagnosticsService.php",
+      "sha256": "65ff3ef2b53f1d7641e31ab120fca9af51d19bdaf56096a97ebcf473787a00e6"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Admin/Ajax/BackupAjaxController.php",
+      "sha256": "7cfd1738fc8914f7f595a02cf185e7f3baa68ce4ac483525490ffb32392262a5"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/line_activity.php",
+      "sha256": "d00eeb59a0d3c6f806c8e475599ebb9de9517aad57437e2cc3422a1a898b521f"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/stream_errors.php",
+      "sha256": "b67af576213e147b8a5609a70614d93f41f31a66427b0eeee9f97a96682749c9"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Admin/TableController.php",
+      "sha256": "684bfb113e9588a62894addebed5d6cd9f521d768a0a7a331e6cd0edb0cb6028"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Admin/Ajax/MiscAjaxController.php",
+      "sha256": "66c94f7e434fbeccde072cc6066a70a41e2e1a769777666c9d720c3f8e31823a"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Api/InternalApiController.php",
+      "sha256": "6c8f1211fa7c88459d87c26d99d865bfeabea6fb2ae6d412c8c64df775d34c62"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/admin_actions.php",
+      "sha256": "b12c6605db1694f707a03a21863bd073395cc827467f59dc8fb18045d5e231a4"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/line_ips.php",
+      "sha256": "c0f80834a42fa4e9c39c8da59fc6e642dbf6344d2dd0071fff4ade53dc33875f"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/stream_rank.php",
+      "sha256": "6e82fc9084e35d50bb130e12b370a17eedf4bcb55941cd82772ec6601be854f8"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/ondemand.php",
+      "sha256": "af7aa0836085ea59de4612d80b5594b05a1e90c5e9f3b2f6e49cff5c1669a7d6"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/queue.php",
+      "sha256": "3acd736e5ec85698f54a7faad22c314a23e2cc7930f983cf46db16faea020c48"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/mag_events.php",
+      "sha256": "aef5a3873c28581b017e881e9250b3d18e1beaedaba61eb4a296233de7c184af"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/theft_detection.php",
+      "sha256": "d518fe38f4193b84656ef8690fe2a5c1bb98ab270b32b06e447d97acf2697369"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",
@@ -272,6 +380,7 @@
     "Isolated local HTTP save/edit and stream/server controls",
     "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI",
     "Series: real TMDb lookup; isolated create/edit, M3U and season-folder imports; desktop/mobile forms and bulk edit",
-    "Codes/MAG/Enigma: 34 isolated HTTP checks, 11 activation lifecycle checks, complete pagination and desktop/mobile UI"
+    "Codes/MAG/Enigma: 34 isolated HTTP checks, 11 activation lifecycle checks, complete pagination and desktop/mobile UI",
+    "Monitoring/logs: 73 isolated HTTP checks, real test-process termination, non-destructive export, scheduler regression checks and 19 desktop/mobile Arabic pages"
   ]
 }

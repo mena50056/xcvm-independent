@@ -29,6 +29,7 @@ $rSelectedUser = (int) RequestManager::get('user_id', RequestManager::get('line'
 $rSelectedServer = (int) RequestManager::get('server_id', RequestManager::get('server', 0));
 ?>
 
+<?php $hmPage = 'live_connections'; $hmTitle = 'live_connections'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('live_connections'); ?></h5>
@@ -110,6 +111,8 @@ $rSelectedServer = (int) RequestManager::get('server_id', RequestManager::get('s
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -142,6 +145,7 @@ LayoutRenderer::renderFooter('admin');
             }
             return '<span class="badge bg-label-' + colour + '">' + esc(txt) + '</span>';
         };
+        var canKill = <?= json_encode(Authorization::check('adv', 'connection_logs')); ?>;
         var lang = {
             kill: <?= json_encode($language::get('kill')); ?>,
             fingerprint: <?= json_encode($language::get('fingerprint')); ?>,
@@ -151,6 +155,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#live-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',
@@ -266,7 +273,7 @@ LayoutRenderer::renderFooter('admin');
                     searchable: false,
                     className: 'text-center text-nowrap',
                     render: function(d, t, row) {
-                        var html = '<button type="button" class="btn btn-sm btn-icon btn-label-danger js-kill" title="' + esc(lang.kill) + '" data-uuid="' + esc(row.uuid) + '"><i class="icon-base ti tabler-hammer"></i></button>';
+                        var html = canKill ? '<button type="button" class="btn btn-sm btn-icon btn-label-danger js-kill" title="' + esc(lang.kill) + '" data-uuid="' + esc(row.uuid) + '"><i class="icon-base ti tabler-hammer"></i></button>' : '';
                         if (row.can_fingerprint && window.modalFingerprint) {
                             html += ' <button type="button" class="btn btn-sm btn-icon btn-label-secondary js-fp" title="' + esc(lang.fingerprint) + '" data-user="' + esc(row.user_id) + '"><i class="icon-base ti tabler-fingerprint"></i></button>';
                         }
@@ -325,28 +332,19 @@ LayoutRenderer::renderFooter('admin');
         });
 
         // Kill a connection.
-        jQuery('#live-table tbody').on('click', '.js-kill', function() {
-            var uuid = this.getAttribute('data-uuid');
-            if (!uuid) {
-                return;
-            }
-            fetch('./api?action=line_activity&sub=kill&pid=' + encodeURIComponent(uuid), {
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                })
-                .then(function(r) {
-                    return r.json();
-                })
-                .then(function(data) {
-                    if (!data || data.result !== true) {
-                        throw new Error('fail');
-                    }
-                    table.ajax.reload(null, false);
-                })
-                .catch(function() {
-                    xcToast(lang.error, 'error');
-                });
+        jQuery('#live-table tbody').on('click', '.js-kill', async function() {
+            const uuid = this.getAttribute('data-uuid');
+            if (!uuid || this.disabled || !canKill) return;
+            this.disabled = true;
+            try {
+                const message = <?= json_encode($language::get('kill') . '?' ); ?>;
+                if (!await window.xcConfirm(message)) return;
+                const response = await fetch('./api?action=line_activity&sub=kill&pid=' + encodeURIComponent(uuid), {headers:{'X-Requested-With':'XMLHttpRequest'}});
+                const data = await response.json();
+                if (!response.ok || !data || data.result !== true) throw new Error('fail');
+                xcToast(lang.killed, 'success'); table.ajax.reload(null, false);
+            } catch (_) { xcToast(lang.error, 'error'); }
+            finally { this.disabled = false; }
         });
         jQuery('#live-table tbody').on('click', '.js-fp', function() {
             if (window.modalFingerprint) {
@@ -354,12 +352,7 @@ LayoutRenderer::renderFooter('admin');
             }
         });
 
-        // Live refresh every 5s (pause while a modal is open).
-        setInterval(function() {
-            if (!document.querySelector('.modal.show')) {
-                table.ajax.reload(null, false);
-            }
-        }, 5000);
+        // Refresh is managed by horus-monitor.js (visibility, pause and in-flight guards).
 
         // Whois lookup (GeoIP / ISP / ASN) in a modal.
         jQuery('#live-table tbody').on('click', '.js-whois', function() {

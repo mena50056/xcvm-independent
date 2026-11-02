@@ -21,6 +21,7 @@ if (!Authorization::check('adv', 'credits_log')):
 endif;
 ?>
 
+<?php $hmPage = 'credit_logs'; $hmTitle = 'credit_logs'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('credit_logs'); ?></h5>
@@ -56,6 +57,8 @@ endif;
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -78,6 +81,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#credit-logs-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

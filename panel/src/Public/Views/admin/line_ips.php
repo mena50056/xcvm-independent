@@ -13,6 +13,7 @@ use XcVm\Core\Util\LayoutRenderer;
 $rCanEditUser = Authorization::check('adv', 'edit_user');
 ?>
 
+<?php $hmPage = 'line_ips'; $hmTitle = 'line_ip_usage'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><?= $language::get('line_ip_usage'); ?></h5>
@@ -59,6 +60,7 @@ $rCanEditUser = Authorization::check('adv', 'edit_user');
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>

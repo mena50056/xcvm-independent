@@ -3928,7 +3928,7 @@ class TableController extends BaseAdminController {
 		if (0 < $rReturn["recordsTotal"]) {
 			$rQuery = "SELECT `panel_logs`.`id`, `panel_logs`.`date`, `panel_logs`.`server_id`, `servers`.`server_name`, `panel_logs`.`type`, `panel_logs`.`log_message`, `panel_logs`.`log_extra`, `panel_logs`.`line` FROM `panel_logs` LEFT JOIN `servers` ON `servers`.`id` = `panel_logs`.`server_id` " . $rWhereString . " " . $rOrderBy . " LIMIT " . $rStart . ", " . $rLimit . ";";
 			$db->query($rQuery, ...$rWhereV);
-			foreach ($db->get_rows() as $rRow) {
+			foreach ($db->get_raw_rows() as $rRow) {
 				$rItem = [
 					"id"          => (int) $rRow["id"],
 					"date"        => (int) $rRow["date"],

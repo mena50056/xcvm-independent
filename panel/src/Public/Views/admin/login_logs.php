@@ -21,6 +21,7 @@ if (!Authorization::check('adv', 'login_logs')):
 endif;
 ?>
 
+<?php $hmPage = 'login_logs'; $hmTitle = 'login_logs'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><?= $language::get('login_logs'); ?></h5>
@@ -57,6 +58,8 @@ endif;
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -82,6 +85,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#login-logs-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

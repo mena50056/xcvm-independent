@@ -23,6 +23,7 @@ endif;
 $rPeriods = ['today' => 'today', 'week' => 'week', 'month' => 'month', 'all' => 'all_time'];
 ?>
 
+<?php $hmPage = 'stream_rank'; $hmTitle = 'stream_rank'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><?= $language::get('stream_rank'); ?></h5>
@@ -70,6 +71,7 @@ $rPeriods = ['today' => 'today', 'week' => 'week', 'month' => 'month', 'all' => 
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>

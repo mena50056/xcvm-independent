@@ -115,6 +115,12 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
 <link rel="stylesheet" href="assets/xcvm/horus-devices.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-devices.css'); ?>">
 <script defer src="assets/xcvm/horus-devices.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-devices.js'); ?>"></script>
 <?php endif; ?>
+<?php if (in_array(\XcVm\Core\Util\AdminHelpers::getPageName(), ['admin_actions', 'line_ips', 'stream_rank', 'ondemand', 'queue', 'mag_events', 'theft_detection', 'stream_errors', 'line_activity', 'live_connections', 'process_monitor', 'rtmp_monitor', 'user_logs', 'restream_logs', 'panel_logs', 'mysql_syslog', 'login_logs', 'credit_logs', 'client_logs'], true)): ?>
+<link rel="stylesheet" href="assets/xcvm/horus-subscriptions.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-subscriptions.css'); ?>">
+<script defer src="assets/xcvm/horus-subscriptions.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-subscriptions.js'); ?>"></script>
+<link rel="stylesheet" href="assets/xcvm/horus-monitor.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-monitor.css'); ?>">
+<script defer src="assets/xcvm/horus-monitor.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-monitor.js'); ?>"></script>
+<?php endif; ?>
 </head>
 
 <?php if (!empty($GLOBALS['_SETUP'])): /* setup wizard — branded bare shell: no sidebar / navbar / menu, and never touches $rUserInfo */ ?>

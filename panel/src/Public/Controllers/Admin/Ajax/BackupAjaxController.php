@@ -196,7 +196,7 @@ class BackupAjaxController extends BaseAjaxController {
 		exit();
 	}
 
-	/** action=download_panel_logs — collect recent panel error-log rows and empty the table. */
+	/** action=download_panel_logs — export recent panel error-log rows without deleting them. */
 	public function downloadPanelLogs(): never {
 		$this->requireXhr();
 		$this->gate('adv', 'panel_logs');

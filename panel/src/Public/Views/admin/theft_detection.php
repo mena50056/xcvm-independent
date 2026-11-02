@@ -24,6 +24,7 @@ $rCanEdit = Authorization::check('adv', 'edit_user');
 $rRanges  = [0 => 'all_time', 604800 => 'last_7_days', 86400 => 'last_24_hours', 3600 => 'last_hour'];
 ?>
 
+<?php $hmPage = 'theft_detection'; $hmTitle = 'vod_theft_detection'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><?= $language::get('vod_theft_detection'); ?></h5>
@@ -77,6 +78,7 @@ $rRanges  = [0 => 'all_time', 604800 => 'last_7_days', 86400 => 'last_24_hours',
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>

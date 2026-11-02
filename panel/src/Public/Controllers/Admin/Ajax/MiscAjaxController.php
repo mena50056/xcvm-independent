@@ -33,8 +33,12 @@ class MiscAjaxController extends BaseAjaxController {
 		$this->requireXhr();
 		$this->gate('adv', 'process_monitor');
 
-		NodeRpc::request(RequestManager::get('server'), ['action' => 'kill_pid', 'pid' => intval(RequestManager::get('pid'))]);
-
+		$rPID = filter_var(RequestManager::get('pid'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 2]]);
+		$rServerID = filter_var(RequestManager::get('server'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+		if ($rPID === false || $rServerID === false) $this->fail();
+		$rReply = NodeRpc::request($rServerID, ['action' => 'kill_pid', 'pid' => $rPID]);
+		$rResult = is_string($rReply) ? json_decode($rReply, true) : $rReply;
+		if (!is_array($rResult) || ($rResult['result'] ?? false) !== true) $this->fail();
 		$this->ok();
 	}
 

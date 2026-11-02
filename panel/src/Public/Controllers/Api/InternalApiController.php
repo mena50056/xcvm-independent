@@ -132,9 +132,8 @@ class InternalApiController {
 			case 'kill_pid':
 				$rPID = intval($rRequest['pid']);
 
-				if (0 < $rPID) {
-					posix_kill($rPID, 9);
-					echo json_encode(['result' => true]);
+				if (1 < $rPID) {
+					echo json_encode(['result' => posix_kill($rPID, 9)]);
 				} else {
 					echo json_encode(['result' => false]);
 				}

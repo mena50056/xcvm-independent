@@ -19,6 +19,7 @@ if (!Authorization::check('adv', 'admin_audit')):
 endif;
 ?>
 
+<?php $hmPage = 'admin_actions'; $hmTitle = 'admin_actions'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-1"><?= $language::get('admin_actions'); ?></h5>
@@ -43,6 +44,7 @@ endif;
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -60,6 +62,9 @@ LayoutRenderer::renderFooter('admin');
 
         jQuery('#admin-actions-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

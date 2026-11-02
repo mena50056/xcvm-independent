@@ -23,6 +23,7 @@ if (!Authorization::check('adv', 'reg_userlog')):
 endif;
 ?>
 
+<?php $hmPage = 'user_logs'; $hmTitle = 'reseller_logs'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('reseller_logs'); ?></h5>
@@ -67,6 +68,8 @@ endif;
     </div>
 </div>
 
+</section>
+
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -89,6 +92,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#user-logs-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',

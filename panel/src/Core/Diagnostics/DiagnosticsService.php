@@ -154,12 +154,7 @@ class DiagnosticsService {
 				$errors[] = $errorData;
 			}
 
-			if ($errors !== []) {
-				$truncateResult = $db->query('TRUNCATE `panel_logs`;');
-				if (!$truncateResult) {
-					throw new \Exception('Failed to truncate panel logs table');
-				}
-			}
+			// Export is read-only; clearing logs remains an explicit separate action.
 		} catch (\Exception $e) {
 			throw new \Exception('Failed to process panel logs', $e->getCode(), $e);
 		}
@@ -197,7 +192,7 @@ class DiagnosticsService {
 		foreach ($rProcesses as $rProcess) {
 			$rSplit = explode(' ', preg_replace('!\\s+!', ' ', trim($rProcess)));
 
-			if ($rSplit[0] == 'xc_vm') {
+			if (count($rSplit) >= 11 && in_array($rSplit[0], ['xc_vm', 'xcvm_lab'], true)) {
 				$rUsage = [0, 0, 0];
 				$rTimer = explode('-', $rSplit[9]);
 

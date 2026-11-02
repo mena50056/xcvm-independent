@@ -21,6 +21,7 @@ if (!Authorization::check('adv', 'movies') && !Authorization::check('adv', 'epis
 endif;
 ?>
 
+<?php $hmPage = 'queue'; $hmTitle = 'encoding_queue'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('encoding_queue'); ?></h5>
@@ -43,6 +44,7 @@ endif;
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -72,6 +74,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#queue-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',
@@ -147,12 +152,12 @@ LayoutRenderer::renderFooter('admin');
             }
         });
 
-        jQuery('#queue-table tbody').on('click', '.js-act', function() {
+        jQuery('#queue-table tbody').on('click', '.js-act', async function() {
             var id = this.getAttribute('data-id');
             var sub = this.getAttribute('data-sub');
-            if (!id || !confirm((sub === 'stop' ? lang.stop : lang.del) + '?')) {
-                return;
-            }
+            if (!id || this.disabled) return;
+            this.disabled = true;
+            if (!await window.xcConfirm((sub === 'stop' ? lang.stop : lang.del) + '?')) { this.disabled = false; return; }
             fetch('./api?action=queue&sub=' + encodeURIComponent(sub) + '&id=' + encodeURIComponent(id), {
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest'
@@ -169,7 +174,7 @@ LayoutRenderer::renderFooter('admin');
                 })
                 .catch(function() {
                     xcToast(lang.error, 'error');
-                });
+                }).finally(() => { this.disabled = false; });
         });
     })();
 </script>

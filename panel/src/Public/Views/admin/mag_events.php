@@ -29,6 +29,7 @@ endif;
     }
 </style>
 
+<?php $hmPage = 'mag_events'; $hmTitle = 'mag_event_logs'; require __DIR__ . '/partials/horus_monitor.php'; ?>
 <div class="card">
     <div class="card-header">
         <h5 class="card-title mb-0"><?= $language::get('mag_event_logs'); ?></h5>
@@ -50,6 +51,7 @@ endif;
     </div>
 </div>
 
+</section>
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
@@ -70,6 +72,9 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#mag-events-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
+            searchDelay: 350,
             responsive: {
                 details: {
                     type: 'column',
@@ -138,11 +143,11 @@ LayoutRenderer::renderFooter('admin');
         });
 
         // Delete a single MAG event.
-        jQuery('#mag-events-table tbody').on('click', '.js-del', function() {
+        jQuery('#mag-events-table tbody').on('click', '.js-del', async function() {
             var id = this.getAttribute('data-id');
-            if (!id || !confirm(lang.del + '?')) {
-                return;
-            }
+            if (!id || this.disabled) return;
+            this.disabled = true;
+            if (!await window.xcConfirm(lang.del + '?')) { this.disabled = false; return; }
             fetch('./api?action=mag_event&sub=delete&mag_id=' + encodeURIComponent(id), {
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest'
@@ -159,7 +164,7 @@ LayoutRenderer::renderFooter('admin');
                 })
                 .catch(function() {
                     xcToast(lang.error, 'error');
-                });
+                }).finally(() => { this.disabled = false; });
         });
     })();
 </script>
