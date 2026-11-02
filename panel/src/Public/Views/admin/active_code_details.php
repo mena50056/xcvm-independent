@@ -15,7 +15,7 @@ $e = static fn($v): string => htmlspecialchars((string) $v, ENT_QUOTES);
 $status = (int) ($d['status'] ?? 0);
 $statusBadge = $status === 1 ? 'bg-success' : ($status === 2 ? 'bg-primary' : 'bg-danger');
 ?>
-<div class="row g-4">
+<div class="row g-4 horus-code-details">
     <div class="col-12 col-md-6">
         <div class="p-3 bg-light-subtle rounded-3 border">
             <label class="small text-muted text-uppercase fw-semibold d-block"><?= $language::get('ac_activation_code') ?></label>

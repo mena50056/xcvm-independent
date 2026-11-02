@@ -26,9 +26,9 @@ $rCanEdit = Authorization::check('adv', 'edit_user') || Authorization::check('ad
 ?>
 
 <!-- Metrics Summary -->
-<div class="row g-4 mb-4">
+<div class="row g-4 mb-4 horus-code-metrics">
     <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <div>
                     <h6 class="text-muted fw-normal small text-uppercase mb-1"><?= $language::get('ac_total_batches') ?></h6>
@@ -41,7 +41,7 @@ $rCanEdit = Authorization::check('adv', 'edit_user') || Authorization::check('ad
         </div>
     </div>
     <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <div>
                     <h6 class="text-muted fw-normal small text-uppercase mb-1"><?= $language::get('ac_total_codes') ?></h6>
@@ -54,7 +54,7 @@ $rCanEdit = Authorization::check('adv', 'edit_user') || Authorization::check('ad
         </div>
     </div>
     <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <div>
                     <h6 class="text-muted fw-normal small text-uppercase mb-1"><?= $language::get('ac_unused_stock') ?></h6>
@@ -67,7 +67,7 @@ $rCanEdit = Authorization::check('adv', 'edit_user') || Authorization::check('ad
         </div>
     </div>
     <div class="col-12 col-sm-6 col-xl-3">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-body d-flex justify-content-between align-items-center">
                 <div>
                     <h6 class="text-muted fw-normal small text-uppercase mb-1"><?= $language::get('ac_active_subscriptions') ?></h6>
@@ -196,7 +196,10 @@ LayoutRenderer::renderFooter('admin');
             }
         });
 
+        var batchBusy = false;
         function batchAction(batchName, subAction) {
+            if (batchBusy) return;
+            batchBusy = true;
             jQuery.post('./api', {
                 action: 'active_codes_batch_action',
                 batch_name: batchName,
@@ -213,7 +216,9 @@ LayoutRenderer::renderFooter('admin');
                 } else {
                     xcToast((data && data.message) || 'Action failed.', 'error');
                 }
-            });
+            }).fail(function() {
+                xcToast('Unable to complete the batch action. Please retry.', 'error');
+            }).always(function() { batchBusy = false; });
         }
 
         jQuery('#batches-table tbody').on('click', '.js-batch-enable', function() {

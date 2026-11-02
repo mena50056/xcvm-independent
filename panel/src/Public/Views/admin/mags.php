@@ -27,7 +27,7 @@ $rCanEvents = Authorization::check('adv', 'manage_events');
 $rCanLive = Authorization::check('adv', 'live_connections');
 ?>
 
-<div class="card">
+<div class="card xc-lines-workspace horus-device-workspace">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><?= $language::get('mag_devices'); ?></h5>
         <?php if ($rCanEdit): ?>
@@ -43,6 +43,7 @@ $rCanLive = Authorization::check('adv', 'live_connections');
     </div>
     <div class="card-body border-bottom">
         <div class="row g-3">
+            <div class="col-12 col-lg-4"><label class="form-label" for="filter-search"><?= $language::get('search'); ?></label><input type="search" id="filter-search" class="form-control" autocomplete="off"></div>
             <div class="col-12 col-sm-6 col-lg-4">
                 <label class="form-label" for="filter-reseller"><?= $language::get('reseller'); ?></label>
                 <select id="filter-reseller" class="form-select"></select>
@@ -205,6 +206,8 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#mags-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
             responsive: {
                 details: {
                     type: 'column',
@@ -348,10 +351,13 @@ LayoutRenderer::renderFooter('admin');
             ],
             layout: {
                 topStart: 'pageLength',
-                topEnd: 'search'
+                topEnd: null
             }
         });
 
+        document.addEventListener('DOMContentLoaded', function() {
+            window.HorusSubscriptions.bindSearch(document.getElementById('filter-search'), function(value) { table.search(value).draw(); });
+        });
         document.getElementById('filter-status').addEventListener('change', function() {
             table.ajax.reload();
         });

@@ -59,13 +59,13 @@ if ($rIsEdit && !empty($rUser['custom_data'])) {
     </div>
 <?php endif; ?>
 
-<form id="enigma-form" autocomplete="off">
+<form class="horus-subscription-editor horus-device-editor" id="enigma-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rDevice['device_id']; ?>">
     <?php endif; ?>
     <input type="hidden" name="bouquets_selected" id="bouquets_selected" value="">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -340,7 +340,7 @@ if ($rIsEdit && !empty($rUser['custom_data'])) {
         </div>
     </div>
 
-    <div class="d-flex justify-content-end mb-6">
+    <div class="d-flex justify-content-end mb-6 xc-editor-savebar">
         <button type="submit" class="btn btn-primary" id="enigma-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
     </div>
 </form>
@@ -613,7 +613,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (window.parent !== window) {
                             window.parent.postMessage('xcModalSaved', '*');
                         } else {

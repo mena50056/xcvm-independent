@@ -19,7 +19,7 @@ $rCanEdit = Authorization::check('adv', 'edit_user') || Authorization::check('ad
 
 ?>
 
-<div class="card mb-4">
+<div class="card mb-4 xc-lines-workspace horus-device-workspace">
     <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h5 class="card-title mb-0"><i class="ti tabler-key text-primary me-2"></i><?= $language::get('ac_active_codes_management') ?></h5>
         <div class="d-flex gap-2">
@@ -273,6 +273,8 @@ LayoutRenderer::renderFooter('admin');
 
         const dt = tableEl.DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
             responsive: {
                 details: {
                     type: 'column',
@@ -280,6 +282,7 @@ LayoutRenderer::renderFooter('admin');
                 }
             },
             order: [[10, 'desc']],
+            searchDelay: 350,
             pageLength: 25,
             lengthMenu: [10, 25, 50, 100],
             layout: {

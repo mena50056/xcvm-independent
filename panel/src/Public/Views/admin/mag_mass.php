@@ -23,7 +23,7 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
     <h4 class="mb-0"><?= $language::get('mass_edit_devices'); ?> <small class="text-body-secondary" id="selected_count"></small></h4>
 </div>
 
-<div class="card">
+<div class="card horus-device-mass">
     <div class="card-body">
         <form id="mass-form">
             <input type="hidden" name="devices_selected" id="devices_selected" value="">
@@ -236,7 +236,7 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
                     </div>
                 </div>
             </div>
-            <div class="text-end mt-3"><button type="submit" class="btn btn-primary" name="submit_device" value="1"><?= $language::get('mass_edit') ?: 'Mass Edit'; ?></button></div>
+            <div class="text-end mt-3 xc-editor-savebar"><button type="submit" class="btn btn-primary" name="submit_device" value="1"><?= $language::get('mass_edit') ?: 'Mass Edit'; ?></button></div>
         </form>
     </div>
 </div>
@@ -475,6 +475,8 @@ LayoutRenderer::renderFooter('admin');
                 url: './table',
                 data: function(d) {
                     d.id = 'mags';
+                    // Shared list has two leading control columns; this picker starts at ID.
+                    (d.order || []).forEach(function(order) { order.column = Number(order.column) + 2; });
                     d.filter = getFilter();
                     d.reseller = getReseller();
                 }
@@ -539,7 +541,7 @@ LayoutRenderer::renderFooter('admin');
             pageLength: <?= (int) ($rSettings['default_entries'] ?: 10); ?>,
             layout: {
                 topStart: null, // page size is driven by the toolbar #show_entries selector
-                topEnd: 'search'
+                topEnd: null
             }
         });
 
@@ -589,8 +591,8 @@ LayoutRenderer::renderFooter('admin');
             document.getElementById('c_bouquets').checked = true;
         });
 
-        $('#user_search').on('keyup', function() {
-            rTable.search(this.value).draw();
+        document.addEventListener('DOMContentLoaded', function() {
+            window.HorusSubscriptions.bindSearch(document.getElementById('user_search'), function(value) { rTable.search(value).draw(); });
         });
         $('#show_entries').on('change', function() {
             rTable.page.len(parseInt(this.value, 10)).draw();
@@ -632,7 +634,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (d && d.result !== false) {
+                    if (d && d.result === true) {
                         toast('Mass edit applied.', 'success');
                         setTimeout(function() {
                             location.reload();

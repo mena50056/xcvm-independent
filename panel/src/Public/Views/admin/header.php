@@ -103,13 +103,17 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
     <?php require __DIR__ . '/../layouts/ui_prefs_head.php'; ?>
 <link rel="stylesheet" href="assets/xcvm/console-native.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/console-native.css'); ?>">
 <script defer src="assets/xcvm/console-native.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/console-native.js'); ?>"></script>
-<?php if (in_array(\XcVm\Core\Util\AdminHelpers::getPageName(), ['lines', 'line', 'packages', 'package', 'bouquets', 'bouquet', 'users', 'user', 'groups', 'group', 'user_mass'], true)): ?>
+<?php if (in_array(\XcVm\Core\Util\AdminHelpers::getPageName(), ['lines', 'line', 'packages', 'package', 'bouquets', 'bouquet', 'users', 'user', 'groups', 'group', 'user_mass', 'active_codes', 'active_code', 'active_codes_batch', 'active_codes_mass', 'mags', 'mag', 'mag_mass', 'enigmas', 'enigma', 'enigma_mass'], true)): ?>
 <link rel="stylesheet" href="assets/xcvm/horus-subscriptions.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-subscriptions.css'); ?>">
 <script defer src="assets/xcvm/horus-subscriptions.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-subscriptions.js'); ?>"></script>
 <?php endif; ?>
 <?php if (in_array(\XcVm\Core\Util\AdminHelpers::getPageName(), ['users', 'user', 'groups', 'group', 'user_mass'], true)): ?>
 <link rel="stylesheet" href="assets/xcvm/horus-resellers.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-resellers.css'); ?>">
 <script defer src="assets/xcvm/horus-resellers.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-resellers.js'); ?>"></script>
+<?php endif; ?>
+<?php if (in_array(\XcVm\Core\Util\AdminHelpers::getPageName(), ['active_codes', 'active_code', 'active_codes_batch', 'active_codes_mass', 'mags', 'mag', 'mag_mass', 'enigmas', 'enigma', 'enigma_mass'], true)): ?>
+<link rel="stylesheet" href="assets/xcvm/horus-devices.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-devices.css'); ?>">
+<script defer src="assets/xcvm/horus-devices.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-devices.js'); ?>"></script>
 <?php endif; ?>
 </head>
 

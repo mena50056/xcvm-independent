@@ -10,7 +10,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/header.php",
-      "sha256": "aa2bbb0289b0623a625e07ccd949a62d08ff5b15c41814d4429042edf66693c4"
+      "sha256": "e6143eae684f06f663b2c3941fad2c8997b3d51dc1676623bbc39399faf414d4"
     },
     {
       "path": "panel/src/Public/Views/admin/login.php",
@@ -154,7 +154,7 @@
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.js",
-      "sha256": "25961013b81df6d0f08e9c5715c9964d49157c1be1ae6004cb0e24f49be45575"
+      "sha256": "7dfad612368a1cebd5b82a9965715754e7d36ba1b6a3338c78552c93e3968e10"
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.css",
@@ -211,6 +211,58 @@
     {
       "path": "panel/src/Public/Views/admin/user_mass.php",
       "sha256": "e3ba1e74458f3d026989486fb849091cade6cc5af3ba1dc9288f430942676826"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/active_codes.php",
+      "sha256": "a762edfba8841efc00a01e1c3e77a5be2c7504b70615d2250cfd5fefaa23022c"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/active_code.php",
+      "sha256": "7bcb2e71b9ac15fa98481bc389a8804bfe988ecd89d8e32f2f03e1c36c306b8c"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/active_codes_batch.php",
+      "sha256": "3813ed79c0c74f3ca92ca09ac986cdd8ba7c46ad199dba944f325917f8ab9005"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/active_codes_mass.php",
+      "sha256": "90c09eebcf33bc0cbbc86d27b6584145e8ebbe5a25d713e3976aec0ac39ef7d2"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/active_code_details.php",
+      "sha256": "3a529d786eb8c5ff8c58bb89d1b8f1121ee555e2efdf31c7d5ec444f203f1b58"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/mags.php",
+      "sha256": "cc4a7046a433226813c5bf66fc995bdf6a6d24867b1e006903527c03132fb2f1"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/mag.php",
+      "sha256": "734b35b4f0a75d0029e26fa85fdc62f941fe827523fe9e59d60fc0acb9da0a08"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/mag_mass.php",
+      "sha256": "06de39f58f70d6366a2acaad2aa2cecdab6394e4711ee711d452cb8114f3d623"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/enigmas.php",
+      "sha256": "dbfa4eeeec507ba4706bc3ef40b1e14173bc23a849d9fc6e252afcb1dd3faf78"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/enigma.php",
+      "sha256": "5a828cff5c4f0782b2185db96ef983778ad18097e79c7540e1306d62586aa4e4"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/enigma_mass.php",
+      "sha256": "317b24a33748744b846730c5ea722040a45df0a59eef50bda1fa008af8fd4923"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-devices.css",
+      "sha256": "972fed8272625be401d260eba85ffb7342f1cbe9a3692848afe5c3984fbac0c6"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-devices.js",
+      "sha256": "8f6a377b42f285f192459b77634733af71f3fed7fd33d0262969cb0276ea3f7d"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",
@@ -219,6 +271,7 @@
     "First-paint readiness and recovery checks",
     "Isolated local HTTP save/edit and stream/server controls",
     "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI",
-    "Series: real TMDb lookup; isolated create/edit, M3U and season-folder imports; desktop/mobile forms and bulk edit"
+    "Series: real TMDb lookup; isolated create/edit, M3U and season-folder imports; desktop/mobile forms and bulk edit",
+    "Codes/MAG/Enigma: 34 isolated HTTP checks, 11 activation lifecycle checks, complete pagination and desktop/mobile UI"
   ]
 }

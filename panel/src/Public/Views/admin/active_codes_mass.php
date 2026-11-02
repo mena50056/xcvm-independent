@@ -13,9 +13,9 @@ $resellers = $resellers ?? [];
 
 ?>
 
-<div class="row justify-content-center">
+<div class="row justify-content-center horus-code-provision">
     <div class="col-12 col-lg-9">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-header border-bottom d-flex justify-content-between align-items-center">
                 <div>
                     <h5 class="card-title mb-1"><i class="ti tabler-adjustments text-primary me-2"></i><?= $language::get('mass_edit_active_codes') ?></h5>
@@ -139,72 +139,33 @@ LayoutRenderer::renderFooter('admin');
                 }
             });
 
-            jQuery('#mass-edit-form').on('submit', function(e) {
+            jQuery('#mass-edit-form').on('reset', function() {
+                setTimeout(() => actionSelect.trigger('change'), 0);
+            });
+
+            jQuery('#mass-edit-form').on('submit', async function(e) {
                 e.preventDefault();
-
+                const btn = jQuery('#btn-apply-mass');
+                if (btn.prop('disabled')) return;
                 const action = actionSelect.val();
-                const batch = jQuery('#target_batch').val();
-                const reseller = jQuery('#target_reseller').val();
-
-                const proceed = (!batch && !reseller) ? window.xcConfirm(L.confirm_all) : Promise.resolve(true);
-                proceed.then(function(ok) {
-                    if (!ok) {
-                        return;
-                    }
-
-                    const btn = jQuery('#btn-apply-mass');
-                    btn.prop('disabled', true);
-
-                    // Fetch matching code IDs (server returns keyed rows: use row.id).
-                    jQuery.post('./table', {
-                        id: 'active_codes',
-                        batch: batch,
-                        reseller: reseller,
-                        start: 0,
-                        length: 1000
-                    }, function(tableRes) {
-                        let res = tableRes;
-                        if (typeof tableRes === 'string') {
-                            try {
-                                res = JSON.parse(tableRes);
-                            } catch (e) {}
-                        }
-
-                        const ids = (res.data || []).map(row => row.id).filter(Boolean);
-
-                        if (!ids.length) {
-                            btn.prop('disabled', false);
-                            xcToast(L.no_matching, 'error');
-                            return;
-                        }
-
-                        const postData = {
-                            action: 'multi',
-                            type: 'active_code',
-                            sub: action,
-                            ids: JSON.stringify(ids),
-                            days: jQuery('#mass_days').val(),
-                            package_id: jQuery('#new_package_id').val()
-                        };
-
-                        jQuery.post('./api', postData, function(actionRes) {
-                            btn.prop('disabled', false);
-                            let aRes = actionRes;
-                            if (typeof actionRes === 'string') {
-                                try {
-                                    aRes = JSON.parse(actionRes);
-                                } catch (e) {}
-                            }
-                            if (aRes.result) {
-                                xcToast(aRes.message || L.success, 'success');
-                                // On to the list of codes, or back here when the group may not open it.
-                                window.location.href = <?= json_encode(Authorization::check('adv', 'users') ? 'active_codes' : 'active_codes_mass'); ?>;
-                            } else {
-                                xcToast(aRes.message || L.failed, 'error');
-                            }
-                        });
-                    });
-                });
+                const criteria = {batch:jQuery('#target_batch').val(), reseller:jQuery('#target_reseller').val()};
+                const days = jQuery('#mass_days').val();
+                const packageId = jQuery('#new_package_id').val();
+                btn.prop('disabled', true);
+                try {
+                    if (!criteria.batch && !criteria.reseller && !await window.xcConfirm(L.confirm_all)) return;
+                    const ids = await window.HorusDevices.matchingCodes(params => jQuery.post('./table', params), criteria);
+                    if (!ids.length) { xcToast(L.no_matching, 'error'); return; }
+                    let result = await jQuery.post('./api', {action:'multi', type:'active_code', sub:action, ids:JSON.stringify(ids), days, package_id:packageId});
+                    if (typeof result === 'string') result = JSON.parse(result);
+                    if (!result || result.result !== true) throw new Error(result?.message || L.failed);
+                    xcToast(result.message || L.success, 'success');
+                    window.location.href = <?= json_encode(Authorization::check('adv', 'users') ? 'active_codes' : 'active_codes_mass'); ?>;
+                } catch (error) {
+                    xcToast(error.message || L.failed, 'error');
+                } finally {
+                    btn.prop('disabled', false);
+                }
             });
         });
     })(jQuery);

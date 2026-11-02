@@ -50,9 +50,9 @@ $rResellers = $rResellers ?? [];
 }
 </style>
 
-<div class="row g-4">
+<div class="row g-4 horus-code-provision">
     <div class="col-12 col-xl-8">
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0 horus-code-card">
             <div class="card-header border-bottom d-flex justify-content-between align-items-center">
                 <div>
                     <h5 class="card-title mb-1"><i class="ti tabler-sparkles text-primary me-2"></i><?= $language::get('ac_generate_active_codes_admin') ?></h5>
@@ -266,7 +266,7 @@ $rResellers = $rResellers ?? [];
                         </div>
                     </div>
 
-                    <div class="d-flex justify-content-end gap-3 pt-3 border-top">
+                    <div class="d-flex justify-content-end gap-3 pt-3 border-top xc-editor-savebar">
                         <button type="reset" class="btn btn-label-secondary"><?= $language::get('ac_reset') ?></button>
                         <button type="submit" class="btn btn-primary px-4" id="btn-admin-generate">
                             <i class="ti tabler-sparkles me-1"></i><?= $language::get('ac_generate_now') ?>
@@ -548,6 +548,17 @@ LayoutRenderer::renderFooter('admin');
         applyBouquetFilter();
     });
 
+    jQuery('#admin-active-code-form').on('reset', function() {
+        setTimeout(function() {
+            currentBqFilter = 'all';
+            jQuery('.bq-filter-tab').removeClass('active').filter('[data-filter="all"]').addClass('active');
+            jQuery('#btn-clear-bq-search').addClass('d-none');
+            updateBouquetCounts();
+            applyBouquetFilter();
+            updateLivePreview();
+        });
+    });
+
     jQuery('#filter-bq-input').on('input keyup', function() {
         const hasText = (this.value.trim().length > 0);
         jQuery('#btn-clear-bq-search').toggleClass('d-none', !hasText);
@@ -589,8 +600,8 @@ LayoutRenderer::renderFooter('admin');
                 try { data = JSON.parse(res); } catch(e) {}
             }
 
-            if (!data.result) {
-                alert(data.message || 'Generation failed.');
+            if (!data || data.result !== true) {
+                alert((data && data.message) || 'Generation failed.');
                 return;
             }
 
@@ -614,6 +625,9 @@ LayoutRenderer::renderFooter('admin');
             jQuery('#admin-res-table').html(html);
             jQuery('#admin-results-card').removeClass('d-none');
             document.getElementById('admin-results-card').scrollIntoView({ behavior: 'smooth' });
+        }).fail(function() {
+            btn.prop('disabled', false).html(orig);
+            xcToast('Unable to generate codes. Please retry.', 'error');
         });
     });
 

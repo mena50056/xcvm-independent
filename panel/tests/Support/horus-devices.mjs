@@ -1,0 +1,13 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../../src/Public/assets/admin/xcvm/horus-devices.js',import.meta.url),'utf8');
+const ctx={window:{},document:{addEventListener(){}}};vm.runInNewContext(source,ctx);
+const fetchIds=ctx.window.HorusDevices.matchingCodes;
+const starts=[];const ids=await fetchIds(async p=>{starts.push(p.start);assert.equal(p.batch,'QA');return {recordsFiltered:1505,data:Array.from({length:Math.min(500,1505-p.start)},(_,i)=>({id:p.start+i+1}))};},{batch:'QA'});
+assert.equal(ids.length,1505);assert.deepEqual(starts,[0,500,1000,1500]);assert.equal(ids.at(-1),1505);
+assert.equal((await fetchIds(async()=>({recordsFiltered:0,data:[]}),{})).length,0);
+await assert.rejects(()=>fetchIds(async()=>({recordsFiltered:2,data:[]}),{}));
+await assert.rejects(()=>fetchIds(async p=>({recordsFiltered:p.start?3:2,data:[{id:1}]}),{}));
+await assert.rejects(()=>fetchIds(async()=>({recordsFiltered:2,data:[{id:1},{id:1}]}),{}));
+await assert.rejects(()=>fetchIds(async()=>({recordsFiltered:1,data:[{id:'bad'}]}),{}));
+await assert.rejects(()=>fetchIds(async()=>{throw new Error('offline')},{}));
+console.log('PASS: all 1,505 matching codes, pagination, preserved filters, changing lists, duplicates and network failure');
