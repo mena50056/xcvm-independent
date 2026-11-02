@@ -15,6 +15,8 @@ jobs:
       - run: node --check panel/src/Public/assets/admin/xcvm/horus-movies.js
       - run: node panel/tests/Support/horus-movies.mjs
       - run: php panel/tests/Support/horus-movies.php
+      - run: node --check panel/src/Public/assets/admin/xcvm/horus-resellers.js
+      - run: php panel/tests/Support/horus-resellers.php
       - run: node --check panel/src/Public/assets/admin/xcvm/horus-subscriptions.js
       - run: node panel/tests/Support/horus-subscriptions.mjs
       - run: node --check panel/src/Public/assets/admin/xcvm/horus-series.js

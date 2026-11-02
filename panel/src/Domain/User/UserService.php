@@ -112,22 +112,9 @@ class UserService {
 			}
 
 			if (isset($rData['c_override'])) {
-				$rOverride = [];
-
-				foreach ($rData as $rKey => $rCredits) {
-					if (substr($rKey, 0, 9) == 'override_') {
-						$rID = intval(explode('override_', $rKey)[1]);
-
-						if ((string) $rCredits !== '') {
-							$rCredits = intval($rCredits);
-						} else {
-							$rCredits = null;
-						}
-
-						if ($rCredits) {
-							$rOverride[$rID] = ['assign' => 1, 'official_credits' => $rCredits];
-						}
-					}
+				$rOverride = UserCredits::packageOverrides($rData);
+				if ($rOverride === null) {
+					return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
 				}
 				$rArray['override_packages'] = json_encode($rOverride);
 			}
@@ -220,22 +207,9 @@ class UserService {
 						$rArray['password'] = Authenticator::hashPassword($rData['password']);
 					}
 
-					$rOverride = [];
-
-					foreach ($rData as $rKey => $rCredits) {
-						if (substr($rKey, 0, 9) == 'override_') {
-							$rID = intval(explode('override_', $rKey)[1]);
-
-							if ((string) $rCredits !== '') {
-								$rCredits = intval($rCredits);
-							} else {
-								$rCredits = null;
-							}
-
-							if ($rCredits) {
-								$rOverride[$rID] = ['assign' => 1, 'official_credits' => $rCredits];
-							}
-						}
+					$rOverride = UserCredits::packageOverrides($rData);
+					if ($rOverride === null) {
+						return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
 					}
 
 					if (!ctype_xdigit($rArray['api_key']) || strlen($rArray['api_key']) != 32) {

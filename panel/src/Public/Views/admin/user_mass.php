@@ -21,7 +21,7 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
     <h4 class="mb-0"><?= $language::get('mass_edit_users'); ?> <small class="text-body-secondary" id="selected_count"></small></h4>
 </div>
 
-<div class="card">
+<div class="card horus-reseller-mass">
     <div class="card-body">
         <form id="mass-form">
             <input type="hidden" name="users_selected" id="users_selected" value="">
@@ -44,8 +44,8 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
                         <div class="col-md-2">
                             <select id="filter" class="form-select">
                                 <option value="" selected><?= $language::get('no_filter'); ?></option>
-                                <option value="1"><?= $language::get('active'); ?></option>
-                                <option value="2"><?= $language::get('disabled'); ?></option>
+                                <option value="-1"><?= $language::get('active'); ?></option>
+                                <option value="-2"><?= $language::get('disabled'); ?></option>
                             </select>
                         </div>
                         <div class="col-md-2 col-8">
@@ -138,8 +138,8 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
                                     <tr>
                                         <td class="text-center"><?= (int) $rPackage['id']; ?></td>
                                         <td><?= htmlspecialchars((string) $rPackage['package_name'], ENT_QUOTES); ?></td>
-                                        <td class="text-center"><?= (int) $rPackage['official_credits']; ?></td>
-                                        <td class="text-center"><input class="form-control text-center orinput d-inline" name="override_<?= (int) $rPackage['id']; ?>" type="text" value="" style="width:100px"></td>
+                                        <td class="text-center"><?= htmlspecialchars((string) $rPackage['official_credits'], ENT_QUOTES); ?></td>
+                                        <td class="text-center"><input class="form-control text-center orinput d-inline" name="override_<?= (int) $rPackage['id']; ?>" type="number" min="0" step="0.0001" inputmode="decimal" value="" style="width:100px"></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -151,7 +151,7 @@ $rOwner = (RequestManager::has('owner') && ($rO = UserRepository::getRegisteredU
                     </div>
                 </div>
             </div>
-            <div class="text-end mt-3"><button type="submit" class="btn btn-primary" name="submit_user" value="1"><?= $language::get('mass_edit') ?: 'Mass Edit'; ?></button></div>
+            <div class="text-end mt-3 xc-editor-savebar"><button type="submit" class="btn btn-primary" name="submit_user" value="1"><?= $language::get('mass_edit') ?: 'Mass Edit'; ?></button></div>
         </form>
     </div>
 </div>
@@ -261,11 +261,15 @@ LayoutRenderer::renderFooter('admin');
         // hidden or not: stored text goes through esc.
         var rTable = $('#datatable-mass').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
             searchDelay: 250,
             ajax: {
                 url: './table',
                 data: function(d) {
                     d.id = 'reg_users';
+                    // The shared endpoint includes a leading Responsive column; this picker does not.
+                    (d.order || []).forEach(function(order) { order.column = Number(order.column) + 1; });
                     d.filter = getFilter();
                     d.reseller = getReseller();
                 }
@@ -350,7 +354,7 @@ LayoutRenderer::renderFooter('admin');
             pageLength: <?= (int) ($rSettings['default_entries'] ?: 10); ?>,
             layout: {
                 topStart: null, // page size is driven by the toolbar #show_entries selector
-                topEnd: 'search'
+                topEnd: null
             }
         });
 
@@ -375,8 +379,10 @@ LayoutRenderer::renderFooter('admin');
             updateCount();
         });
 
-        $('#user_search').on('keyup', function() {
-            rTable.search(this.value).draw();
+        document.addEventListener('DOMContentLoaded', function() {
+            window.HorusSubscriptions.bindSearch(document.getElementById('user_search'), function(value) {
+                rTable.search(value).draw();
+            });
         });
         $('#show_entries').on('change', function() {
             rTable.page.len(parseInt(this.value, 10)).draw();
@@ -386,7 +392,7 @@ LayoutRenderer::renderFooter('admin');
         });
 
         // Auto-tick override apply when a cell is filled.
-        $(document).on('keyup', '.orinput', function() {
+        $(document).on('input', '.orinput', function() {
             if (this.value.length > 0 && !document.getElementById('c_override').checked) {
                 document.getElementById('c_override').checked = true;
             }
@@ -424,7 +430,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (d && d.result !== false) {
+                    if (d && d.result === true) {
                         toast('Mass edit applied.', 'success');
                         setTimeout(function() {
                             location.reload();

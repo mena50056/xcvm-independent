@@ -25,14 +25,14 @@ $rReserved = GroupService::reservedGroups();
 
 if (!function_exists('xc_bool_flag')) {
     function xc_bool_flag($rOn) {
-        return '<i class="icon-base ti tabler-square-filled ' . ($rOn ? 'text-success' : 'text-body-secondary') . '"></i>';
+        return '<span class="badge ' . ($rOn ? 'bg-label-success' : 'bg-label-secondary') . '">' . htmlspecialchars((string) \XcVm\Core\Localization\Translator::get($rOn ? 'enabled' : 'disabled'), ENT_QUOTES) . '</span>';
     }
 }
 ?>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="card-title mb-0"><?= $language::get('groups'); ?></h5>
+<div class="card xc-lines-workspace horus-resellers-workspace">
+    <div class="card-header"><div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · ACCESS CONTROL</span>
+        <h5 class="card-title mb-0"><?= $language::get('groups'); ?></h5><p class="xc-workspace-caption">Review group capabilities, package access and administrator permissions.</p></div>
     </div>
     <div class="card-datatable table-responsive">
         <table id="groups-table" class="table" style="width:100%">
@@ -60,7 +60,7 @@ if (!function_exists('xc_bool_flag')) {
                             <?php if ($rCanEdit && !in_array((int) $rGroup['group_id'], $rReserved)): ?>
                                 <a href="group?id=<?= (int) $rGroup['group_id']; ?>" class="btn btn-sm btn-icon btn-label-secondary" title="<?= $language::get('edit_group'); ?>"><i class="icon-base ti tabler-pencil"></i></a>
                             <?php endif; ?>
-                            <?php if (!empty($rGroup['can_delete']) && !in_array((int) $rGroup['group_id'], $rReserved)): ?>
+                            <?php if ($rCanEdit && !empty($rGroup['can_delete']) && !in_array((int) $rGroup['group_id'], $rReserved)): ?>
                                 <button type="button" class="btn btn-sm btn-icon btn-label-danger js-del" data-id="<?= (int) $rGroup['group_id']; ?>" title="<?= $language::get('delete_group'); ?>"><i class="icon-base ti tabler-trash"></i></button>
                             <?php endif; ?>
                         </td>
@@ -98,6 +98,15 @@ LayoutRenderer::renderFooter('admin');
                 {
                     targets: 1,
                     visible: false
+                },
+                {
+                    targets: 2,
+                    responsivePriority: 1
+                },
+                {
+                    targets: 6,
+                    orderable: false,
+                    responsivePriority: 3
                 }
             ],
             layout: {

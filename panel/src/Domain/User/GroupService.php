@@ -79,18 +79,26 @@ class GroupService {
 				return ['status' => STATUS_INVALID_GROUP, 'data' => $rData];
 			}
 
-			$rArray['allowed_pages'] = array_values(json_decode($rData['permissions_selected'], true));
+			$rLists = [];
+			foreach (['permissions_selected', 'groups_selected', 'packages_selected'] as $rField) {
+				$rList = json_decode(is_string($rData[$rField] ?? null) ? $rData[$rField] : '', true);
+				if (!is_array($rList) || !array_is_list($rList) || count(array_filter($rList, 'is_scalar')) !== count($rList)) {
+					return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
+				}
+				$rLists[$rField] = $rList;
+			}
+			$rArray['allowed_pages'] = $rLists['permissions_selected'];
 
-			if (strlen($rData['group_name']) != 0) {
+			if (trim((string) $rData['group_name']) !== '') {
 				// A reserved group is not given out as a sub-reseller group either.
-				$rArray['subresellers'] = '[' . implode(',', array_diff(array_map('intval', json_decode($rData['groups_selected'], true)), $rReserved)) . ']';
+				$rArray['subresellers'] = '[' . implode(',', array_diff(array_map('intval', $rLists['groups_selected']), $rReserved)) . ']';
 				$rArray['notice_html'] = htmlentities($rData['notice_html']);
 				$rPrepare = QueryHelper::prepareArray($rArray);
 				$rQuery = 'REPLACE INTO `users_groups`(' . $rPrepare['columns'] . ') VALUES(' . $rPrepare['placeholder'] . ');';
 
 				if ($db->query($rQuery, ...$rPrepare['data'])) {
 					$rInsertID = $db->last_insert_id();
-					$rPackages = json_decode($rData['packages_selected'], true);
+					$rPackages = $rLists['packages_selected'];
 
 					foreach ($rPackages as $rPackage) {
 						$db->query('SELECT `groups` FROM `users_packages` WHERE `id` = ?;', $rPackage);

@@ -10,7 +10,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/header.php",
-      "sha256": "f497ad595584e3c9f213f3e72276cf027680a1d5d437df8e474be9a82a5a3920"
+      "sha256": "aa2bbb0289b0623a625e07ccd949a62d08ff5b15c41814d4429042edf66693c4"
     },
     {
       "path": "panel/src/Public/Views/admin/login.php",
@@ -154,7 +154,7 @@
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.js",
-      "sha256": "616ed65e26e35fb843ad7ecf1300894c31a067f0914e20ad090f8efaef7ac71d"
+      "sha256": "25961013b81df6d0f08e9c5715c9964d49157c1be1ae6004cb0e24f49be45575"
     },
     {
       "path": "panel/src/Public/assets/admin/xcvm/horus-subscriptions.css",
@@ -163,6 +163,54 @@
     {
       "path": "panel/src/Public/Views/admin/lines.php",
       "sha256": "42f65202fba35905a4b7408f3fe7b8965ab68ee95b4cf8a6379a1da9947f38af"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Admin/Ajax/UserAjaxController.php",
+      "sha256": "641580c8bd794fd3ba6b890fb0a924d14f2054fb34831351cd41d1b7dd4a77f0"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Api/AdminAPIWrapper.php",
+      "sha256": "559dcb882f02c95c6ee78cd9a5812b0c6f44c867576c247303cbb8f9bf163c6d"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/users.php",
+      "sha256": "0270bfd0875d73e82bb5ce85e32bda2a7559197d94a6515fc41cc8044fb021f7"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/user.php",
+      "sha256": "6fafdb35c6cc27e47cc65e35c8cddbf21575e4fd15870eca9625662b8635c01e"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/groups.php",
+      "sha256": "8d92f3cf43de39de322e912b00d6a934e280400abac6de57d581513a5ca7d75d"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/group.php",
+      "sha256": "35a1aee23ee5d4571479c6e221a1b28ef87308b5febf99f41dba8d275cf030a2"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-resellers.css",
+      "sha256": "e89660c5e42885ef5b7ab0f366130840d5d1395eef2d7dd52a3ea15ff941612c"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-resellers.js",
+      "sha256": "4e4774046c9d2ff49126169f64c734e14e61460c09a736b18912ff248d2797a9"
+    },
+    {
+      "path": "panel/src/Domain/User/UserCredits.php",
+      "sha256": "f6718cf1159aeab5f17c74ca0dc79d5cc972521c9c1ea9b5b72a8f62b8f0a5da"
+    },
+    {
+      "path": "panel/src/Domain/User/UserService.php",
+      "sha256": "3c2b0ca8a920803f4e213f855f0f13ca24b7c0470e1dbe3a10697614055bfe9b"
+    },
+    {
+      "path": "panel/src/Domain/User/GroupService.php",
+      "sha256": "92cb0792f473920cd53bbe908957fd79a990291e1ac1cfb825a4cdff86d9d760"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/user_mass.php",
+      "sha256": "e3ba1e74458f3d026989486fb849091cade6cc5af3ba1dc9288f430942676826"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",

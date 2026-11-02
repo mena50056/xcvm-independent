@@ -140,6 +140,24 @@ class UserCredits {
 		return $rRow;
 	}
 
+	/** Parse package override inputs; blank removes an override and zero is an explicit free price. */
+	public static function packageOverrides(array $rData): ?array {
+		$rOverrides = [];
+		foreach ($rData as $rKey => $rValue) {
+			if (!preg_match('/^override_([1-9][0-9]*)$/', (string) $rKey, $rMatch)) {
+				continue;
+			}
+			if ($rValue === '') {
+				continue;
+			}
+			if (!is_scalar($rValue) || !is_numeric($rValue) || !is_finite((float) $rValue) || (float) $rValue < 0) {
+				return null;
+			}
+			$rOverrides[(int) $rMatch[1]] = ['assign' => 1, 'official_credits' => round((float) $rValue, 4)];
+		}
+		return $rOverrides;
+	}
+
 	/**
 	 * Change a balance by an amount, in the caller's transaction or one of its own.
 	 *

@@ -65,7 +65,7 @@
         const savebar = form.querySelector('.xc-editor-savebar');
         if (savebar) {
             if (!savebar.querySelector('.xc-editor-save-note')) savebar.prepend(make('span', 'xc-editor-save-note', text('راجع الإعدادات ثم احفظ التغييرات', 'Review settings, then save changes')));
-            const destination = form.id === 'line-form' ? 'lines' : form.id === 'package-form' ? 'packages' : 'bouquets';
+            const destination = form.id === 'line-form' ? 'lines' : form.id === 'package-form' ? 'packages' : form.id === 'user-form' ? 'users' : form.id === 'group-form' ? 'groups' : 'bouquets';
             const back = make('a', 'btn btn-label-secondary', text('العودة للقائمة', 'Back to list'));
             back.href = destination;
             if (window.parent === window) savebar.insertBefore(back, savebar.querySelector('[type=submit]'));
@@ -85,7 +85,7 @@
             box.append(reveal);
         }
         // Filtering never detaches rows: checked ids and saved bouquet order survive a search.
-        for (const cls of ['line-bouquet-cb', 'package-bouquet-cb', 'package-group-cb']) {
+        for (const cls of ['line-bouquet-cb', 'package-bouquet-cb', 'package-group-cb', 'group-package-cb', 'group-subreseller-cb', 'group-permission-cb']) {
             const first = form.querySelector('.' + cls);
             if (!first) continue;
             const table = first.closest('table');
@@ -105,7 +105,7 @@
                 for (const row of rows) {
                     const checked = row.querySelector('.' + cls).checked;
                     if (checked) selected++;
-                    row.hidden = !row.textContent.toLocaleLowerCase().includes(query) || (checkbox.checked && !checked);
+                    row.hidden = !(row.textContent + ' ' + row.querySelector('.' + cls).value).toLocaleLowerCase().includes(query) || (checkbox.checked && !checked);
                     if (!row.hidden) visible++;
                 }
                 counter.textContent = text('المحدد: ', 'Selected: ') + selected + ' / ' + rows.length;

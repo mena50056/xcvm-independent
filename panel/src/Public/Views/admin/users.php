@@ -28,12 +28,16 @@ $rPreOwner = RequestManager::has('owner') ? UserRepository::getRegisteredUserByI
 $rPreFilter = RequestManager::has('filter') ? (string) RequestManager::get('filter') : '';
 ?>
 
-<div class="card">
-    <div class="card-header">
-        <h5 class="card-title mb-0"><?= $language::get('users'); ?></h5>
+<div class="card xc-lines-workspace horus-resellers-workspace">
+    <div class="card-header"><div class="xc-workspace-intro"><span class="xc-workspace-eyebrow">HORUS · RESELLERS</span>
+        <h5 class="card-title mb-0"><?= $language::get('users'); ?></h5><p class="xc-workspace-caption">Manage reseller accounts, balances, ownership and access.</p></div>
     </div>
     <div class="card-body border-bottom">
         <div class="row g-3">
+            <div class="col-12 col-lg-4">
+                <label class="form-label" for="filter-search"><?= $language::get('search'); ?></label>
+                <input type="search" id="filter-search" class="form-control" autocomplete="off">
+            </div>
             <div class="col-12 col-sm-6 col-lg-4">
                 <label class="form-label" for="filter-reseller"><?= $language::get('reseller'); ?></label>
                 <select id="filter-reseller" class="form-select">
@@ -91,7 +95,7 @@ $rPreFilter = RequestManager::has('filter') ? (string) RequestManager::get('filt
             <div class="modal-body">
                 <div class="mb-3">
                     <label class="form-label" for="credits-amount"><?= $language::get('credits'); ?></label>
-                    <input type="number" class="form-control" id="credits-amount" value="0">
+                    <input type="number" class="form-control" id="credits-amount" step="0.0001" inputmode="decimal" value="0">
                 </div>
                 <div class="mb-0">
                     <label class="form-label" for="credits-reason"><?= $language::get('reason'); ?></label>
@@ -151,6 +155,8 @@ LayoutRenderer::renderFooter('admin');
         // The groups whose members a full administrator manages: no row action is offered on them.
         var reservedGroups = <?= json_encode(GroupService::reservedGroups()); ?>;
         var lang = {
+            enabled: <?= json_encode($language::get('enabled')); ?>,
+            disabled: <?= json_encode($language::get('disabled')); ?>,
             edit: <?= json_encode($language::get('edit')); ?>,
             adjust: <?= json_encode($language::get('adjust_credits')); ?>,
             enable: <?= json_encode($language::get('enable')); ?>,
@@ -170,6 +176,8 @@ LayoutRenderer::renderFooter('admin');
 
         var table = jQuery('#users-table').DataTable({
             serverSide: true,
+            processing: true,
+            deferRender: true,
             responsive: {
                 details: {
                     type: 'column',
@@ -229,8 +237,7 @@ LayoutRenderer::renderFooter('admin');
                     data: 'status',
                     className: 'text-center',
                     render: function(d) {
-                        return d === 1 ? '<i class="icon-base ti tabler-square-filled text-success" title="' + esc(lang.enable) + '"></i>' :
-                            '<i class="icon-base ti tabler-square-filled text-body-secondary" title="' + esc(lang.disable) + '"></i>';
+                        return '<span class="badge ' + (Number(d) === 1 ? 'bg-label-success' : 'bg-label-secondary') + '">' + esc(Number(d) === 1 ? lang.enabled : lang.disabled) + '</span>';
                     }
                 },
                 {
@@ -244,7 +251,7 @@ LayoutRenderer::renderFooter('admin');
                     data: 'credits',
                     className: 'text-center',
                     render: function(d, t, row) {
-                        return row.is_reseller ? '<span class="badge bg-label-primary">' + Number(d).toLocaleString() + '</span>' : '<span class="badge bg-label-secondary">-</span>';
+                        return row.is_reseller ? '<span class="badge bg-label-primary">' + Number(d).toLocaleString(undefined, {maximumFractionDigits: 4}) + '</span>' : '<span class="badge bg-label-secondary">-</span>';
                     }
                 },
                 {
@@ -286,6 +293,7 @@ LayoutRenderer::renderFooter('admin');
                     data: null,
                     orderable: false,
                     searchable: false,
+                    responsivePriority: 3,
                     className: 'text-center',
                     render: function(d, t, row) {
                         if (!canEdit || reservedGroups.indexOf(Number(row.member_group_id)) !== -1) {
@@ -312,7 +320,7 @@ LayoutRenderer::renderFooter('admin');
             ],
             layout: {
                 topStart: 'pageLength',
-                topEnd: 'search'
+                topEnd: null
             }
         });
 
@@ -396,6 +404,21 @@ LayoutRenderer::renderFooter('admin');
             table.ajax.reload(null, false);
         });
 
+        document.addEventListener('DOMContentLoaded', function() {
+            var search = window.HorusSubscriptions.bindSearch(document.getElementById('filter-search'), function(value) {
+                table.search(value).draw();
+            });
+            var clear = document.getElementById('clearFilters');
+            if (clear) clear.addEventListener('click', function(event) {
+                event.stopPropagation();
+                search.reset();
+                jQuery('#filter-reseller').val(null).trigger('change.select2');
+                document.getElementById('filter-status').value = '';
+                table.search('');
+                table.ajax.reload();
+            });
+        });
+
         // Adjust credits modal.
         var creditsModal = document.getElementById('creditsModal');
         var creditsId = null;
@@ -409,6 +432,9 @@ LayoutRenderer::renderFooter('admin');
         document.getElementById('credits-submit').addEventListener('click', function() {
             var amount = document.getElementById('credits-amount').value;
             var reason = document.getElementById('credits-reason').value;
+            var button = this;
+            if (button.disabled || creditsId === null || !document.getElementById('credits-amount').checkValidity() || amount.trim() === '' || !Number.isFinite(Number(amount))) return;
+            button.disabled = true;
             fetch('./api?action=adjust_credits&id=' + encodeURIComponent(creditsId) + '&reason=' + encodeURIComponent(reason) + '&credits=' + encodeURIComponent(amount), {
                     headers: {
                         'X-Requested-With': 'XMLHttpRequest'
@@ -418,15 +444,15 @@ LayoutRenderer::renderFooter('admin');
                     return r.json();
                 })
                 .then(function(d) {
-                    bootstrap.Modal.getOrCreateInstance(creditsModal).hide();
                     if (!d || d.result !== true) {
                         throw new Error('fail');
                     }
+                    bootstrap.Modal.getOrCreateInstance(creditsModal).hide();
                     table.ajax.reload(null, false);
                 })
                 .catch(function() {
                     xcToast(lang.error, 'error');
-                });
+                }).finally(function() { button.disabled = false; });
         });
 
         // Whois.

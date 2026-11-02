@@ -71,8 +71,8 @@ class UserAjaxController extends BaseAjaxController {
 			$this->fail();
 		}
 
-		if ($rUser && is_numeric(RequestManager::get('credits'))) {
-			$rAmount = intval(RequestManager::get('credits'));
+		if ($rUser && is_numeric(RequestManager::get('credits')) && is_finite((float) RequestManager::get('credits'))) {
+			$rAmount = round((float) RequestManager::get('credits'), 4);
 
 			// The balance changes by the amount on the row as it is stored now: an
 			// amount is taken only from a balance that covers it. The log carries the amount.

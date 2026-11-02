@@ -32,18 +32,20 @@ $rReserved  = GroupService::reservedGroups();
     </div>
 <?php endif; ?>
 
-<form id="user-form" autocomplete="off">
+<form class="horus-subscription-editor horus-reseller-editor" id="user-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rUser['id']; ?>">
         <input type="hidden" name="credits_shown" value="<?= htmlspecialchars((string) $rUser['credits'], ENT_QUOTES); ?>">
         <input type="hidden" name="bouquet_limit_revision" value="<?= \XcVm\Domain\Bouquet\ResellerBouquetPolicy::allowanceRevision($rUser); ?>">
     <?php endif; ?>
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
                     <li class="nav-item"><button type="button" class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-details" role="tab"><i class="icon-base ti tabler-list-details me-1"></i><?= $language::get('details'); ?></button></li>
+                    <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-credits" role="tab"><i class="icon-base ti tabler-wallet me-1"></i><?= $language::get('credits'); ?></button></li>
+                    <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-access" role="tab"><i class="icon-base ti tabler-shield-lock me-1"></i><?= $language::get('bouquets'); ?></button></li>
                     <?php if ($rIsEdit): ?>
                         <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-override" role="tab"><i class="icon-base ti tabler-pencil-plus me-1"></i><?= $language::get('overrides'); ?></button></li>
                     <?php endif; ?>
@@ -60,7 +62,7 @@ $rReserved  = GroupService::reservedGroups();
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="password"><?= $rIsEdit ? ($language::get('change') ?: 'Change') . ' ' : ''; ?><?= $language::get('password'); ?></label>
-                            <input type="text" class="form-control" id="password" name="password" <?= $rIsEdit ? 'placeholder="' . htmlspecialchars((string) $language::get('enter_a_new_password_here_to_change_it'), ENT_QUOTES) . '"' : ''; ?> value="<?= $rIsEdit ? '' : htmlspecialchars(AdminHelpers::generateString($rMinPwLen), ENT_QUOTES); ?>">
+                            <input type="password" class="form-control" id="password" name="password" <?= $rIsEdit ? 'placeholder="' . htmlspecialchars((string) $language::get('enter_a_new_password_here_to_change_it'), ENT_QUOTES) . '"' : ''; ?> value="<?= $rIsEdit ? '' : htmlspecialchars(AdminHelpers::generateString($rMinPwLen), ENT_QUOTES); ?>">
                         </div>
                     </div>
 
@@ -100,10 +102,12 @@ $rReserved  = GroupService::reservedGroups();
                         </div>
                     </div>
 
+                </div>
+                <div class="tab-pane fade" id="tab-credits" role="tabpanel">
                     <div class="row mb-6">
                         <div class="col-md-4">
                             <label class="form-label" for="credits"><?= $language::get('credits'); ?></label>
-                            <input type="text" inputmode="numeric" class="form-control" id="credits" name="credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rUser['credits'], ENT_QUOTES) : '0'; ?>">
+                            <input type="number" step="0.0001" inputmode="decimal" class="form-control" id="credits" name="credits" value="<?= $rIsEdit ? htmlspecialchars((string) $rUser['credits'], ENT_QUOTES) : '0'; ?>">
                         </div>
                         <div class="col-md-8">
                             <label class="form-label" for="credits_reason"><?= $language::get('reason_for_adjustment') ?: 'Reason for Adjustment'; ?></label>
@@ -111,6 +115,8 @@ $rReserved  = GroupService::reservedGroups();
                         </div>
                     </div>
 
+                </div>
+                <div class="tab-pane fade" id="tab-access" role="tabpanel">
                     <div class="mb-6">
                         <label class="form-label" for="reseller_dns"><?= $language::get('reseller_dns') ?: 'Reseller DNS'; ?></label>
                         <input type="text" class="form-control" id="reseller_dns" name="reseller_dns" value="<?= $rIsEdit ? htmlspecialchars((string) $rUser['reseller_dns'], ENT_QUOTES) : ''; ?>">
@@ -167,9 +173,9 @@ $rReserved  = GroupService::reservedGroups();
                                             <tr>
                                                 <td class="text-center"><?= (int) $rPackage['id']; ?></td>
                                                 <td><?= htmlspecialchars((string) $rPackage['package_name'], ENT_QUOTES); ?></td>
-                                                <td class="text-center"><?= (int) $rPackage['official_credits']; ?></td>
+                                                <td class="text-center"><?= htmlspecialchars((string) $rPackage['official_credits'], ENT_QUOTES); ?></td>
                                                 <td class="text-center">
-                                                    <input class="form-control form-control-sm text-center mx-auto" style="max-width:120px" inputmode="numeric" name="override_<?= (int) $rPackage['id']; ?>" type="text" value="<?= isset($rOverrides[$rPackage['id']]) ? (int) $rOverrides[$rPackage['id']]['official_credits'] : ''; ?>">
+                                                    <input class="form-control form-control-sm text-center mx-auto" style="max-width:120px" inputmode="decimal" min="0" step="0.0001" name="override_<?= (int) $rPackage['id']; ?>" type="number" value="<?= isset($rOverrides[$rPackage['id']]) ? htmlspecialchars((string) $rOverrides[$rPackage['id']]['official_credits'], ENT_QUOTES) : ''; ?>">
                                                 </td>
                                             </tr>
                                         <?php endforeach; ?>
@@ -185,7 +191,7 @@ $rReserved  = GroupService::reservedGroups();
         </div>
     </div>
 
-    <div class="d-flex justify-content-end mb-6">
+    <div class="d-flex justify-content-end mb-6 xc-editor-savebar">
         <button type="submit" class="btn btn-primary" id="user-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?> <?= $language::get('user'); ?></button>
     </div>
 </form>
@@ -227,13 +233,6 @@ LayoutRenderer::renderFooter('admin');
             });
         }
 
-        // Numeric-only guard for the credits/override fields.
-        document.querySelectorAll('#credits, input[name^="override_"]').forEach(function(el) {
-            el.addEventListener('input', function() {
-                this.value = this.value.replace(/[^0-9]/g, '');
-            });
-        });
-
         // Clear owner → back to 0 (no owner); trigger change so select2 repaints.
         document.getElementById('clear-owner').addEventListener('click', function() {
             if ($) {
@@ -266,7 +265,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         if (window.parent !== window) {
                             window.parent.postMessage('xcModalSaved', '*');
                         } else {

@@ -1922,8 +1922,8 @@ class AdminAPIWrapper {
 		global $db;
 		global $rUserInfo;
 		// The credits of an administrator's account are adjusted by a full administrator (GroupService::reservedGroups).
-		if (is_numeric($rCredits) && ($rUser = self::getUser($rID)) && isset($rUser['data']) && !in_array(intval($rUser['data']['member_group_id']), GroupService::reservedGroups())) {
-			$rAmount = intval($rCredits);
+		if (is_numeric($rCredits) && is_finite((float) $rCredits) && ($rUser = self::getUser($rID)) && isset($rUser['data']) && !in_array(intval($rUser['data']['member_group_id']), GroupService::reservedGroups())) {
+			$rAmount = round((float) $rCredits, 4);
 			// The balance changes by the amount on the row as it is stored now: an
 			// amount is taken only from a balance that covers it. The log carries the amount.
 			if ($rAmount < 0 ? UserCredits::debit($rUser['data']['id'], -$rAmount) : UserCredits::credit($rUser['data']['id'], $rAmount)) {

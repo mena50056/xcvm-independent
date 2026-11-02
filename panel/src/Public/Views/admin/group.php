@@ -34,7 +34,7 @@ $rReserved     = GroupService::reservedGroups();
     <h4 class="mb-0"><?= $rIsEdit ? $language::get('edit_group') : $language::get('add_group'); ?></h4>
 </div>
 
-<form id="group-form" autocomplete="off">
+<form class="horus-subscription-editor horus-reseller-editor" id="group-form" autocomplete="off">
     <?php if ($rIsEdit): ?>
         <input type="hidden" name="edit" value="<?= (int) $rGroup['group_id']; ?>">
     <?php endif; ?>
@@ -42,7 +42,7 @@ $rReserved     = GroupService::reservedGroups();
     <input type="hidden" name="packages_selected" id="packages_selected" value="">
     <input type="hidden" name="groups_selected" id="groups_selected" value="">
 
-    <div class="card mb-6">
+    <div class="card mb-6 xc-editor-shell">
         <div class="card-header px-0 pt-2">
             <div class="nav-align-top">
                 <ul class="nav nav-tabs" role="tablist">
@@ -149,7 +149,7 @@ $rReserved     = GroupService::reservedGroups();
                         </div>
                         <div class="col-md-6">
                             <label class="form-label" for="create_sub_resellers_price"><?= $language::get('subreseller_price'); ?></label>
-                            <input type="text" inputmode="numeric" class="form-control" id="create_sub_resellers_price" name="create_sub_resellers_price" required value="<?= $rIsEdit ? htmlspecialchars((string) $rGroup['create_sub_resellers_price'], ENT_QUOTES) : '0'; ?>">
+                            <input type="number" inputmode="decimal" min="0" step="0.0001" class="form-control" id="create_sub_resellers_price" name="create_sub_resellers_price" required value="<?= $rIsEdit ? htmlspecialchars((string) $rGroup['create_sub_resellers_price'], ENT_QUOTES) : '0'; ?>">
                         </div>
                     </div>
                     <div class="row mb-6">
@@ -237,7 +237,7 @@ $rReserved     = GroupService::reservedGroups();
                         </div>
                         <p class="text-body-secondary"><?= $language::get('advanced_permissions_info'); ?></p>
                         <div class="card-datatable table-responsive">
-                            <table class="table">
+                            <table class="table horus-permissions-table">
                                 <thead>
                                     <tr>
                                         <th><?= $language::get('permission'); ?></th>
@@ -265,7 +265,7 @@ $rReserved     = GroupService::reservedGroups();
         </div>
     </div>
 
-    <div class="d-flex justify-content-end mb-6">
+    <div class="d-flex justify-content-end mb-6 xc-editor-savebar">
         <button type="submit" class="btn btn-primary" id="group-submit"><?= $rIsEdit ? $language::get('edit') : $language::get('add'); ?></button>
     </div>
 </form>
@@ -278,7 +278,7 @@ LayoutRenderer::renderFooter('admin');
         var errText = <?= json_encode($language::get('error_occured')); ?>;
 
         // Numeric-only guards mirroring the legacy inputFilter (/^\d*$/).
-        ['total_allowed_gen_trials', 'minimum_trial_credits', 'create_sub_resellers_price', 'minimum_username_length', 'minimum_password_length'].forEach(function(id) {
+        ['total_allowed_gen_trials', 'minimum_trial_credits', 'minimum_username_length', 'minimum_password_length'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) {
                 el.addEventListener('input', function() {
@@ -421,7 +421,7 @@ LayoutRenderer::renderFooter('admin');
                             result: false
                         };
                     }
-                    if (dt && dt.result !== false) {
+                    if (dt && dt.result === true) {
                         window.location.href = dt.location || 'groups';
                         return;
                     }
