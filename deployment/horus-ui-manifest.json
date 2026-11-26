@@ -10,7 +10,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/header.php",
-      "sha256": "7fce95b2b16ac946699706d7c2ee2f5d4735865147e620a5c29831f61baf5caa"
+      "sha256": "2511e0f580afcb4202e8b2dcf1f84a3ab1c7d7c3f692ea33a7ff3ee63814dbdf"
     },
     {
       "path": "panel/src/Public/Views/admin/login.php",
@@ -322,7 +322,7 @@
     },
     {
       "path": "panel/src/Public/Controllers/Admin/Ajax/BackupAjaxController.php",
-      "sha256": "7cfd1738fc8914f7f595a02cf185e7f3baa68ce4ac483525490ffb32392262a5"
+      "sha256": "2b70853d8a6411e95c39a5ae500b3b5847edd7b868d972b833ba3221c54ac895"
     },
     {
       "path": "panel/src/Public/Views/admin/line_activity.php",
@@ -334,7 +334,7 @@
     },
     {
       "path": "panel/src/Public/Controllers/Admin/TableController.php",
-      "sha256": "684bfb113e9588a62894addebed5d6cd9f521d768a0a7a331e6cd0edb0cb6028"
+      "sha256": "1fa77083da7a2739cb411df5c078a5e1119e0852e23f12551072b72b17a04059"
     },
     {
       "path": "panel/src/Public/Controllers/Admin/Ajax/MiscAjaxController.php",
@@ -371,6 +371,46 @@
     {
       "path": "panel/src/Public/Views/admin/theft_detection.php",
       "sha256": "d518fe38f4193b84656ef8690fe2a5c1bb98ab270b32b06e447d97acf2697369"
+    },
+    {
+      "path": "panel/src/Core/Backup/BackupIntegrity.php",
+      "sha256": "fc17832fc86a77dd872154bed5e27529475cbe46bf9c818455ee6a0dee41d002"
+    },
+    {
+      "path": "panel/src/Core/Backup/IndependentDatabaseDump.php",
+      "sha256": "0657c0bb6af5119b53014f57c43bb2146226245a55d44c4ef84a18d8f1a4c6f2"
+    },
+    {
+      "path": "panel/src/Core/Backup/BackupService.php",
+      "sha256": "ee3ac596c22ce287e322eb5656f9cf5a4f3679d6c0c8dbb503b12d2e858b2576"
+    },
+    {
+      "path": "panel/src/Cli/CronJobs/BackupsCronJob.php",
+      "sha256": "7ce9380d1dd6198aa43edc28758d8eff9641746f3378921402247389e2d468e0"
+    },
+    {
+      "path": "panel/src/Domain/Backup/BackupVerifier.php",
+      "sha256": "4d7d502df859668bee77710a3c7f0f243b24ae724729c60154b248a72005fa04"
+    },
+    {
+      "path": "panel/src/Domain/Server/SettingsService.php",
+      "sha256": "32c97eb58f4a21c197f5b08f4538ea6e714d1dd459bd94534440d25ae3f7ef3c"
+    },
+    {
+      "path": "panel/src/Public/Views/admin/backups.php",
+      "sha256": "f89104e827714f87026a68d6e33d985490cd15d3ed1b4e158d250a643a464ff1"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-backups.css",
+      "sha256": "a97e79ca7030f195633fbb015f28043354239742fae51e218eddbce1bcfac155"
+    },
+    {
+      "path": "panel/src/Public/assets/admin/xcvm/horus-backups.js",
+      "sha256": "4bdb40b58695f3d4512d5a962022b73e53ca4f29f347463774f04939276ecfec"
+    },
+    {
+      "path": "panel/src/Cli/CronJobs/BackupVerifyCronJob.php",
+      "sha256": "cae92dd9c289b611fd057a6f5704ceb28a75ec11e5586112c427ba5f521f3136"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",
@@ -381,6 +421,7 @@
     "Movies: isolated HTTP create/edit, M3U and recursive folder imports; desktop/mobile UI",
     "Series: real TMDb lookup; isolated create/edit, M3U and season-folder imports; desktop/mobile forms and bulk edit",
     "Codes/MAG/Enigma: 34 isolated HTTP checks, 11 activation lifecycle checks, complete pagination and desktop/mobile UI",
-    "Monitoring/logs: 73 isolated HTTP checks, real test-process termination, non-destructive export, scheduler regression checks and 19 desktop/mobile Arabic pages"
+    "Monitoring/logs: 73 isolated HTTP checks, real test-process termination, non-destructive export, scheduler regression checks and 19 desktop/mobile Arabic pages",
+    "Backups: isolated create/download/restore, seven-copy retention, checksum rejection, partial-import recovery, 87-table restore verification and Arabic desktop/mobile UI"
   ]
 }

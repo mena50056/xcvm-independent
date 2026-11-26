@@ -88,56 +88,68 @@ class BackupAjaxController extends BaseAjaxController {
 	}
 
 	/** action=backup — delete/restore a DB backup or trigger a new one (local + Dropbox). */
-	public function backup(): never {
-		$this->requireXhr();
-		$this->gate('adv', 'database');
+    public function backup(): never {
+        $this->gate('adv', 'database');
+        $sub = (string) RequestManager::get('sub');
+        if ($sub === 'download') {
+            $file = $this->localBackup((string) RequestManager::get('filename'));
+            if ($file === null) { http_response_code(404); exit(); }
+            header('Content-Type: application/sql');
+            header('Content-Disposition: attachment; filename="' . basename($file) . '"');
+            header('Cache-Control: no-store');
+            header('X-Content-Type-Options: nosniff');
+            header('Content-Length: ' . filesize($file));
+            readfile($file); exit();
+        }
+        $this->requireXhr();
+        if ($sub === 'status') {
+            $this->ok(['status'=>\XcVm\Core\Backup\BackupIntegrity::status()]);
+        }
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !hash_equals((string) ($_SESSION['horus_backup_csrf'] ?? ''), (string) RequestManager::get('csrf')) || empty($_SESSION['horus_backup_csrf'])) $this->fail();
+        if ($sub === 'verify') {
+            $file = $this->localBackup((string) RequestManager::get('filename'));
+            $this->ok(['integrity'=>$file ? \XcVm\Core\Backup\BackupIntegrity::inspect($file) : 'failed']);
+        }
+        if ($sub === 'delete') {
+            global $rSettings;
+            $name = (string) RequestManager::get('filename');
+            if ($name !== basename($name) || !preg_match('/^[A-Za-z0-9_.:-]+\.sql$/D', $name)) $this->fail();
+            $file = $this->localBackup((string) RequestManager::get('filename'));
+            $remote = (string) ($rSettings['dropbox_token'] ?? '') !== '';
+            if ($file === null && !$remote) $this->fail();
+            $lock = \XcVm\Core\Backup\BackupIntegrity::lock();
+            if (!$lock) $this->fail(['error'=>'busy']);
+            $deleted = $file !== null ? unlink($file) : false;
+            if ($remote) { BackupService::deleteRemote('/' . $name); if ($file === null) $deleted = true; }
+            if ($deleted && $file !== null) foreach (['.sha256.json', '.error', '.uploading'] as $suffix) @unlink($file . $suffix);
+            flock($lock, LOCK_UN); fclose($lock);
+            $this->json(['result'=>$deleted]);
+        }
+        if ($sub === 'restore') {
+            global $rSettings;
+            $name = (string) RequestManager::get('filename');
+            if ($name !== basename($name) || !preg_match('/^[A-Za-z0-9_.:-]+\.sql$/D', $name)) $this->fail();
+            $file = $this->localBackup($name);
+            $temp = null;
+            if ($file === null && (string) ($rSettings['dropbox_token'] ?? '') !== '') {
+                $temp = tempnam(MAIN_HOME . 'tmp/', 'horus-remote-restore-');
+                if ($temp && BackupService::downloadRemote('/' . $name, $temp)) $file = $temp;
+            }
+            if ($file === null) { if ($temp) @unlink($temp); $this->fail(); }
+            try { $result = BackupService::restore($file); }
+            finally { if ($temp) @unlink($temp); }
+            $this->json(['result'=>$result === true, 'error'=>$result === null ? 'safety_dump' : null]);
+        }
+        if ($sub !== 'backup') $this->fail();
+        shell_exec(escapeshellarg(PHP_BIN) . ' ' . escapeshellarg(MAIN_HOME . 'console.php') . ' cron:backups 1 > /dev/null 2>/dev/null &');
+        $this->ok();
+    }
 
-		global $rSettings;
-		$rSub = RequestManager::get('sub');
-
-		if ($rSub == 'delete') {
-			$rBackup = pathinfo(RequestManager::get('filename'))['filename'];
-
-			if (file_exists(MAIN_HOME . 'backups/' . $rBackup . '.sql')) {
-				unlink(MAIN_HOME . 'backups/' . $rBackup . '.sql');
-			}
-
-			if ((string) $rSettings['dropbox_token'] !== '') {
-				BackupService::deleteRemote('/' . $rBackup . '.sql');
-			}
-
-			$this->ok();
-		}
-
-		if ($rSub == 'restore') {
-			$rBackup = pathinfo(RequestManager::get('filename'))['filename'];
-			$rFilename = MAIN_HOME . 'backups/' . $rBackup . '.sql';
-
-			if (!file_exists($rFilename)) {
-				$rFilename = MAIN_HOME . 'tmp/restore.sql';
-
-				if ((string) $rSettings['dropbox_token'] !== '') {
-					if (!BackupService::downloadRemote('/' . $rBackup . '.sql', $rFilename)) {
-						$this->fail();
-					}
-				} else {
-					$this->fail();
-				}
-			}
-
-			// null: the live database could not be dumped first and was not touched; force=1 restores anyway.
-			$rResult = BackupService::restore($rFilename, (bool) RequestManager::get('force'));
-			$this->json(['result' => $rResult === true] + ($rResult === null ? ['error' => 'safety_dump'] : []));
-		}
-
-		if ($rSub != 'backup') {
-			$this->fail();
-		}
-
-		shell_exec(PHP_BIN . ' ' . MAIN_HOME . 'console.php cron:backups 1 > /dev/null 2>/dev/null &');
-
-		$this->ok();
-	}
+    private function localBackup(string $name): ?string {
+        if ($name !== basename($name) || !preg_match('/^[A-Za-z0-9_.:-]+\.sql$/D', $name)) return null;
+        $file = MAIN_HOME . 'backups/' . $name;
+        return is_file($file) && !is_link($file) ? $file : null;
+    }
 
 	/**
 	 * action=report — stream a DataTables result as a CSV/JSON download.

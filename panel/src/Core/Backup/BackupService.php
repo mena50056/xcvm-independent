@@ -116,11 +116,24 @@ class BackupService {
 	 * @return bool|null true: restored. false: the import failed. null: refused, the live database could not be dumped first.
 	 */
 	public static function restore(string $filename, bool $rForce = false): ?bool {
-		if (!$rForce && !self::create(MAIN_HOME . 'backups/' . self::PRE_RESTORE . date('Y-m-d_H:i:s') . '.sql')) {
-			return null;
-		}
-		return (bool) \XC_VM::db_restore($filename);
-	}
+        if (!is_file($filename) || is_link($filename) || BackupIntegrity::inspect($filename) === 'failed') return false;
+        $lock = BackupIntegrity::lock();
+        if (!$lock) return false;
+        $copy = tempnam(sys_get_temp_dir(), 'horus-restore-');
+        try {
+            if ($copy === false || \XcVm\Cli\Commands\ToolsCommand::stripDatabaseSwitches($filename, $copy) === null) return false;
+            $safety = MAIN_HOME . 'backups/' . self::PRE_RESTORE . date('Y-m-d_H-i-s') . '_' . bin2hex(random_bytes(3)) . '.sql';
+            if (!self::create($safety)) return null;
+            $result = (bool) \XC_VM::db_restore($copy);
+            if (!$result && !\XC_VM::db_restore($safety)) {
+                BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>'restore_failed', 'time'=>time(), 'file'=>basename($safety)]);
+            }
+            return $result;
+        } finally {
+            if (is_string($copy) && is_file($copy)) unlink($copy);
+            flock($lock, LOCK_UN); fclose($lock);
+        }
+    }
 
 	/**
 	 * Grant SELECT/INSERT/UPDATE/DELETE/DROP/ALTER privileges to a remote host.
@@ -157,10 +170,11 @@ class BackupService {
 	public static function getLocal() {
 		$rBackups = [];
 
+		if (!is_dir(MAIN_HOME . 'backups/')) return [];
 		foreach (scandir(MAIN_HOME . 'backups/') as $rBackup) {
 			$rInfo = pathinfo(MAIN_HOME . 'backups/' . $rBackup);
 
-			if ($rInfo['extension'] == 'sql') {
+			if (($rInfo['extension'] ?? '') === 'sql' && is_file(MAIN_HOME . 'backups/' . $rBackup) && !is_link(MAIN_HOME . 'backups/' . $rBackup)) {
 				$rBackups[] = ['filename' => $rBackup, 'timestamp' => filemtime(MAIN_HOME . 'backups/' . $rBackup), 'date' => date('Y-m-d H:i:s', filemtime(MAIN_HOME . 'backups/' . $rBackup)), 'filesize' => filesize(MAIN_HOME . 'backups/' . $rBackup)];
 			}
 		}

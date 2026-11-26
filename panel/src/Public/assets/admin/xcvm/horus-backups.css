@@ -1,0 +1,37 @@
+.horus-backups { min-width: 0; }
+.hb-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; border-top: 3px solid #d7af59; background: var(--bs-paper-bg); border-radius: 8px; margin-bottom: 20px; }
+.hb-header h4 { margin: 0 0 8px; }
+.hb-header p, .horus-backups small, .horus-backups .card-header p { color: var(--xc-label); line-height: 1.8; }
+.hb-header p { margin: 0; }
+.hb-stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; margin-bottom: 20px; }
+.hb-stats .card { padding: 20px; gap: 10px; }
+.hb-stats strong { font-size: 16px; color: var(--bs-heading-color); }
+.hb-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 230px; }
+.hb-filename { display: inline-block; overflow-wrap: anywhere; max-width: 320px; }
+.hb-advanced summary { padding: 16px; background: var(--bs-paper-bg); border: 1px solid var(--bs-border-color); border-radius: 6px; cursor: pointer; }
+.horus-backups .card { border: 1px solid var(--bs-border-color); }
+.horus-backups th { white-space: nowrap; }
+.horus-backups td { vertical-align: middle; }
+.horus-backups input[type=number] { max-width: 240px; }
+@media(max-width:767px) {
+    .hb-header { flex-direction: column; align-items: stretch; }
+    .hb-stats { grid-template-columns: 1fr; gap: 10px; }
+    .hb-stats .card { padding: 16px; }
+    .horus-backups .table-responsive { overscroll-behavior-inline: contain; }
+    .horus-backups input[type=number] { max-width: none; }
+}
+
+@media(max-width:767px) {
+    .horus-backups #backups-table thead { display:none; }
+    .horus-backups #backups-table tbody tr { display:block; padding:12px; border-bottom:1px solid var(--bs-border-color); }
+    .horus-backups #backups-table tbody td { display:grid; grid-template-columns:90px minmax(0,1fr); gap:12px; padding:8px 4px; border:0; text-align:start!important; }
+    .horus-backups #backups-table tbody td::before { content:attr(data-label); color:var(--xc-label); }
+    .horus-backups .hb-actions { min-width:0; }
+    .horus-backups .hb-filename { max-width:100%; }
+}
+
+@media(max-width:767px) {
+    .horus-backups #backups-table, .horus-backups #backups-table tbody { display:block; width:100%!important; }
+    .horus-backups #backups-table colgroup { display:none; }
+    .horus-backups #backups-table tbody td { width:100%!important; box-sizing:border-box; }
+}

@@ -3834,6 +3834,7 @@ class TableController extends BaseAdminController {
 				"filename" => $rBackup["filename"],
 				"size" => ceil($rBackup["filesize"] / 1024 / 1024) . " MB",
 				"local" => true,
+                    "integrity" => \XcVm\Core\Backup\BackupIntegrity::inspect(MAIN_HOME . "backups/" . $rBackup["filename"]),
 				"remote" => $rRemote,
 				"remote_msg" => $rRemoteMsg,
 			];

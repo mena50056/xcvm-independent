@@ -121,6 +121,10 @@ $xmIsRtl       = \XcVm\Core\Localization\Translator::isRtl($xmCurrentLang);
 <link rel="stylesheet" href="assets/xcvm/horus-monitor.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-monitor.css'); ?>">
 <script defer src="assets/xcvm/horus-monitor.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-monitor.js'); ?>"></script>
 <?php endif; ?>
+<?php if (\XcVm\Core\Util\AdminHelpers::getPageName() === 'backups'): ?>
+<link rel="stylesheet" href="assets/xcvm/horus-backups.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-backups.css') ?>">
+<script defer src="assets/xcvm/horus-backups.js?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/horus-backups.js') ?>"></script>
+<?php endif; ?>
 </head>
 
 <?php if (!empty($GLOBALS['_SETUP'])): /* setup wizard — branded bare shell: no sidebar / navbar / menu, and never touches $rUserInfo */ ?>

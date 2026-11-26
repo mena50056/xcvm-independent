@@ -398,26 +398,14 @@ class SettingsService {
 	 */
 	public static function editBackup(array $rData) {
 		$db = self::db();
-		// This form stores any settings column it is posted: never MAIN's own
-		// cluster state, nor a cluster setting, which only edit() checks and
-		// announces to the nodes.
-		$rArray = array_diff_key(QueryHelper::verifyPostTable('settings', $rData, true), array_flip(array_merge(self::CLUSTER_STATE, ClusterSettings::keys())));
-
-		foreach (['dropbox_remote'] as $rSetting) {
-			if (isset($rData[$rSetting])) {
-				$rArray[$rSetting] = 1;
-			} else {
-				$rArray[$rSetting] = 0;
-			}
-		}
-
-		if (!isset($rData['allowed_stb_types_for_local_recording'])) {
-			$rArray['allowed_stb_types_for_local_recording'] = [];
-		}
-
-		if (!isset($rData['allowed_stb_types'])) {
-			$rArray['allowed_stb_types'] = [];
-		}
+        $schedule = (string) ($rData['automatic_backups'] ?? 'off');
+        if ($schedule !== 'off' && !isset(\XcVm\Core\Backup\BackupService::PERIODS[$schedule])) return ['status'=>STATUS_FAILURE];
+        foreach (['backups_to_keep', 'dropbox_keep'] as $key) {
+            if (filter_var($rData[$key] ?? 0, FILTER_VALIDATE_INT, ['options'=>['min_range'=>0, 'max_range'=>1000]]) === false) return ['status'=>STATUS_FAILURE];
+        }
+        $rArray = ['automatic_backups'=>$schedule, 'backups_to_keep'=>(int) ($rData['backups_to_keep'] ?? 0),
+            'dropbox_keep'=>(int) ($rData['dropbox_keep'] ?? 0), 'dropbox_remote'=>isset($rData['dropbox_remote']) ? 1 : 0];
+        if (isset($rData['dropbox_token']) && trim((string) $rData['dropbox_token']) !== '') $rArray['dropbox_token'] = trim((string) $rData['dropbox_token']);
 
 		$rPrepare = QueryHelper::prepareArray($rArray);
 		if (count($rPrepare['data']) <= 0) {

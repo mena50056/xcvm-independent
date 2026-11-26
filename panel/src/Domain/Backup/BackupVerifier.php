@@ -23,6 +23,10 @@ final class BackupVerifier {
 
 	public const SCRATCH = 'xc_vm_migrate';
 
+    private static function scratch(): string {
+        return defined('XCVM_INDEPENDENT_LAB') ? 'xcvm_lab_migrate' : self::SCRATCH;
+    }
+
 	/** @return array{time: int, state: string, file: string, tables: int, lines: int, error: string} state: ok, failed or skipped */
 	public static function run(int $rNow): array {
 		$rResult = ['time' => $rNow, 'state' => 'skipped', 'file' => '', 'tables' => 0, 'lines' => 0, 'error' => ''];
@@ -30,7 +34,7 @@ final class BackupVerifier {
 		if ($rNewest === null) {
 			$rResult['error'] = 'no backup yet';
 		} elseif (self::tables() !== []) {
-			$rResult['error'] = self::SCRATCH . ' holds tables (a migration in progress?)';
+			$rResult['error'] = self::scratch() . ' holds tables (a migration in progress?)';
 		} else {
 			$rResult['file'] = $rNewest['filename'];
 			$rResult = array_merge($rResult, self::restore(MAIN_HOME . 'backups/' . $rNewest['filename']));
@@ -42,17 +46,18 @@ final class BackupVerifier {
 
 	/** @return array{state: string, tables: int, lines: int, error: string} */
 	private static function restore(string $rFile): array {
+        if (\XcVm\Core\Backup\BackupIntegrity::inspect($rFile) === 'failed') return ['state'=>'failed','tables'=>0,'lines'=>0,'error'=>'backup checksum failed'];
 		$rCopy = (string) tempnam(sys_get_temp_dir(), 'xc_verify_');
 		if (ToolsCommand::stripDatabaseSwitches($rFile, $rCopy) === null) {
 			@unlink($rCopy);
 			return ['state' => 'failed', 'tables' => 0, 'lines' => 0, 'error' => 'cannot copy the backup (is the temp directory full?)'];
 		}
-		$rRestored = (bool) \XC_VM::db_restore($rCopy, self::SCRATCH);
+		$rRestored = (bool) \XC_VM::db_restore($rCopy, self::scratch());
 		@unlink($rCopy);
 		$rTables = count(self::tables());
 		$db = self::db();
-		$rSettings = $rTables > 0 && $db->query('SELECT COUNT(*) FROM `' . self::SCRATCH . '`.`settings`;') ? (int) $db->get_col() : 0;
-		$rLines = $rTables > 0 && $db->query('SELECT COUNT(*) FROM `' . self::SCRATCH . '`.`lines`;') ? (int) $db->get_col() : 0;
+		$rSettings = $rTables > 0 && $db->query('SELECT COUNT(*) FROM `' . self::scratch() . '`.`settings`;') ? (int) $db->get_col() : 0;
+		$rLines = $rTables > 0 && $db->query('SELECT COUNT(*) FROM `' . self::scratch() . '`.`lines`;') ? (int) $db->get_col() : 0;
 		$rError = match (true) {
 			!$rRestored => 'the restore failed',
 			$rTables === 0 => 'nothing was restored',
@@ -65,7 +70,7 @@ final class BackupVerifier {
 	/** @return list<string> the scratch database's tables */
 	private static function tables(): array {
 		$db = self::db();
-		$db->query('SELECT `table_name` AS `name` FROM `information_schema`.`tables` WHERE `table_schema` = ?;', self::SCRATCH);
+		$db->query('SELECT `table_name` AS `name` FROM `information_schema`.`tables` WHERE `table_schema` = ?;', self::scratch());
 		return array_column($db->get_raw_rows(), 'name');
 	}
 
@@ -73,7 +78,7 @@ final class BackupVerifier {
 		$db = self::db();
 		$db->query('SET FOREIGN_KEY_CHECKS = 0;');
 		foreach (self::tables() as $rTable) {
-			$db->query('DROP TABLE IF EXISTS `' . self::SCRATCH . '`.`' . str_replace('`', '', $rTable) . '`;');
+			$db->query('DROP TABLE IF EXISTS `' . self::scratch() . '`.`' . str_replace('`', '', $rTable) . '`;');
 		}
 		$db->query('SET FOREIGN_KEY_CHECKS = 1;');
 	}

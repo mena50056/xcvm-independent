@@ -31,7 +31,10 @@ class BackupVerifyCronJob implements CommandInterface {
 			return 1;
 		}
 		$this->initCron('XC_VM[BackupVerify]');
-		$rResult = BackupVerifier::run(time());
+        $lock = \XcVm\Core\Backup\BackupIntegrity::lock();
+        if (!$lock) return 0;
+        try { $rResult = BackupVerifier::run(time()); }
+        finally { flock($lock, LOCK_UN); fclose($lock); }
 		echo $rResult['state'] . ($rResult['file'] !== '' ? ' ' . $rResult['file'] : '') . ($rResult['error'] !== '' ? ': ' . $rResult['error'] : '') . ' (' . $rResult['tables'] . " tables)\n";
 		return $rResult['state'] === 'failed' ? 1 : 0;
 	}

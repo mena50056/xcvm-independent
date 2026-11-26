@@ -47,7 +47,7 @@ final class IndependentDatabaseDump {
     }
 
     public static function create(array $config,string $filename,array $ignore,string $directory): bool {
-        $stage=$options=$error=null;
+        $stage=$options=$error=null;$published=false;
         try {
             $directory=self::destination($filename,$directory);
             [$name,$clientOptions]=self::connection($config);
@@ -63,12 +63,38 @@ final class IndependentDatabaseDump {
             clearstatcache(true,$stage);
             if(!filesize($stage)||file_put_contents($stage,"\n-- HORUS_XC_BACKUP_COMPLETE\n",FILE_APPEND)===false)throw new \RuntimeException('Empty database dump');
             if(!rename($stage,$filename))throw new \RuntimeException('Cannot publish completed backup');
-            $stage=null;clearstatcache(true,$filename);return true;
+            $published=true;$stage=null;clearstatcache(true,$filename);
+            BackupIntegrity::seal($filename);
+            if (BackupIntegrity::inspect($filename) !== 'verified') throw new \RuntimeException('Backup verification failed');
+            return true;
         } catch(\Throwable $e) {
             // Never log the DSN, credentials, command arguments or client stderr.
+            if ($published && is_file($filename)) @unlink($filename);
+            if ($published && is_file($filename . '.sha256.json')) @unlink($filename . '.sha256.json');
             error_log('Independent database backup failed ('.get_class($e).').');return false;
         } finally {
             foreach([$stage,$options,$error] as $file)if(is_string($file)&&is_file($file))@unlink($file);
+        }
+    }
+
+    public static function restore(array $config, string $filename): bool {
+        $options = $error = null;
+        try {
+            if (!is_file($filename) || is_link($filename) || BackupIntegrity::inspect($filename) === 'failed') return false;
+            [$name, $clientOptions] = self::connection($config);
+            $options = tempnam(sys_get_temp_dir(), 'horus-restore-client-');
+            $error = tempnam(sys_get_temp_dir(), 'horus-restore-error-');
+            if ($options === false || $error === false) throw new \RuntimeException('Cannot stage restore');
+            chmod($options, 0600); chmod($error, 0600);
+            if (file_put_contents($options, $clientOptions) !== strlen($clientOptions)) throw new \RuntimeException('Cannot write restore options');
+            $process = proc_open(['/usr/bin/mariadb', '--defaults-extra-file=' . $options, '--binary-mode', '--default-character-set=utf8mb4', $name],
+                [0 => ['file', $filename, 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', $error, 'w']], $pipes);
+            return is_resource($process) && proc_close($process) === 0;
+        } catch (\Throwable $exception) {
+            error_log('Independent database restore failed.');
+            return false;
+        } finally {
+            foreach ([$options, $error] as $file) if (is_string($file) && is_file($file)) @unlink($file);
         }
     }
 }

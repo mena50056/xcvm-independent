@@ -61,6 +61,16 @@ final class XC_VM {
         if(!empty(self::config_server()['is_lb']))throw new RuntimeException('Backups belong to MAIN');
         return \XcVm\Core\Backup\IndependentDatabaseDump::create(self::load('config.enc')['db'],$filename,$ignore,dirname(__DIR__).'/panel/src/backups');
     }
+    public static function db_restore(string $filename, ?string $database = null): bool {
+        if (!empty(self::config_server()['is_lb'])) throw new RuntimeException('Restore belongs to MAIN');
+        $config = self::load('config.enc')['db'];
+        if ($database !== null) {
+            if ($database !== 'xc_vm_migrate' && $database !== 'xcvm_lab_migrate') throw new InvalidArgumentException('Unsupported restore target');
+            $config['name'] = 'xcvm_lab_migrate';
+            if (isset($config['dsn'])) $config['dsn'] = preg_replace('/dbname=[^;]+/', 'dbname=xcvm_lab_migrate', $config['dsn']);
+        }
+        return \XcVm\Core\Backup\IndependentDatabaseDump::restore($config, $filename);
+    }
     public static function redis_connect(): Redis {
         $r=self::load('config.enc')['redis'];$c=new Redis();$c->connect($r['host'],$r['port'],3);
         if (($r['auth']??'')!=='') $c->auth($r['auth']); return $c;

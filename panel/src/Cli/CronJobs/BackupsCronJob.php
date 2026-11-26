@@ -5,6 +5,7 @@ namespace XcVm\Cli\CronJobs;
 use XcVm\Cli\CommandInterface;
 use XcVm\Cli\CronTrait;
 use XcVm\Core\Backup\BackupService;
+use XcVm\Core\Backup\BackupIntegrity;
 use XcVm\Core\Config\SettingsManager;
 use XcVm\Domain\Backup\BackupTargets;
 use XcVm\Domain\Backup\RecoveryBundle;
@@ -31,7 +32,26 @@ class BackupsCronJob implements CommandInterface {
 		return 'Cron: automatic database backup (local + Dropbox)';
 	}
 
-	public function execute(array $rArgs): int {
+    public function execute(array $rArgs): int {
+        if (!$this->assertRunAsXcVm()) return 1;
+        $lock = BackupIntegrity::lock();
+        if (!$lock) return 0;
+        $due = !empty($rArgs[0]) || (isset(BackupService::PERIODS[SettingsManager::get('automatic_backups')]) &&
+            (int) SettingsManager::get('last_backup') + BackupService::PERIODS[SettingsManager::get('automatic_backups')] <= time());
+        try {
+            if ($due) BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>'running', 'time'=>time(), 'pid'=>getmypid()]);
+            $result = $this->runBackup($rArgs);
+            if ($due) BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>$result === 0 ? 'success' : 'failed', 'time'=>time(), 'file'=>BackupService::newestBackup()['filename'] ?? null]);
+            return $result;
+        } catch (\Throwable $exception) {
+            BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>'failed', 'time'=>time()]);
+            error_log('Horus backup failed; check storage and database availability.');
+            return 1;
+        } finally { flock($lock, LOCK_UN); fclose($lock); }
+    }
+
+    private function runBackup(array $rArgs): int {
+
 		if (!$this->assertRunAsXcVm()) {
 			return 1;
 		}
@@ -60,19 +80,12 @@ class BackupsCronJob implements CommandInterface {
 		$rLastBackup = intval(SettingsManager::get('last_backup'));
 		$rPeriod = BackupService::PERIODS;
 
-		if (!$rForce) {
-			$rPID = getmypid();
-			if (file_exists('/proc/' . SettingsManager::get('backups_pid')) && (string) SettingsManager::get('backups_pid') !== '') {
-				return 0;
-			}
-			$db->query('UPDATE `settings` SET `backups_pid` = ?;', $rPID);
-		}
 
 		$rCreated = null;
 		if (isset($rPeriod[$rBackups]) || $rForce) {
 			if ($rForce || $rLastBackup + $rPeriod[$rBackups] <= time()) {
 				$db->close_mysql();
-				$rFilename = MAIN_HOME . 'backups/backup_' . date('Y-m-d_H:i:s') . '.sql';
+				$rFilename = MAIN_HOME . 'backups/backup_' . date('Y-m-d_H-i-s') . '_' . bin2hex(random_bytes(3)) . '.sql';
 
 				$rDumped = BackupService::create($rFilename);
 				if (!$rDumped) { throw new \RuntimeException('Database backup failed; no completed backup was created.'); }
@@ -104,8 +117,8 @@ class BackupsCronJob implements CommandInterface {
 		}
 
 		// A restore's dump of the live database is its way back: neither counted nor removed here.
-		$rBackups = array_values(array_filter(BackupService::getLocal(), static fn(array $rItem): bool => !str_starts_with($rItem['filename'], BackupService::PRE_RESTORE)));
-		if (intval(SettingsManager::get('backups_to_keep')) < count($rBackups) && 0 < intval(SettingsManager::get('backups_to_keep'))) {
+		$rBackups = array_values(array_filter(BackupService::getLocal(), static fn(array $rItem): bool => str_starts_with($rItem['filename'], 'backup_')));
+		if ($rCreated !== null && intval(SettingsManager::get('backups_to_keep')) < count($rBackups) && 0 < intval(SettingsManager::get('backups_to_keep'))) {
 			$rDelete = array_slice($rBackups, 0, count($rBackups) - intval(SettingsManager::get('backups_to_keep')));
 			foreach ($rDelete as $rItem) {
 				// Never the backup made in this run, wherever its time puts it in the list.
@@ -114,6 +127,7 @@ class BackupsCronJob implements CommandInterface {
 				}
 				if (file_exists(MAIN_HOME . 'backups/' . $rItem['filename'])) {
 					unlink(MAIN_HOME . 'backups/' . $rItem['filename']);
+                    foreach (['.sha256.json', '.error', '.uploading'] as $suffix) @unlink(MAIN_HOME . 'backups/' . $rItem['filename'] . $suffix);
 				}
 			}
 		}
