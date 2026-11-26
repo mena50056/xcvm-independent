@@ -179,6 +179,7 @@ if (!defined('XCVM_INDEPENDENT_LAB') && !LicenseGate::licensed()):
 <?php endforeach; ?>
 
 <!-- Page header -->
+<div class="alert alert-warning mb-4 d-none" id="connection-counts-warning" role="status"><?= \XcVm\Core\Localization\Translator::isRtl() ? 'تعذر تحديث عدادات الاتصالات حاليًا. تظهر آخر قراءة ناجحة حتى عودة الاتصال.' : 'Connection counters are temporarily unavailable. Showing the last successful sample until connectivity returns.'; ?></div>
 <?php require __DIR__ . '/partials/console_overview.php'; ?>
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
     <h4 class="mb-0">
@@ -684,6 +685,8 @@ LayoutRenderer::renderFooter('admin');
                     return r.json();
                 })
                 .then(function(d) {
+                    var connectionWarning = document.getElementById('connection-counts-warning');
+                    if (connectionWarning) connectionWarning.classList.toggle('d-none', d.connections_available !== false);
                     setTile('active-connections', d.open_connections, d.total_connections, pctOf(d.open_connections, d.total_connections));
                     setTile('online-users', d.online_users, d.total_users, pctOf(d.online_users, d.total_users));
                     setTile('active-streams', d.total_running_streams, d.offline_streams, pctOf(d.total_running_streams, d.offline_streams + d.total_running_streams));

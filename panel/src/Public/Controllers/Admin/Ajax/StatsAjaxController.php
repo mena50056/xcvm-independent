@@ -26,6 +26,18 @@ use XcVm\Domain\User\UiPrefs;
  * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
  */
 class StatsAjaxController extends BaseAjaxController {
+	/** Fresh fleet totals from the independent MAIN monitor; legacy watchdogs keep their contract. */
+	private static function connectionTelemetry(array $servers): ?array {
+		foreach ($servers as $server) {
+			if (empty($server['is_main'])) continue;
+			$watchdog = json_decode((string) ($server['watchdog_data'] ?? ''), true);
+			$counts = $watchdog['connection_counts'] ?? null;
+			if (!is_array($counts)) return null;
+			return ['total_users'=>(int) ($counts['total_users'] ?? 0), 'available'=>!empty($counts['available']) && ($counts['source'] ?? '') === 'redis' && time() - (int) ($counts['sampled_at'] ?? 0) <= 15];
+		}
+		return null;
+	}
+
 	/** action=graph_stats — per-minute time-series for the dashboard graphs. */
 	public function graphStats(): never {
 		$this->requireXhr();
@@ -140,7 +152,9 @@ class StatsAjaxController extends BaseAjaxController {
 		};
 
 		if (SettingsManager::get('redis_handler')) {
-			$rReturn['total_users'] = SettingsManager::get('total_users');
+			$telemetry = self::connectionTelemetry($rServers);
+			$rReturn['total_users'] = $telemetry['total_users'] ?? SettingsManager::get('total_users');
+			$rReturn['connections_available'] = $telemetry['available'] ?? true;
 		} else {
 			$db->query('SELECT `activity_id` FROM `lines_live` WHERE `hls_end` = 0 GROUP BY `user_id`;');
 
@@ -184,7 +198,7 @@ class StatsAjaxController extends BaseAjaxController {
 				$rReturn['online_users'] = $rServers[$rServerID]['users'];
 
 				foreach (array_keys($rServers) as $rSID) {
-					if ($rServers[$rSID]['server_online']) {
+					if ($rServers[$rSID]['server_online'] && (int) ($rServers[$rSID]['server_type'] ?? 0) === 0) {
 						$rReturn['total_connections'] += $rServers[$rSID]['connections'];
 					}
 				}
@@ -272,8 +286,11 @@ class StatsAjaxController extends BaseAjaxController {
 
 					if (SettingsManager::get('redis_handler')) {
 						$rArray['open_connections'] = $rServers[$rServerID]['connections'];
-						$rReturn['open_connections'] += $rServers[$rServerID]['connections'];
-						$rReturn['total_connections'] += $rServers[$rServerID]['connections'];
+						// A proxy represents the same viewers as its parent streaming server.
+						if ((int) ($rServers[$rServerID]['server_type'] ?? 0) === 0) {
+							$rReturn['open_connections'] += $rServers[$rServerID]['connections'];
+							$rReturn['total_connections'] += $rServers[$rServerID]['connections'];
+						}
 						$rArray['online_users'] = $rServers[$rServerID]['users'];
 						$rReturn['online_users'] += $rServers[$rServerID]['users'];
 					} else {
@@ -324,7 +341,7 @@ class StatsAjaxController extends BaseAjaxController {
 				$rReturn['offline_streams'] += $rServerArray['offline_streams'];
 			}
 			if (SettingsManager::get('redis_handler')) {
-				$rReturn['online_users'] = SettingsManager::get('total_users');
+				$rReturn['online_users'] = $rReturn['total_users'];
 			}
 		}
 
@@ -361,6 +378,7 @@ class StatsAjaxController extends BaseAjaxController {
 		$this->gate('adv', 'index');
 
 		global $db, $rServers;
+		$rServers = ServerRepository::getAll(true);
 		$rReturn = ['bytes_sent' => 0, 'bytes_received' => 0, 'total_connections' => 0, 'total_users' => 0, 'total_running_streams' => 0, 'offline_streams' => 0];
 
 		if (!SettingsManager::get('redis_handler')) {
@@ -376,7 +394,9 @@ class StatsAjaxController extends BaseAjaxController {
 				$rReturn['total_users'] = $db->num_rows();
 			}
 		} else {
-			$rReturn['total_users'] = SettingsManager::get('total_users');
+			$telemetry = self::connectionTelemetry($rServers);
+			$rReturn['total_users'] = $telemetry['total_users'] ?? SettingsManager::get('total_users');
+			$rReturn['connections_available'] = $telemetry['available'] ?? true;
 		}
 
 		$rOnlineCount = $rOfflineCount = [];
@@ -393,7 +413,7 @@ class StatsAjaxController extends BaseAjaxController {
 
 		foreach (array_keys($rServers) as $rServerID) {
 			if ($rServers[$rServerID]['server_online']) {
-				if (SettingsManager::get('redis_handler')) {
+				if (SettingsManager::get('redis_handler') && (int) ($rServers[$rServerID]['server_type'] ?? 0) === 0) {
 					$rReturn['total_connections'] += $rServers[$rServerID]['connections'];
 				}
 

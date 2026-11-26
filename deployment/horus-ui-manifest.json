@@ -2,7 +2,7 @@
   "files": [
     {
       "path": "panel/src/Public/Views/admin/dashboard.php",
-      "sha256": "b811da451f211317c65229ebc3766c73ff7ea8d0f388d5722f0d9a8996e02d0e"
+      "sha256": "b53133336e60fb4a61f1925309a96e38dc6baf04708ee801c98727a22fb4e284"
     },
     {
       "path": "panel/src/Public/Views/admin/footer.php",
@@ -419,6 +419,18 @@
     {
       "path": "panel/src/Core/Cache/PhpCacheStatus.php",
       "sha256": "713879c0497acc0b9b4fbd1d49521ac8431531edb964b69e899ce45b18d0ee41"
+    },
+    {
+      "path": "runtime/ConnectionTelemetry.php",
+      "sha256": "ff12e019d24467ecdc1fdfdd940bfe7b18047aec9d24c921e3666bae056e7e77"
+    },
+    {
+      "path": "runtime/monitor.php",
+      "sha256": "6093ea76590f129577e298ad71f82f874ec7d98b04aba96a8c5747c50d22c819"
+    },
+    {
+      "path": "panel/src/Public/Controllers/Admin/Ajax/StatsAjaxController.php",
+      "sha256": "58368b53db28cecfd503988a704f96ce597a7d45f6711e9e59537bf32023c408"
     }
   ],
   "fonts": "Cairo, SIL OFL 1.1",

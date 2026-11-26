@@ -113,6 +113,8 @@ if role == 'main':
     unit('xcvm-independent-monitor', f'{php} {ROOT}/runtime/monitor.php')
     from setup_backups import write_units
     write_units(ROOT, '/etc/systemd/system')
+    from setup_connections import write_units as write_connection_units
+    write_connection_units(ROOT, '/etc/systemd/system')
     unit('xcvm-independent-signals', f'{php} {SRC}/console.php signals')
     unit('xcvm-independent-fanout-sync', f'{php} {SRC}/console.php fanout_sync')
     write(ROOT / 'deployment/maintenance.sh', f'''#!/bin/sh
