@@ -414,7 +414,7 @@
     },
     {
       "path": "panel/src/Public/Views/admin/cache.php",
-      "sha256": "2ad3c190c8062b21a97f910e5eb9686610acb2115d123678b8f8fc7ca5b30cb6"
+      "sha256": "34fef0c276fc43cc96cdca8ee0f27fdfd4882d5f03c64fcf9db5aa386df78a39"
     },
     {
       "path": "panel/src/Core/Cache/PhpCacheStatus.php",

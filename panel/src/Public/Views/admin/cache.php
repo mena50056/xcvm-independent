@@ -11,7 +11,7 @@
 use XcVm\Core\Config\SettingsManager;
 use XcVm\Core\Util\LayoutRenderer;
 use XcVm\Core\Util\TimeUtils;
-use XcVm\Domain\Server\ServerRepository;
+use XcVm\Infrastructure\Redis\RedisManager;
 
 $cacheText = static fn($ar, $en) => \XcVm\Core\Localization\Translator::isRtl() ? $ar : $en;
 $phpCache = \XcVm\Core\Cache\PhpCacheStatus::snapshot();
@@ -140,29 +140,32 @@ $phpCache = \XcVm\Core\Cache\PhpCacheStatus::snapshot();
                 <!-- Redis connection handler -->
                 <div class="tab-pane fade" id="connections" role="tabpanel">
                     <h5 class="card-title"><?= $language::get('redis_connection_handler'); ?></h5>
-                    <p class="text-body-secondary">The handler verifies and manages all client→load-balancer connections through Redis instead of MySQL. <strong>Disabling it disconnects active clients; enabling it moves live connections from MySQL to Redis without disconnects.</strong></p>
+                    <p class="text-body-secondary"><?= $cacheText('يدير Redis سجلات اتصالات المشاهدين بدل MySQL لتخفيف الضغط على قاعدة البيانات.', 'Redis manages viewer connection records instead of MySQL to reduce database load.'); ?> <strong><?= $cacheText('تعطيله أثناء المشاهدة قد يقطع الاتصالات الحالية. عند تفعيله تبدأ مزامنة الاتصالات، ويعتمد نجاح النقل على سلامة الاتصال والمزامنة.', 'Disabling it during playback may interrupt active connections. Enabling starts connection synchronization; a successful handover depends on connectivity and synchronization.'); ?></strong></p>
                     <?php if ($rSettings['redis_handler']): ?>
                         <?php
-                        $rStatus = $rAuth = false;
+                        $rStatus = $rPing = false;
                         try {
-                            $rTestRedis = new \Redis();
-                            $rStatus = $rTestRedis->connect(ServerRepository::getAll()[SERVER_ID]['server_ip'], 6379);
-                            $rAuth = $rTestRedis->auth(SettingsManager::get('redis_password'));
-                        } catch (\Exception $e) {
-                            // status/auth stay false
+                            // Use the application's configured endpoint and credentials, including
+                            // loopback/custom ports. Do not AUTH again on its shared connection.
+                            $rTestRedis = RedisManager::instance();
+                            $rStatus = $rTestRedis instanceof \Redis && $rTestRedis->isConnected();
+                            $rPing = $rStatus && in_array($rTestRedis->ping(), [true, '+PONG', 'PONG'], true);
+                        } catch (\Throwable $e) {
+                            // Unreachable/authentication failures are not proof of a wrong password.
+                            $rStatus = $rPing = false;
                         }
                         ?>
-                        <div class="row g-3 my-1">
+                        <div class="row g-3 my-1" id="horus-redis-health" data-connected="<?= $rStatus ? '1' : '0'; ?>" data-ping="<?= $rPing ? '1' : '0'; ?>">
                             <div class="col-md-6">
                                 <div class="border rounded p-3 d-flex justify-content-between align-items-center">
-                                    <span class="d-flex align-items-center gap-2"><i class="icon-base ti tabler-server text-body-secondary"></i>Server Status</span>
-                                    <span class="badge bg-label-<?= $rStatus ? 'success' : 'danger'; ?>"><i class="icon-base ti tabler-<?= $rStatus ? 'circle-check' : 'circle-x'; ?> me-1"></i><?= $rStatus ? $language::get('online_btn') : $language::get('offline'); ?></span>
+                                    <span class="d-flex align-items-center gap-2"><i class="icon-base ti tabler-server text-body-secondary"></i><?= $cacheText('اتصال البانل بـRedis', 'Panel Redis connection'); ?></span>
+                                    <span class="badge bg-label-<?= $rStatus ? 'success' : 'danger'; ?>"><i class="icon-base ti tabler-<?= $rStatus ? 'circle-check' : 'circle-x'; ?> me-1"></i><?= $rStatus ? $cacheText('متصل', 'Connected') : $cacheText('تعذر الاتصال', 'Connection unavailable'); ?></span>
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="border rounded p-3 d-flex justify-content-between align-items-center">
-                                    <span class="d-flex align-items-center gap-2"><i class="icon-base ti tabler-key text-body-secondary"></i>Authentication</span>
-                                    <span class="badge bg-label-<?= $rAuth ? 'success' : 'danger'; ?>"><i class="icon-base ti tabler-<?= $rAuth ? 'circle-check' : 'circle-x'; ?> me-1"></i><?= $rAuth ? $language::get('authenticated') : $language::get('invalid_password'); ?></span>
+                                    <span class="d-flex align-items-center gap-2"><i class="icon-base ti tabler-heartbeat text-body-secondary"></i><?= $cacheText('فحص الخدمة (PING)', 'Service check (PING)'); ?></span>
+                                    <span class="badge bg-label-<?= $rPing ? 'success' : 'danger'; ?>"><i class="icon-base ti tabler-<?= $rPing ? 'circle-check' : 'circle-x'; ?> me-1"></i><?= $rPing ? $cacheText('ناجح', 'Passed') : $cacheText('تعذر التحقق', 'Could not verify'); ?></span>
                                 </div>
                             </div>
                         </div>
