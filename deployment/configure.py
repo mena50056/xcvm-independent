@@ -76,7 +76,8 @@ extension=redis.so
 extension=ssh2.so
 extension=maxminddb.so
 '''
-        write(ROOT / 'php.ini', ini)
+        from cache_profile import php_ini
+        write(ROOT / 'php.ini', php_ini(ini, extensions / 'opcache.so'))
     raise SystemExit(0)
 
 
@@ -133,6 +134,7 @@ OnUnitActiveSec=60
 [Install]
 WantedBy=timers.target
 ''')
+    from cache_profile import nginx_static_location
     write('/etc/nginx/sites-available/xcvm-independent', f'''server {{
 listen 80;
 server_name {options.get('hostname') or options['server_ip']};
@@ -145,7 +147,7 @@ ssl_certificate {ROOT}/tls/server.crt;
 ssl_certificate_key {ROOT}/tls/server.key;
 location /xc_fanout/ {{ internal; proxy_pass http://unix:{fan}/sockets/http.sock:/live/; proxy_buffering off; proxy_read_timeout 60s; }}
 location ^~ /xc_fanout_hls/ {{ internal; rewrite ^/xc_fanout_hls/(\\d+)_(\\d+)$ /hls/$1/$2.ts break; proxy_pass http://unix:{fan}/sockets/http.sock; proxy_http_version 1.1; proxy_set_header Connection ""; }}
-location / {{ proxy_pass http://127.0.0.1:18080; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto https; proxy_set_header X-Real-IP $remote_addr; proxy_read_timeout 75s; }}
+{nginx_static_location()}location / {{ proxy_pass http://127.0.0.1:18080; proxy_set_header Host $host; proxy_set_header X-Forwarded-Proto https; proxy_set_header X-Real-IP $remote_addr; proxy_read_timeout 75s; }}
 }}
 ''')
     link = pathlib.Path('/etc/nginx/sites-enabled/xcvm-independent')

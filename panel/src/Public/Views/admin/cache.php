@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cache & Redis settings (Bootstrap 5). A performance summary bar plus two tabs — the
+ * Cache & Redis settings (Bootstrap 5). A live PHP cache summary plus two tabs — the
  * caching system (cron schedule + thread count + live cache counters) and the Redis
  * connection handler (server/auth status). Cron settings save via post.php?action=cache;
  * enable/disable/regenerate/clear actions run through ./api?action=<action> and reload.
@@ -13,26 +13,8 @@ use XcVm\Core\Util\LayoutRenderer;
 use XcVm\Core\Util\TimeUtils;
 use XcVm\Domain\Server\ServerRepository;
 
-$rColour = 'secondary';
-$rHeader = 'Poor';
-$rSize = 25;
-$rMessage = "You're using neither Caching nor the Redis Connection Handler; the server will perform poorly compared to having either enabled.";
-if (SettingsManager::get('enable_cache') || SettingsManager::get('redis_handler')) {
-    $rHeader = 'Good';
-    $rColour = 'info';
-    $rSize = 75;
-    $rMessage = "Redis Connection Handler is disabled. With a lot of throughput you'll see better performance with Redis enabled — consider it above ~10,000 concurrent connections.";
-    if (!SettingsManager::get('enable_cache')) {
-        $rSize = 50;
-        $rMessage = 'Caching is disabled; this significantly impacts performance under load.';
-    }
-    if (SettingsManager::get('enable_cache') && SettingsManager::get('redis_handler')) {
-        $rSize = 100;
-        $rColour = 'primary';
-        $rHeader = 'Maximum';
-        $rMessage = "You're using both Caching and the Redis Connection Handler — optimised for <strong>maximum performance</strong>!";
-    }
-}
+$cacheText = static fn($ar, $en) => \XcVm\Core\Localization\Translator::isRtl() ? $ar : $en;
+$phpCache = \XcVm\Core\Cache\PhpCacheStatus::snapshot();
 ?>
 
 <div class="d-flex align-items-center mb-4">
@@ -40,23 +22,33 @@ if (SettingsManager::get('enable_cache') || SettingsManager::get('redis_handler'
 </div>
 
 <form method="POST" id="cache-form">
-    <div class="card mb-4">
+    <section class="card mb-4" id="horus-cache-summary" data-horus-opcache="<?= htmlspecialchars(json_encode($phpCache), ENT_QUOTES); ?>">
         <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="card-title mb-0"><i class="icon-base ti tabler-gauge text-<?= $rColour; ?> me-1"></i><?= $rHeader; ?> Performance</h5>
-                <span class="badge bg-label-<?= $rColour; ?>"><?= $rSize; ?>%</span>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h5 class="card-title mb-0"><?= $cacheText('كاش حورس — الحالة الفعلية', 'Horus cache — live status'); ?></h5>
+                <div class="d-flex flex-wrap gap-2">
+                    <?php foreach (['Panel' => SettingsManager::get('enable_cache'), 'Redis' => SettingsManager::get('redis_handler'), 'OPcache' => $phpCache['enabled']] as $cacheLabel => $cacheEnabled): ?>
+                        <span class="badge bg-label-<?= $cacheEnabled ? 'success' : 'warning'; ?>"><?= $cacheLabel; ?> · <?= $cacheEnabled ? $cacheText('مفعّل', 'Enabled') : $cacheText('متوقف', 'Disabled'); ?></span>
+                    <?php endforeach; ?>
+                </div>
             </div>
-            <p class="text-body-secondary"><?= $rMessage; ?></p>
-            <div class="progress" style="height:8px">
-                <div class="progress-bar progress-bar-striped progress-bar-animated bg-<?= $rColour; ?>" role="progressbar" style="width:<?= $rSize; ?>%" aria-valuenow="<?= $rSize; ?>" aria-valuemin="0" aria-valuemax="100"></div>
+            <p class="text-body-secondary small"><?= $cacheText('قراءة من خادم صفحة الإدارة وقت فتحها. نسبة إصابات OPcache تخص كود PHP منذ إعادة تشغيل الخدمة، وليست تقييمًا شاملًا لسرعة البانل.', 'Read from the serving admin process at page load. OPcache hits measure PHP bytecode reuse since service restart, not overall panel performance.'); ?></p>
+            <div class="row g-3">
+                <div class="col-6 col-lg-3"><small class="text-body-secondary d-block"><?= $cacheText('ذاكرة OPcache', 'OPcache memory'); ?></small><strong><bdi dir="ltr"><?= $phpCache['enabled'] ? $phpCache['used_mb'] . ' / ' . $phpCache['total_mb'] . ' MB' : '—'; ?></bdi></strong></div>
+                <div class="col-6 col-lg-3"><small class="text-body-secondary d-block"><?= $cacheText('إصابات الكاش', 'Cache hits'); ?></small><strong><?= $phpCache['enabled'] ? $phpCache['hit_rate'] . '%' : '—'; ?></strong></div>
+                <div class="col-6 col-lg-3"><small class="text-body-secondary d-block"><?= $cacheText('ملفات PHP المخزنة', 'Cached PHP scripts'); ?></small><strong><?= $phpCache['enabled'] ? number_format($phpCache['scripts']) : '—'; ?></strong></div>
+                <div class="col-6 col-lg-3"><small class="text-body-secondary d-block"><?= $cacheText('فحص تحديث الملفات', 'File change checks'); ?></small><strong><?= $phpCache['enabled'] && $phpCache['validates_changes'] ? $phpCache['revalidate_seconds'] . ' ' . $cacheText('ثانية', 'seconds') : '—'; ?></strong></div>
             </div>
+            <?php if (!$phpCache['enabled'] || $phpCache['full']): ?>
+                <p class="text-warning mt-3 mb-0"><?= !$phpCache['enabled'] ? $cacheText('OPcache غير مفعّل في خدمة الويب الحالية.', 'OPcache is disabled in the current web service.') : $cacheText('ذاكرة OPcache ممتلئة؛ تحتاج مراجعة السعة.', 'OPcache is full; review its capacity.'); ?></p>
+            <?php endif; ?>
         </div>
-    </div>
+    </section>
 
     <div class="card">
         <div class="card-body">
             <ul class="nav nav-pills flex-wrap mb-4" role="tablist">
-                <li class="nav-item"><button type="button" class="nav-link active" data-bs-toggle="tab" data-bs-target="#cache" role="tab"><i class="icon-base ti tabler-refresh me-1"></i><?= $language::get('xc_vm_caching_system'); ?></button></li>
+                <li class="nav-item"><button type="button" class="nav-link active" data-bs-toggle="tab" data-bs-target="#cache" role="tab"><i class="icon-base ti tabler-refresh me-1"></i><?= $cacheText('نظام كاش حورس', 'Horus content cache'); ?></button></li>
                 <li class="nav-item"><button type="button" class="nav-link" data-bs-toggle="tab" data-bs-target="#connections" role="tab"><i class="icon-base ti tabler-plug-connected me-1"></i><?= $language::get('redis_connection_handler'); ?></button></li>
             </ul>
             <div class="tab-content p-4 border rounded">
@@ -141,7 +133,7 @@ if (SettingsManager::get('enable_cache') || SettingsManager::get('redis_handler'
                         </div>
                     <?php else: ?>
                         <h5 class="card-title"><?= $language::get('cache_is_disabled'); ?></h5>
-                        <p class="text-body-secondary">Caching is disabled. Re-enable it below; for best results restart XC_VM on this server afterwards.</p>
+                        <p class="text-body-secondary">Content caching is disabled. Enable it below to generate the stream and subscriber cache.</p>
                         <button type="button" class="btn btn-success js-api" data-action="enable_cache"><?= $language::get('enable_cache'); ?></button>
                     <?php endif; ?>
                 </div>

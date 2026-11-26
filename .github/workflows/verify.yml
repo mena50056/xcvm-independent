@@ -46,6 +46,8 @@ jobs:
       - run: php tests/independent-updates.php
       - run: python3 deployment/test_packaging.py
       - run: python3 deployment/test_bootstrap.py
+      - run: python3 deployment/test_cache_profile.py
+      - run: python3 tests/static-assets.py
       - run: python3 deployment/test_node_tls.py
       - run: python3 deployment/test_native_agent.py
       - run: python3 -m compileall -q deployment

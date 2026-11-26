@@ -42,13 +42,9 @@ if($path === '/lab' || str_starts_with($path,'/lab/')) {
 if($path === '/horus_xc'){header('Location: /horus_xc/',true,307);return;}
 // Expose assets only, never the state, source tree, exports or arbitrary PHP.
 if (preg_match('~^/horus_xc/assets/(.+)$~',$path,$m)) {
-    $asset=realpath(MAIN_HOME.'Public/assets/admin/'.$m[1]);
-    $base=realpath(MAIN_HOME.'Public/assets/admin');
-    if($asset && $base && str_starts_with($asset,$base.'/') && is_file($asset) && !str_ends_with(strtolower($asset),'.php')) {
-        $ext=strtolower(pathinfo($asset,PATHINFO_EXTENSION));$mime=['css'=>'text/css','js'=>'application/javascript','svg'=>'image/svg+xml','png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg','webp'=>'image/webp','ico'=>'image/x-icon','woff'=>'font/woff','woff2'=>'font/woff2','ttf'=>'font/ttf'];
-        header('Content-Type: '.($mime[$ext]??'application/octet-stream'));readfile($asset);return;
-    }
-    http_response_code(404);return;
+    require_once __DIR__ . '/StaticAssets.php';
+    HorusStaticAssets::serve(MAIN_HOME . 'Public/assets/admin', $m[1]);
+    return;
 }
 if(!str_starts_with($path,'/horus_xc/')){header('Location: /horus_xc/login');return;}
 $_SERVER['XC_SCOPE']='admin';$_SERVER['XC_CODE']='horus_xc';
