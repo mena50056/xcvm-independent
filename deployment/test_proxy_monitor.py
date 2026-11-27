@@ -27,6 +27,16 @@ class Diagnostics(unittest.TestCase):
     def test_generation_header_cannot_be_spoofed(self):
         instance=proxy_fixture.Runtime();status,body,_=instance.request('/.well-known/horus-proxy-origin?nonce='+('a'*32),headers={'X-Horus-Proxy-Revision':'forged'})
         self.assertEqual(status,200);self.assertEqual(json.loads(body)['revision'],self.fixture.wire['revision'])
+    def test_verified_certificate_fallback_and_rejected_identity(self):
+        root=pathlib.Path(__file__).resolve().parents[1]
+        code="require "+json.dumps(str(root/'panel/src/Core/Proxy/ProxyProfile.php'))+";require "+json.dumps(str(root/'panel/src/Core/Proxy/ProxyDiagnostics.php'))+";$d=json_decode(stream_get_contents(STDIN),true);echo json_encode(XcVm\\Core\\Proxy\\ProxyDiagnostics::certificateExpiry($d['target'],$d['ca']));"
+        def expiry(host,ca):
+            target={'ip':'127.0.0.1','host':host,'port':self.fixture.https[0]}
+            return json.loads(subprocess.check_output(['php','-r',code],input=json.dumps({'target':target,'ca':str(ca)}),text=True))
+        ca=self.fixture.root/'edge/tls/local-ca.crt'
+        self.assertIsInstance(expiry('127.0.0.1',ca),int)
+        self.assertIsNone(expiry('wrong.horus.test',ca))
+        self.assertIsNone(expiry('127.0.0.1',self.fixture.ca))
     def test_monitor_schedule_is_separate_and_unprivileged(self):
         service,timer=write_units('/opt/horus_xc',self.fixture.root/'units');text=service.read_text()
         self.assertIn('User=xcvm_lab',text);self.assertIn('cron:proxy_monitor',text);self.assertIn('Type=oneshot',text);self.assertNotIn('Restart=',text);self.assertIn('OnUnitInactiveSec=30',timer.read_text())

@@ -32,11 +32,29 @@ final class ProxyDiagnostics {
             'tcp_ms'=>$tcp>0?round($tcp*1000,1):null,'tls_ms'=>$tls>0?round(max(0,$tls-$tcp)*1000,1):null,
             'total_ms'=>round((float)($info['total_time']??0)*1000,1),'certificate_expires_at'=>$expires,'checked_at'=>$now];
     }
+    /** Verified OpenSSL fallback for libcurl builds without working CERTINFO. No HTTP request. */
+    public static function certificateExpiry(array $target,?string $caFile=null): ?int {
+        if(!extension_loaded('openssl')||!filter_var($target['ip']??'',FILTER_VALIDATE_IP))return null;
+        $port=(int)($target['port']??0);if($port<1||$port>65535)return null;
+        $ssl=['peer_name'=>ProxyProfile::host($target['host']),'verify_peer'=>true,'verify_peer_name'=>true,
+            'allow_self_signed'=>false,'capture_peer_cert'=>true,'SNI_enabled'=>true];
+        if($caFile!==null)$ssl['cafile']=$caFile;
+        $ip=str_contains($target['ip'],':')?'['.$target['ip'].']':$target['ip'];$socket=false;
+        try {
+            $socket=@stream_socket_client('tcp://'.$ip.':'.$port,$errno,$message,.3,STREAM_CLIENT_CONNECT,stream_context_create(['ssl'=>$ssl]));
+            if(!is_resource($socket))return null;
+            stream_set_timeout($socket,0,700000);
+            if(@stream_socket_enable_crypto($socket,true,STREAM_CRYPTO_METHOD_TLSv1_2_CLIENT|STREAM_CRYPTO_METHOD_TLSv1_3_CLIENT)!==true)return null;
+            $certificate=stream_context_get_options($socket)['ssl']['peer_certificate']??null;
+            $parsed=$certificate?openssl_x509_parse($certificate):false;
+            return is_array($parsed)&&isset($parsed['validTo_time_t'])?(int)$parsed['validTo_time_t']:null;
+        }catch(\Throwable){return null;}finally{if(is_resource($socket))fclose($socket);}
+    }
     public static function run(array $wire,int $timeout,string $ca=''): array {
         if(!function_exists('curl_multi_init'))throw new \RuntimeException('CURL_UNAVAILABLE');
         $targets=self::targets($wire);$results=[];$caFile=null;
         // Bundled GnuTLS libcurl returns CURLE_OUT_OF_MEMORY for CERTINFO.
-        // Keep TLS peer/hostname verification; certificate expiry remains unknown.
+        // Keep TLS peer/hostname verification and use one bounded OpenSSL fallback.
         $certificateInfo=!str_starts_with((string)(curl_version()['ssl_version']??''),'GnuTLS/');
         if($ca!==''){$caFile=tempnam(sys_get_temp_dir(),'horus-probe-ca-');if($caFile===false)throw new \RuntimeException('PROBE_CA_FAILED');chmod($caFile,0600);file_put_contents($caFile,$ca);}
         try {
@@ -60,6 +78,13 @@ final class ProxyDiagnostics {
                     $errors=[];while($message=curl_multi_info_read($multi))$errors[spl_object_id($message['handle'])]=$message['result'];
                     foreach($handles as $entry){$info=curl_getinfo($entry->handle);$info['appconnect_time']=curl_getinfo($entry->handle,CURLINFO_APPCONNECT_TIME);$info['certinfo']=curl_getinfo($entry->handle,CURLINFO_CERTINFO);$results[]=self::evaluate($entry->target,$entry->nonce,$entry->body,$info,$errors[spl_object_id($entry->handle)]??curl_errno($entry->handle),time());}
                 } finally {foreach($handles as $entry){curl_multi_remove_handle($multi,$entry->handle);curl_close($entry->handle);}curl_multi_close($multi);}
+            }
+            // One certificate per host is configured on every TLS listener. Bound
+            // extra work to one handshake (at most 1s) for the entire proxy run.
+            foreach($targets as $i=>$target)if($target['scheme']==='https'&&$results[$i]['state']==='healthy'&&$results[$i]['certificate_expires_at']===null) {
+                $expiry=self::certificateExpiry($target,$caFile);
+                if($expiry!==null)foreach($results as &$row)if($row['scheme']==='https'&&$row['host']===$target['host']&&$row['state']==='healthy'&&$row['certificate_expires_at']===null)$row['certificate_expires_at']=$expiry;
+                unset($row);break;
             }
         } finally {if($caFile!==null)@unlink($caFile);}
         return $results;

@@ -17,6 +17,10 @@ The probe uses the proxy IP (or the first configured hostname when IP access is
 disabled), pins that hostname to the registered proxy IP and follows no redirects.
 Additional host aliases are not exhaustively checked by this version. TLS checking
 always remains enabled; an optional public CA PEM supports private lab certificates.
+When bundled GnuTLS libcurl cannot return certificate information, one additional
+OpenSSL handshake obtains expiry with peer and hostname verification still enabled.
+It connects only to the registered IP, is limited to one second per proxy check,
+and returns unknown rather than a date when verification fails.
 Ports or URLs supplied in a diagnostic API request are ignored: only saved,
 confirmed targets can be contacted.
 
