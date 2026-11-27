@@ -76,17 +76,17 @@ final class ProxyProfiles {
     public function status(int $id): array {
         $doc=$this->document($id);$s=$this->read($this->path($id,'.status'));$desired='';$error='';
         try{$desired=$this->wire($id)['revision'];}catch(\Throwable $e){$error=$e->getMessage();}
-        $state=!$doc?'unconfigured':(!$s?'not_connected':(time()-($s['last_sync']??0)>30?'offline':(!empty($s['last_error'])?'failed':(($s['applied_revision']??'')===$desired?'applied':'pending'))));
+        $state=!$doc?'unconfigured':(!$s?'not_connected':(time()-($s['last_sync']??0)>30?'offline':(!empty($s['last_error'])?'failed':(($s['applied_revision']??'')===$desired&&!empty($s['ready'])?'applied':'pending'))));
         return ['state'=>$state,'desired_revision'=>$desired,'saved_revision'=>$doc['revision']??'','saved_at'=>$doc['saved_at']??null,'last_sync'=>$s['last_sync']??null,'applied_revision'=>$s['applied_revision']??'','last_error'=>$error?:($s['last_error']??'')];
     }
     public function acknowledge(int $id,array $data): void {
         $revision=is_string($data['applied_revision']??null)&&preg_match('/^[a-f0-9]{64}$/D',$data['applied_revision'])?$data['applied_revision']:'';
         $error=is_string($data['last_error']??null)?substr($data['last_error'],0,1500):'';
-        $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error]);
         $stats=$data['stats']??[];$safe=[];
         foreach(['cpu','total_mem_used_percent','total_mem','bytes_received','bytes_sent','bytes_received_total','bytes_sent_total'] as $key)if(isset($stats[$key])&&is_numeric($stats[$key])&&$stats[$key]>=0)$safe[$key]=min((float)$stats[$key],PHP_INT_MAX);
         $safe['uptime']=is_string($stats['uptime']??null)?substr($stats['uptime'],0,80):'';
         $ready=($stats['proxy_ready']??false)===true;
+        $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready]);
         $this->query('UPDATE servers SET proxy_signed=1,last_check_ago=?,status=?,watchdog_data=? WHERE id=? AND server_type=1',[time(),$ready?1:3,json_encode($safe),$id]);
     }
     public function enrollment(int $id,string $url,string $ca): array {
