@@ -305,7 +305,8 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($pageName === 'api' && !empty($_REQUEST['action'])) {
 	$action = $_REQUEST['action'];
 	// The admin action trail: a signed-in admin's Ajax action, unless it only reads.
-	if ($scope === 'admin' && isset($_SESSION['hash']) && !in_array($action, AdminAudit::PANEL_READS, true)) {
+	if ($scope === 'admin' && isset($_SESSION['hash']) && !in_array($action, AdminAudit::PANEL_READS, true)
+		&& !($action === 'proxy_profile' && ($_REQUEST['sub'] ?? 'status') === 'status')) {
 		AdminAudit::start('panel', (string) $action, $GLOBALS['rUserInfo'] ?? ['id' => $_SESSION['hash']], $_REQUEST);
 	}
 	if ($router->dispatchApi($action)) {

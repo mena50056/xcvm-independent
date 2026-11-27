@@ -1,0 +1,45 @@
+<?php
+use XcVm\Core\Auth\Authorization;
+use XcVm\Core\Util\LayoutRenderer;
+$ar=($rUserInfo['lang']??'')==='ar';
+$t=static fn($en,$arabic)=>$ar?$arabic:$en;
+$e=static fn($s)=>htmlspecialchars((string)$s,ENT_QUOTES,'UTF-8');
+$asset=static fn($name)=>'./assets/horus/'.$name.'?v='.filemtime(MAIN_HOME.'Public/assets/admin/horus/'.$name);
+?>
+<link rel="stylesheet" href="<?= $e($asset('proxy.css')) ?>">
+<section class="hp" id="horus-proxy" dir="<?= $ar?'rtl':'ltr' ?>">
+ <header class="hp-hero"><div><span class="hp-eyebrow">HORUS · PROXY CONTROL</span><h1><?= $t('Your streaming edge','بوابة البث الخاصة بك') ?></h1><p><?= $t('One proxy. Multiple ports. Routes that you control.','بروكسي واحد، بورتات متعددة، وتوجيه تتحكم فيه بالكامل.') ?></p></div><a href="./proxies" class="btn btn-outline-light"><?= $t('All proxies','كل البروكسيات') ?></a></header>
+ <div class="hp-status" aria-live="polite"><span id="hp-state" class="hp-pill">—</span><span id="hp-sync"></span><button type="button" class="btn btn-sm btn-outline-primary" id="hp-refresh"><?= $t('Refresh','تحديث') ?></button></div>
+ <div id="hp-message" role="alert" hidden></div>
+ <form id="hp-form">
+  <div class="hp-grid">
+   <main>
+    <section class="hp-card"><div class="hp-heading"><span>01</span><h2><?= $t('Identity & upstreams','الهوية والسيرفرات الخلفية') ?></h2></div>
+     <div class="hp-fields"><label><?= $t('Proxy name','اسم البروكسي') ?><input class="form-control" name="name" required maxlength="150"></label><label><?= $t('Proxy IP address','عنوان IP للبروكسي') ?><input class="form-control" name="server_ip" dir="ltr" required></label></div>
+     <label class="hp-toggle"><input type="checkbox" name="enabled"> <?= $t('Enable traffic after installation','السماح بمرور الاتصالات بعد التثبيت') ?></label>
+     <div class="hp-fields"><label><?= $t('Available upstream servers','السيرفرات الخلفية المتاحة') ?><select name="parent_ids" class="form-select" multiple size="4"><?php foreach($proxyParents as $parent): ?><option value="<?= (int)$parent['id'] ?>"><?= $e($parent['server_name']) ?> · <?= $e($parent['server_ip']) ?></option><?php endforeach ?></select></label><label><?= $t('Default upstream','السيرفر الخلفي الافتراضي') ?><select name="default_parent_id" class="form-select"><?php foreach($proxyParents as $parent): ?><option value="<?= (int)$parent['id'] ?>"><?= $e($parent['server_name']) ?></option><?php endforeach ?></select><small><?= $t('A host without an explicit route uses this server.','الدومين بدون توجيه مخصص يستخدم هذا السيرفر.') ?></small></label></div>
+    </section>
+    <section class="hp-card"><div class="hp-heading"><span>02</span><h2><?= $t('Ports & host routing','البورتات وتوجيه الهوستات') ?></h2></div>
+     <div class="hp-fields"><label>HTTP<input name="http_ports" class="form-control" dir="ltr" placeholder="80, 8080, 8880"><small><?= $t('Comma-separated. First port is the advertised port.','افصل بفاصلة؛ أول بورت يستخدم في روابط البانل.') ?></small></label><label>HTTPS<input name="https_ports" class="form-control" dir="ltr" placeholder="443, 8443"><small><?= $t('TLS 1.2 / 1.3. Ports must not overlap.','TLS 1.2 / 1.3، بدون تكرار بين القائمتين.') ?></small></label></div>
+     <div class="hp-host-heading"><h3><?= $t('Hostnames','الهوستات') ?></h3><button type="button" class="btn btn-sm btn-outline-primary" id="hp-add-host">+ <?= $t('Add host','إضافة هوست') ?></button></div><div id="hp-hosts"></div>
+     <p class="hp-note"><?= $t('Choose Default for domain aliases, or select a different upstream per domain. DNS must point to the proxy.','اختر الافتراضي لعدة دومينات لنفس السيرفر، أو خصص سيرفرًا مختلفًا لكل دومين. يجب توجيه DNS إلى البروكسي.') ?></p>
+     <div class="hp-toggles"><label><input type="checkbox" name="allow_ip_access"> <?= $t('Allow access by IP','السماح بالدخول بالـIP') ?></label><label><input type="checkbox" name="reject_unknown_hosts"> <?= $t('Reject unknown hosts','رفض الهوستات غير المعروفة') ?></label><label><input type="checkbox" name="http2"> HTTP/2</label><label><input type="checkbox" name="allow_admin"> <?= $t('Allow admin pages through proxy','السماح بصفحات الإدارة عبر البروكسي') ?></label></div>
+    </section>
+    <section class="hp-card"><div class="hp-heading"><span>03</span><h2><?= $t('Capacity & protection','السعة والحماية') ?></h2></div><div class="hp-fields hp-limits">
+    <?php $labels=['connection_limit'=>['Total concurrent requests','إجمالي الطلبات المتزامنة'],'per_ip_connections'=>['Concurrent requests per IP (0 = off)','الطلبات المتزامنة لكل IP (0 تعطيل)'],'requests_per_second'=>['Requests / second per IP (0 = off)','طلبات في الثانية لكل IP (0 تعطيل)'],'request_burst'=>['Request burst','هامش زيادة الطلبات'],'worker_connections'=>['Connections per worker','اتصالات كل عامل'],'worker_processes'=>['Workers (0 = automatic)','عدد العمال (0 تلقائي)'],'connect_timeout'=>['Upstream connect timeout (s)','مهلة الاتصال بالسيرفر (ثانية)'],'read_timeout'=>['Upstream idle read timeout (s)','مهلة خمول قراءة البث (ثانية)'],'send_timeout'=>['Send timeout (s)','مهلة الإرسال (ثانية)'],'keepalive_timeout'=>['Keep-alive timeout (s)','مهلة الاتصال المستمر (ثانية)'],'header_timeout'=>['Header timeout (s)','مهلة ترويسة الطلب (ثانية)'],'client_body_mb'=>['Maximum body (MB)','أقصى حجم للطلب (MB)']];
+    foreach(\XcVm\Core\Proxy\ProxyProfile::LIMITS as $key=>[$min,$max,$default]): ?><label><?= $e($t(...$labels[$key])) ?><input class="form-control" type="number" name="<?= $key ?>" min="<?= $min ?>" max="<?= $max ?>" required></label><?php endforeach ?></div>
+    <p class="hp-note"><?= $t('Nginx counts simultaneous requests; an HTTP/2 connection may carry several. Rate limits are disabled by default for player compatibility.','Nginx يحسب الطلبات المتزامنة؛ اتصال HTTP/2 قد يحمل أكثر من طلب. حدود معدل الطلبات معطلة افتراضيًا لتوافق المشغلات.') ?></p></section>
+    <details class="hp-card"><summary><?= $t('Advanced network & upstream TLS','الشبكة المتقدمة وشهادات السيرفرات الخلفية') ?></summary><div class="hp-fields mt-3"><label><?= $t('Trusted forwarding networks only','شبكات موثوقة لتمرير IP المشاهد فقط') ?><textarea name="trusted_proxies" class="form-control" dir="ltr" placeholder="203.0.113.0/24"></textarea></label><label><?= $t('Optional local outbound bind IP','IP محلي اختياري للاتصال بالسيرفر الخلفي') ?><input name="outbound_bind_ip" class="form-control" dir="ltr"></label></div><p class="hp-note"><?= $t('Leave trusted networks empty for direct viewers. Only list your actual CDN / reverse proxy.','اترك الشبكات فارغة للمشاهدين المباشرين. أضف فقط شبكات CDN أو البروكسي العكسي الذي تديره.') ?></p>
+    <?php foreach($proxyParents as $parent): $pid=(int)$parent['id']; ?><details class="hp-upstream" data-upstream="<?= $pid ?>"><summary><?= $e($parent['server_name']) ?> · TLS</summary><label><?= $t('Certificate name (blank = server IP)','اسم الشهادة (فارغ = IP السيرفر)') ?><input class="form-control" data-tls-name="<?= $pid ?>" dir="ltr"></label><label><?= $t('Additional public CA / certificate PEM','شهادة CA أو شهادة عامة إضافية PEM') ?><textarea class="form-control" data-ca="<?= $pid ?>" rows="4" dir="ltr" placeholder="-----BEGIN CERTIFICATE-----"></textarea></label></details><?php endforeach ?></details>
+   </main>
+   <aside><section class="hp-card hp-deploy"><span class="hp-eyebrow">EDGE AGENT</span><h2><?= $t('Save → install → verify','احفظ ← ثبّت ← تحقق') ?></h2><p><?= $t('Saving creates a desired revision. Applied means a running nginx worker has confirmed that revision.','الحفظ ينشئ نسخة إعدادات مطلوبة. «مطبّق» تعني أن عامل Nginx يعمل بها وأكد تفعيلها.') ?></p><button class="btn btn-primary w-100" id="hp-save" type="submit"><?= $t('Save configuration','حفظ الإعدادات') ?></button>
+   <?php if(Authorization::isFullAdmin()): ?><button class="btn btn-outline-primary w-100 mt-2" id="hp-package" type="button" <?= $proxyId?'':'disabled' ?>><?= $t('Download private installer','تحميل حزمة التثبيت الخاصة') ?></button><?php endif ?>
+   <p class="hp-note mt-3"><?= $t('The package contains a private key for this proxy only. Keep it private. Install on a separate Ubuntu 22.04 / 24.04 server.','الحزمة تحتوي على مفتاح خاص بهذا البروكسي فقط. احفظها بسرية وثبّتها على سيرفر منفصل Ubuntu 22.04 / 24.04.') ?></p>
+   <p class="hp-note"><?= $t('Auto certificates use a local CA for testing. For public HTTPS, place a trusted certificate and key under /opt/horus_proxy/tls/ and enter their alias per host.','شهادات auto تستخدم CA محلية للتجربة. لـHTTPS عام، ضع الشهادة الموثوقة والمفتاح داخل /opt/horus_proxy/tls/ واكتب اسمهما في خانة الشهادة للهوست.') ?></p><code id="hp-revision"></code></section></aside>
+  </div>
+ </form>
+</section>
+<script type="application/json" id="hp-data"><?= json_encode(['id'=>$proxyId,'profile'=>$profile,'revision'=>$profileRevision,'csrf'=>$_SESSION['horus_proxy_csrf'],'ar'=>$ar,'parents'=>array_map(static fn($r)=>['id'=>(int)$r['id'],'name'=>$r['server_name']],$proxyParents)],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?></script>
+<?php LayoutRenderer::renderFooter('admin'); ?>
+<script src="<?= $e($asset('proxy.js')) ?>" defer></script>
+</body></html>

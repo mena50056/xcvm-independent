@@ -23,6 +23,9 @@ use XcVm\Core\Http\RequestManager;
 class ServerInstallController extends BaseAdminController {
 	public function index(): void {
 		$this->requirePermission();
+		if(defined('XCVM_INDEPENDENT_LAB')&&RequestManager::has('proxy')) {
+			$this->redirect('proxy'.(RequestManager::has('id')?'?id='.(int)RequestManager::get('id'):'?new=1'));return;
+		}
         if (defined('XCVM_INDEPENDENT_LAB') && RequestManager::has('update')) {
             if(!\XcVm\Core\Auth\Authorization::isFullAdmin()){http_response_code(403);return;}
             \XcVm\Core\Updates\IndependentUpdates::csrfToken();

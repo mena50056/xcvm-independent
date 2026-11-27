@@ -8,6 +8,12 @@ $_SERVER['SERVER_ADDR']='127.0.0.1';
 if(($_SERVER['HTTP_X_FORWARDED_PROTO']??'')==='https')$_SERVER['HTTPS']='on';
 if(($_SERVER['REMOTE_ADDR']??'')==='127.0.0.1' && filter_var($_SERVER['HTTP_X_REAL_IP']??'',FILTER_VALIDATE_IP))$_SERVER['REMOTE_ADDR']=$_SERVER['HTTP_X_REAL_IP'];
 $path=(string)parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
+if(!str_starts_with($path,'/horus_xc/assets/')) {
+    require_once __DIR__.'/ProxyPeer.php';
+    $proxyPeers=\XcVm\Core\Cache\FileCache::getCache('proxy_servers')?:[];
+    $_SERVER=HorusProxyPeer::resolve($_SERVER,is_array($proxyPeers)?$proxyPeers:[]);
+}
+if($path==='/horus-proxy/v1/sync'){require __DIR__.'/proxy-sync.php';return;}
 if(str_starts_with($path,'/cluster/v1/')){require __DIR__.'/cluster-http.php';return;}
 // Public playlist downloads use subscriber authentication, never an admin session.
 if (in_array($path, ['/get.php', '/playlist', '/playlist.php', '/api/playlist'], true)

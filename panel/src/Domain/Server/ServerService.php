@@ -41,6 +41,7 @@ class ServerService {
 		}
 
 		$rServer = ServerRepository::getById($rData['edit']);
+		if(defined('XCVM_INDEPENDENT_LAB')&&(int)($rServer['server_type']??0)===1)return ['status'=>STATUS_INVALID_INPUT,'data'=>$rData];
 		if (!$rServer) {
 			return ['status' => STATUS_INVALID_INPUT, 'data' => $rData];
 		}
@@ -288,6 +289,8 @@ class ServerService {
 	 * @return array ['status' => STATUS_* constant, 'data' => insert_id or payload].
 	 */
 	public static function processProxy(array $rData) {
+		// Independent profiles must pass the typed, CSRF-protected configuration API.
+		if(defined('XCVM_INDEPENDENT_LAB'))return ['status'=>STATUS_INVALID_INPUT,'data'=>$rData];
 		$db = self::db();
 		if (!Authorization::check('adv', 'edit_server')) {
 			exit();
@@ -355,6 +358,7 @@ class ServerService {
 	 * @return array Result status payload.
 	 */
 	public static function install(array $rData, array $rServers, array $rProxyServers) {
+		if(defined('XCVM_INDEPENDENT_LAB')&&((int)($rData['type']??0)===1||(isset($rData['edit'])&&(int)(ServerRepository::getById((int)$rData['edit'])['server_type']??0)===1)))return ['status'=>STATUS_INVALID_INPUT,'data'=>$rData];
 		$db = self::db();
 		if (!Authorization::check('adv', 'add_server')) {
 			exit();

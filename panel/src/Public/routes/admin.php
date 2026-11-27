@@ -356,6 +356,7 @@ $router->api('rtmp_ip', [ServerAjaxController::class, 'rtmpIp']);
 $router->api('rollback_versions', [ServerAjaxController::class, 'rollbackVersions']);
 $router->api('server', [ServerAjaxController::class, 'server']);
 $router->api('proxy', [ServerAjaxController::class, 'proxy']);
+$router->api('proxy_profile', [\XcVm\Public\Controllers\Admin\Ajax\ProxyProfileAjaxController::class, 'index']);
 $router->api('fingerprint', [ServerAjaxController::class, 'fingerprint']);
 $router->api('restart_all_services', [ServerAjaxController::class, 'restartAllServices']);
 $router->api('restart_services', [ServerAjaxController::class, 'restartServices']);

@@ -40,6 +40,7 @@ class MultiAjaxController extends BaseAjaxController {
 		$this->requireXhr();
 
 		$rType = RequestManager::get('type') ?? '';
+		if(defined('XCVM_INDEPENDENT_LAB')&&$rType==='proxy')$this->fail(['error'=>'USE_PROXY_PROFILE_API']);
 		$rRequestIDs = json_decode(RequestManager::get('ids') ?? '[]', true) ?: [];
 		$rSub = RequestManager::get('sub') ?? '';
 
@@ -176,6 +177,10 @@ class MultiAjaxController extends BaseAjaxController {
 		$this->gate('adv', 'edit_server');
 
 		global $db, $rServers;
+		if(defined('XCVM_INDEPENDENT_LAB')) {
+			$db->query('SELECT id FROM servers WHERE server_type=1 AND id IN ('.$this->inList($rRequestIDs).')');
+			if($db->num_rows()>0)$this->fail(['error'=>'USE_PROXY_PROFILE_API']);
+		}
 
 		if ($rType == 'server' && in_array($rSub, ['restart', 'start', 'stop'])) {
 			$rStreamMap = [];

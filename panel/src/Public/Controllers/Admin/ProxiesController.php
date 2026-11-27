@@ -21,6 +21,10 @@ class ProxiesController extends BaseAdminController {
 		$this->requirePermission();
 
 		$rServers = ServerRepository::getAll(true);
+		if(defined('XCVM_INDEPENDENT_LAB')) {
+			$_SESSION['horus_proxy_csrf']??=bin2hex(random_bytes(32));
+			$this->setTitle('Horus Proxies');$this->render('horus_proxies',['rServers'=>$rServers]);return;
+		}
 
 		$this->setTitle('Proxy Servers');
 		$this->render('proxies', ['rServers' => $rServers]);

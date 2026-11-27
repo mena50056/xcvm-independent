@@ -21,6 +21,16 @@ class ProxyController extends BaseAdminController {
 		global $rProxyServers;
 
 		$this->requirePermission();
+		if (defined('XCVM_INDEPENDENT_LAB')) {
+			$id=(int)RequestManager::get('id');
+			$this->requireAdvPermission('adv',$id?'edit_server':'add_server');
+			$profiles=\XcVm\Core\Proxy\ProxyProfiles::app();$row=$id?$profiles->row($id):null;
+			if($id&&!$row){$this->redirect('proxies');return;}
+			$doc=$id?$profiles->document($id):[];
+			$_SESSION['horus_proxy_csrf']??=bin2hex(random_bytes(32));
+			$this->setTitle('Horus Proxy');
+			$this->render('horus_proxy',['proxyId'=>$id,'profile'=>$doc['profile']??$profiles->defaults($row),'profileRevision'=>$doc['revision']??'','proxyParents'=>$profiles->parents()]);return;
+		}
 
 		if (RequestManager::has('id') && isset($rProxyServers[RequestManager::get('id')])) {
 			// The proxy as stored: the form escapes what it prints and posts it back,

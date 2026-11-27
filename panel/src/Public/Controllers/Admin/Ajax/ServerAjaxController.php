@@ -78,6 +78,10 @@ class ServerAjaxController extends BaseAjaxController {
 
 		global $db, $rServers;
 		$rSub = RequestManager::get('sub');
+		if(defined('XCVM_INDEPENDENT_LAB')) {
+			$ids=$this->normalizeServerIds();
+			foreach((array)$ids as $id)if((int)(ServerRepository::getAll()[(int)$id]['server_type']??0)===1)$this->fail(['error'=>'USE_PROXY_PROFILE_API']);
+		}
 
 		if ($rSub == 'delete') {
 			// Look the server up in the full list (getAll), not the online-filtered
@@ -178,6 +182,7 @@ class ServerAjaxController extends BaseAjaxController {
 
 	/** action=proxy — proxy-server operations (dispatches on sub). */
 	public function proxy(): never {
+		if(defined('XCVM_INDEPENDENT_LAB'))$this->fail(['error'=>'USE_PROXY_PROFILE_API']);
 		$this->requireXhr();
 		$this->gate('adv', 'edit_server');
 

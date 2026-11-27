@@ -43,7 +43,7 @@ $rBar = static function (int $pct): string {
                 </div>
             <?php endif; ?>
             <?php if ($rCanAdd): ?>
-                <a href="server_install?proxy=1" class="btn btn-sm btn-primary"><i class="icon-base ti tabler-plus me-1"></i>Add Proxy</a>
+                <a href="<?= defined('XCVM_INDEPENDENT_LAB')?'proxy?new=1':'server_install?proxy=1' ?>" class="btn btn-sm btn-primary"><i class="icon-base ti tabler-plus me-1"></i>Add Proxy</a>
             <?php endif; ?>
         </div>
     </div>
