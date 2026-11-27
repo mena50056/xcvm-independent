@@ -1,0 +1,71 @@
+"""Exercise the real assistant controller over HTTP with isolated model/tool doubles."""
+import http.cookiejar,json,pathlib,socket,subprocess,tempfile,time,unittest,urllib.request,urllib.error,shutil
+
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+HARNESS=r'''<?php
+namespace XcVm\Domain\Assistant {
+ final class AssistantClient {
+  public static function enabled(): bool {return true;}
+  public function chat(array $messages, PanelTools $tools): array {
+   return ['message'=>'','proposal'=>['line_id'=>1,'username'=>'fixture','member_id'=>1,'before'=>1,'enabled'=>false]];
+  }
+ }
+ final class PanelTools {
+  public function __construct(string $scope) {}
+  public function execute(array $proposal): array {file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false];}
+ }
+}
+namespace {
+session_start();
+if ($_SERVER['REQUEST_URI']==='/signin') {$_SESSION['hash']=1;echo 'ok';exit;}
+$rUserInfo=['id'=>1,'member_group_id'=>1];$rPermissions=['is_admin'=>1];
+array_walk_recursive($_SESSION, static function (&$value) { $value = (string) $value; });
+session_write_close(); // Scope bootstraps may release the lock before dispatch.
+require CONTROLLER;
+(new \XcVm\Public\Controllers\Admin\AssistantController())->index();
+}
+'''
+
+class AssistantHTTP(unittest.TestCase):
+ @classmethod
+ def setUpClass(cls):
+  cls.tmp=tempfile.TemporaryDirectory();cls.path=pathlib.Path(cls.tmp.name)
+  source=HARNESS.replace('CONTROLLER',json.dumps(str(ROOT/'panel/src/Public/Controllers/Admin/AssistantController.php').replace('\\','/')))
+  (cls.path/'router.php').write_text(source)
+  with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
+  cls.url=f'http://127.0.0.1:{port}'
+  cls.process=subprocess.Popen([shutil.which('php'),'-S',f'127.0.0.1:{port}',str(cls.path/'router.php')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+  for _ in range(50):
+   try:urllib.request.urlopen(cls.url+'/signin',timeout=1);break
+   except OSError:time.sleep(.1)
+ @classmethod
+ def tearDownClass(cls):cls.process.terminate();cls.process.wait();cls.tmp.cleanup()
+ def client(self,login=True):
+  op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+  if login:op.open(self.url+'/signin').read()
+  return op
+ def request(self,op,data=None,csrf=''):
+  req=urllib.request.Request(self.url+'/api',data=json.dumps(data).encode() if data else None,headers={'Content-Type':'application/json','X-CSRF-Token':csrf})
+  try:
+   with op.open(req) as response:return response.status,json.load(response)
+  except urllib.error.HTTPError as error:
+   with error:return error.code,json.load(error)
+ def test_auth_csrf_confirmation_replay_and_session_binding(self):
+  self.assertEqual(self.request(self.client(False))[0],401)
+  a,b=self.client(),self.client();csrf=self.request(a)[1]['csrf'];bcsrf=self.request(b)[1]['csrf']
+  self.assertEqual(self.request(a,{'operation':'chat','message':'disable'},'bad')[0],403)
+  status,result=self.request(a,{'operation':'chat','message':'disable'},csrf);self.assertEqual(status,200)
+  self.assertFalse((self.path/'executed').exists())
+  self.assertEqual(self.request(b,{'operation':'confirm','token':result['token']},bcsrf)[0],409)
+  self.assertEqual(self.request(a,{'operation':'confirm','token':result['token']},csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'confirm','token':result['token']},csrf)[0],409)
+  self.assertEqual((self.path/'executed').read_text().splitlines(),['1'])
+ def test_cancel_reset_and_rate_limit(self):
+  a=self.client();csrf=self.request(a)[1]['csrf']
+  result=self.request(a,{'operation':'chat','message':'disable'},csrf)[1]
+  self.assertEqual(self.request(a,{'operation':'cancel','token':result['token']},csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'confirm','token':result['token']},csrf)[0],409)
+  for _ in range(5):self.assertEqual(self.request(a,{'operation':'chat','message':'disable'},csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'reset'},csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'chat','message':'disable'},csrf)[0],429)
+if __name__=='__main__':unittest.main()

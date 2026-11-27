@@ -1,0 +1,118 @@
+<?php
+namespace XcVm\Public\Controllers\Admin;
+
+use XcVm\Domain\Assistant\AssistantClient;
+use XcVm\Domain\Assistant\PanelTools;
+
+class AssistantController {
+    protected string $scope = 'admin';
+
+    private function reply(array $data, int $status = 200): never {
+        http_response_code($status);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        echo json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE);
+        exit;
+    }
+
+    public function index(): never {
+        global $rUserInfo, $rPermissions;
+        if (session_status() !== PHP_SESSION_ACTIVE) { session_start(); }
+        // Scope bootstraps validate credentials, group membership and 2FA first.
+        $identityKey = $this->scope === 'admin' ? 'hash' : 'reseller';
+        if (empty($rUserInfo['id']) || (int) ($_SESSION[$identityKey] ?? 0) !== (int) $rUserInfo['id']
+            || empty($rPermissions[$this->scope === 'admin' ? 'is_admin' : 'is_reseller'])) {
+            $this->reply(['error' => 'UNAUTHENTICATED'], 401);
+        }
+        $owner = $this->scope . ':' . $rUserInfo['id'];
+        $key = 'xc_assistant_' . $this->scope;
+        $fingerprint = hash('sha256', json_encode([$owner, $rUserInfo['member_group_id'],
+            array_intersect_key($rPermissions, array_flip(['is_admin', 'is_reseller', 'advanced', 'create_line', 'all_reports']))]));
+        if (($_SESSION[$key]['fingerprint'] ?? '') !== $fingerprint) {
+            $_SESSION[$key] = ['fingerprint' => $fingerprint, 'csrf' => bin2hex(random_bytes(32)), 'history' => []];
+        }
+        $state =& $_SESSION[$key];
+        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+            $this->reply(['enabled' => AssistantClient::enabled(), 'csrf' => $state['csrf']]);
+        }
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { $this->reply(['error' => 'METHOD_NOT_ALLOWED'], 405); }
+        if (!hash_equals($state['csrf'], (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
+            $this->reply(['error' => 'CSRF_FAILED'], 403);
+        }
+        $raw = file_get_contents('php://input', false, null, 0, 8193);
+        $input = strlen($raw) <= 8192 ? json_decode($raw, true) : null;
+        if (!is_array($input)) { $this->reply(['error' => 'INVALID_REQUEST'], 400); }
+        $operation = $input['operation'] ?? '';
+        $tools = new PanelTools($this->scope);
+        try {
+            if ($operation === 'reset') {
+                $state['history'] = [];
+                unset($state['pending'], $state['busy'], $state['conversation']);
+                $this->reply(['ok' => true]);
+            }
+            if (!AssistantClient::enabled()) { throw new \RuntimeException('AI_UNAVAILABLE'); }
+            if ($operation === 'confirm' || $operation === 'cancel') {
+                $pending = $state['pending'] ?? null;
+                if (!$pending || !is_string($input['token'] ?? null) || !hash_equals($pending['token'], $input['token'])
+                    || $pending['expires'] < time()) {
+                    error_log('XC assistant confirmation refused: missing, expired or mismatched session proposal');
+                    throw new \RuntimeException('STALE_PROPOSAL');
+                }
+                unset($state['pending']);
+                if ($operation === 'cancel') { $this->reply(['ok' => true]); }
+                // Persist consumption before starting any mutation: retries cannot execute again.
+                session_write_close();
+                // Legacy bootstrap converts session scalars into strings. An opaque
+                // envelope preserves the types and exact reviewed snapshot.
+                $proposal = json_decode((string) base64_decode((string) $pending['proposal'], true), true);
+                if (!is_array($proposal)) { throw new \RuntimeException('STALE_PROPOSAL'); }
+                $result = $tools->execute($proposal);
+                $this->reply(['ok' => true, 'execution' => $result]);
+            }
+            if ($operation !== 'chat' || !is_string($input['message'] ?? null) || strlen(trim($input['message'])) < 1 || strlen($input['message']) > 3000) {
+                $this->reply(['error' => 'INVALID_REQUEST'], 400);
+            }
+            if (($state['busy']['until'] ?? 0) > time()) { $this->reply(['error' => 'BUSY'], 429); }
+            $state['requests'] = array_values(array_filter($state['requests'] ?? [], static fn($time) => $time > time() - 60));
+            if (count($state['requests']) >= 6) { $this->reply(['error' => 'RATE_LIMIT'], 429); }
+            $state['requests'][] = time();
+            unset($state['pending']);
+            $requestId = bin2hex(random_bytes(16));
+            $state['busy'] = ['id' => $requestId, 'until' => time() + 150];
+            $history = isset($state['conversation']) ? json_decode((string) base64_decode($state['conversation'], true), true) : [];
+            $messages = array_slice(is_array($history) ? $history : [], -8);
+            $messages[] = ['role' => 'user', 'content' => trim($input['message'])];
+            // Avoid blocking navigation and header polling during CPU inference.
+            session_write_close();
+            $response = null;
+            $failure = null;
+            try { $response = (new AssistantClient())->chat($messages, $tools); }
+            catch (\Throwable $error) { $failure = $error; }
+            session_start();
+            if ((int) ($_SESSION[$identityKey] ?? 0) !== (int) $rUserInfo['id']
+                || ($_SESSION[$key]['fingerprint'] ?? '') !== $fingerprint
+                || ($_SESSION[$key]['busy']['id'] ?? '') !== $requestId) {
+                $this->reply(['error' => 'SESSION_CHANGED'], 409);
+            }
+            $state =& $_SESSION[$key];
+            unset($state['busy']);
+            if ($failure) { throw $failure; }
+            $state['conversation'] = base64_encode(json_encode($messages, JSON_THROW_ON_ERROR));
+            if ($response['proposal']) {
+                $state['pending'] = ['token' => bin2hex(random_bytes(24)), 'expires' => time() + 300,
+                    'proposal' => base64_encode(json_encode($response['proposal'], JSON_THROW_ON_ERROR))];
+                $proposal = $response['proposal'];
+                unset($proposal['member_id']);
+                $this->reply(['ok' => true, 'proposal' => $proposal, 'token' => $state['pending']['token']]);
+            }
+            $message = substr($response['message'], 0, 12000);
+            $messages[] = ['role' => 'assistant', 'content' => $message];
+            $state['conversation'] = base64_encode(json_encode($messages, JSON_THROW_ON_ERROR));
+            $this->reply(['ok' => true, 'message' => $message]);
+        } catch (\Throwable $error) {
+            $code = $error->getMessage();
+            $known = ['FORBIDDEN', 'NOT_FOUND_OR_FORBIDDEN', 'STALE_PROPOSAL', 'ACTIVATION_REQUIRED', 'AI_UNAVAILABLE', 'TOO_MANY_TOOLS'];
+            $this->reply(['error' => in_array($code, $known, true) ? $code : 'REQUEST_FAILED'], $code === 'FORBIDDEN' ? 403 : 409);
+        }
+    }
+}

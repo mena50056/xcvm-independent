@@ -40,6 +40,10 @@ jobs:
       - run: php tests/connection-telemetry.php
       - run: php tests/proxy-profiles.php
       - run: php tests/admin-sessions.php
+      - run: php tests/assistant-permissions.php
+      - run: python3 tests/assistant-http.py
+      - run: python3 tests/assistant-client.py
+      - run: node --check panel/src/Public/assets/admin/xcvm/assistant.js
       - run: node --check panel/src/Public/assets/admin/horus/proxy.js
       - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl
       - run: sudo python3 -B deployment/test_proxy_runtime.py

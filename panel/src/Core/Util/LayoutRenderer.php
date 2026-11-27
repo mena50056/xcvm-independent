@@ -150,6 +150,10 @@ class LayoutRenderer {
 			return;
 		}
 
+		if (in_array($scope, ['admin', 'reseller'], true) && !empty($rUserInfo['id'])) {
+			require MAIN_HOME . 'Public/Views/layouts/assistant.php';
+		}
+
 		if ($scope === 'reseller') {
 			require MAIN_HOME . 'Public/Views/layouts/reseller/footer.php';
 			return;

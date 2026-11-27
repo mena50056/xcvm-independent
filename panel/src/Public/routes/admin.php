@@ -1,5 +1,7 @@
 <?php
 
+$router->api('assistant', [\XcVm\Public\Controllers\Admin\AssistantController::class, 'index']);
+
 use XcVm\Public\Controllers\Admin\ActiveCodeController;
 use XcVm\Public\Controllers\Admin\ActiveCodeDetailsController;
 use XcVm\Public\Controllers\Admin\ActiveCodesBatchController;

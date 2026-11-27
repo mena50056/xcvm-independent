@@ -1,5 +1,7 @@
 <?php
 
+$router->api('assistant', [\XcVm\Public\Controllers\Reseller\AssistantController::class, 'index']);
+
 use XcVm\Public\Controllers\Admin\Ajax\CategoryTemplateAjaxController;
 use XcVm\Public\Controllers\Reseller\Ajax\ActiveCodeAjaxController;
 use XcVm\Public\Controllers\Reseller\Ajax\DeviceAjaxController;
