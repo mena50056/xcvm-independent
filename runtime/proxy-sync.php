@@ -10,6 +10,6 @@ if(!is_file(CONFIG_PATH.'proxy_secret')){http_response_code(403);return;}
 try {
     $db=new \XcVm\Core\Database\LazyDatabaseHandler(true);DatabaseFactory::set($db);
     $settings=\XcVm\Core\Config\SettingsRepository::getAll(true);\XcVm\Core\Config\SettingsManager::set($settings);$GLOBALS['rSettings']=$settings;
-    [$code,$answer]=ProxySync::serve(ProxyProfiles::app(),(string)file_get_contents('php://input',false,null,0,65537),(string)($_SERVER['HTTP_X_XCVM_PROXY_AUTH']??''),(int)round(microtime(true)*1000),static fn($node,$nonce,$ts)=>\XcVm\Domain\Cluster\NonceStore::claim($node,hex2bin($nonce),$ts));
+    [$code,$answer]=ProxySync::serve(ProxyProfiles::app(),(string)file_get_contents('php://input',false,null,0,65537),(string)($_SERVER['HTTP_X_XCVM_PROXY_AUTH']??''),(int)round(microtime(true)*1000),static fn($node,$nonce,$ts)=>\XcVm\Domain\Cluster\NonceStore::claim($node,hex2bin($nonce),$ts),[ProxyProfiles::class,'refreshRouting']);
     http_response_code($code);echo $answer;
 }catch(\Throwable){http_response_code(503);echo '{"error":"PROXY_SYNC_UNAVAILABLE"}';}

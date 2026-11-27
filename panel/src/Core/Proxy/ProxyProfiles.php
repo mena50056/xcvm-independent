@@ -44,12 +44,13 @@ final class ProxyProfiles {
             $document=$id?$this->document($id):[];
             if(!hash_equals((string)($document['revision']??''),$baseRevision))throw new \RuntimeException('PROFILE_CONFLICT');
             $p=ProxyProfile::normalize($input,array_map(static fn($r)=>(int)$r['id'],$this->parents()));
+            if($id&&$row['server_ip']!==$p['server_ip'])throw new \InvalidArgumentException('PROXY_IP_IMMUTABLE');
             if($this->query('SELECT id FROM servers WHERE server_ip=? AND id<>?',[$p['server_ip'],$id])->fetchColumn())throw new \InvalidArgumentException('DUPLICATE_IP');
             $this->db->beginTransaction();
             if(!$id){$this->query('INSERT INTO servers (server_name,server_ip,server_type,is_main,enabled,status,proxy_key_gen) VALUES (?,?,1,0,0,3,1)',[$p['name'],$p['server_ip']]);$id=(int)$this->db->lastInsertId();}
             $path=$this->path($id);$old=is_file($path)?file_get_contents($path):null;
-            $this->query('UPDATE servers SET server_name=?,server_ip=?,enabled=?,parent_id=?,http_broadcast_port=?,https_broadcast_port=?,http_ports_add=?,https_ports_add=?,domain_name=?,total_clients=?,enable_https=?,proxy_key_gen=CASE WHEN proxy_key_gen<1 THEN 1 ELSE proxy_key_gen END WHERE id=? AND server_type=1',
-                [$p['name'],$p['server_ip'],(int)$p['enabled'],json_encode($p['parent_ids']),$p['http_ports'][0]??0,$p['https_ports'][0]??0,implode(',',array_slice($p['http_ports'],1)),implode(',',array_slice($p['https_ports'],1)),implode(',',array_column($p['hosts'],'host')),$p['connection_limit'],(int)($p['http_ports']===[]),$id]);
+            // Routing metadata remains the last confirmed working configuration.
+            $this->query('UPDATE servers SET server_name=?,proxy_key_gen=CASE WHEN proxy_key_gen<1 THEN 1 ELSE proxy_key_gen END WHERE id=? AND server_type=1',[$p['name'],$id]);
             $doc=['revision'=>bin2hex(random_bytes(32)),'saved_at'=>time(),'profile'=>$p];$this->write($path,$doc);$this->db->commit();return ['id'=>$id]+$doc;
         } catch(\Throwable $e) {
             if($this->db->inTransaction())$this->db->rollBack();
@@ -62,7 +63,7 @@ final class ProxyProfiles {
     }
     private function buildWire(int $id): array {
         $row=$this->row($id);$doc=$this->document($id);if(!$row||!isset($doc['profile']))throw new \InvalidArgumentException('PROFILE_NOT_CONFIGURED');
-        $p=$doc['profile'];$p['enabled']=(bool)$row['enabled'];$nodes=[];$ca='';
+        $p=$doc['profile'];$nodes=[];$ca='';
         foreach($this->parents() as $parent) {
             $pid=(int)$parent['id'];if(!in_array($pid,$p['parent_ids'],true))continue;
             if(!(int)$parent['enabled']||(int)$parent['https_broadcast_port']<1)throw new \RuntimeException('UPSTREAM_REQUIRES_HTTPS: '.$pid);
@@ -71,7 +72,7 @@ final class ProxyProfiles {
             if((int)$parent['is_main']===1&&is_file(dirname(MAIN_HOME,2).'/tls/server.crt'))$ca.=file_get_contents(dirname(MAIN_HOME,2).'/tls/server.crt');
         }
         if(count($nodes)!==count($p['parent_ids']))throw new \RuntimeException('UPSTREAM_MISSING');
-        $wire=['schema'=>1,'profile'=>$p,'parents'=>$nodes,'upstream_ca'=>$ca];$wire['revision']=hash('sha256',json_encode($wire,JSON_THROW_ON_ERROR));return $wire;
+        $wire=['schema'=>1,'generation'=>(int)$row['proxy_key_gen'],'profile'=>$p,'parents'=>$nodes,'upstream_ca'=>$ca];$wire['revision']=hash('sha256',json_encode($wire,JSON_THROW_ON_ERROR));return $wire;
     }
     public function status(int $id): array {
         $doc=$this->document($id);$s=$this->read($this->path($id,'.status'));$desired='';$error='';
@@ -79,15 +80,32 @@ final class ProxyProfiles {
         $state=!$doc?'unconfigured':(!$s?'not_connected':(time()-($s['last_sync']??0)>30?'offline':(!empty($s['last_error'])?'failed':(($s['applied_revision']??'')===$desired&&!empty($s['ready'])?'applied':'pending'))));
         return ['state'=>$state,'desired_revision'=>$desired,'saved_revision'=>$doc['revision']??'','saved_at'=>$doc['saved_at']??null,'last_sync'=>$s['last_sync']??null,'applied_revision'=>$s['applied_revision']??'','last_error'=>$error?:($s['last_error']??'')];
     }
-    public function acknowledge(int $id,array $data): void {
+    public function acknowledge(int $id,array $data): bool {
         $revision=is_string($data['applied_revision']??null)&&preg_match('/^[a-f0-9]{64}$/D',$data['applied_revision'])?$data['applied_revision']:'';
         $error=is_string($data['last_error']??null)?substr($data['last_error'],0,1500):'';
         $stats=$data['stats']??[];$safe=[];
         foreach(['cpu','total_mem_used_percent','total_mem','bytes_received','bytes_sent','bytes_received_total','bytes_sent_total'] as $key)if(isset($stats[$key])&&is_numeric($stats[$key])&&$stats[$key]>=0)$safe[$key]=min((float)$stats[$key],PHP_INT_MAX);
         $safe['uptime']=is_string($stats['uptime']??null)?substr($stats['uptime'],0,80):'';
         $ready=($stats['proxy_ready']??false)===true;
-        $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready]);
         $this->query('UPDATE servers SET proxy_signed=1,last_check_ago=?,status=?,watchdog_data=? WHERE id=? AND server_type=1',[time(),$ready?1:3,json_encode($safe),$id]);
+        $lock=fopen($this->directory.'/save.lock','c');if(!$lock)throw new \RuntimeException('PROFILE_STORAGE_FAILED');flock($lock,LOCK_EX);
+        try {
+            $previous=$this->read($this->path($id,'.status'));$wire=$this->buildWire($id);
+            $promote=$ready&&$error===''&&hash_equals($wire['revision'],$revision)&&($previous['advertised_revision']??'')!==$revision;
+            $advertised=$previous['advertised_revision']??'';
+            if($promote) {
+                $p=$wire['profile'];
+                $this->query('UPDATE servers SET enabled=?,parent_id=?,http_broadcast_port=?,https_broadcast_port=?,http_ports_add=?,https_ports_add=?,domain_name=?,total_clients=?,enable_https=? WHERE id=? AND server_type=1',[(int)$p['enabled'],json_encode($p['parent_ids']),$p['http_ports'][0]??0,$p['https_ports'][0]??0,implode(',',array_slice($p['http_ports'],1)),implode(',',array_slice($p['https_ports'],1)),implode(',',array_column($p['hosts'],'host')),$p['connection_limit'],(int)($p['http_ports']===[]),$id]);
+                $advertised=$revision;
+            }
+            $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready,'advertised_revision'=>$advertised]);
+            return $promote;
+        } finally {flock($lock,LOCK_UN);fclose($lock);}
+    }
+    public static function refreshRouting(): void {
+        foreach(['servers','proxy_servers','allowed_domains','allowed_ips'] as $cache)@unlink(CACHE_TMP_PATH.$cache);
+        $GLOBALS['rServers']=\XcVm\Domain\Server\ServerRepository::getAll(true);
+        \XcVm\Domain\Security\BlocklistService::getProxyIPs(true);
     }
     public function enrollment(int $id,string $url,string $ca): array {
         $row=$this->row($id);$this->wire($id);

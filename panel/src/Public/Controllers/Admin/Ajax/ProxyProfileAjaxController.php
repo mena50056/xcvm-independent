@@ -6,9 +6,7 @@ use XcVm\Core\Proxy\ProxyProfiles;
 
 final class ProxyProfileAjaxController extends BaseAjaxController {
     public static function refresh(): void {
-        foreach(['servers','proxy_servers','allowed_domains','allowed_ips'] as $cache)@unlink(CACHE_TMP_PATH.$cache);
-        $GLOBALS['rServers']=\XcVm\Domain\Server\ServerRepository::getAll(true);
-        \XcVm\Domain\Security\BlocklistService::getProxyIPs(true);
+        ProxyProfiles::refreshRouting();
         \XcVm\Core\Events\EventDispatcher::dispatch(new \XcVm\Core\Events\Server\ServerSavedEvent([]));
     }
     public function index(): never {
@@ -31,14 +29,17 @@ final class ProxyProfileAjaxController extends BaseAjaxController {
                 if($action==='delete')\XcVm\Domain\Server\ServerRepository::deleteById($id);
                 elseif($action==='rotate_key') {
                     if(!Authorization::isFullAdmin())$this->fail(['error'=>'ADMIN_REQUIRED']);
-                    $GLOBALS['db']->query('UPDATE servers SET proxy_key_gen=proxy_key_gen+1,proxy_signed=0 WHERE id=? AND server_type=1',$id);
+                    $GLOBALS['db']->query('UPDATE servers SET proxy_key_gen=proxy_key_gen+1,proxy_signed=0,enabled=0,status=3 WHERE id=? AND server_type=1',$id);
                 } elseif($action==='kill') {
                     if(\XcVm\Core\Config\SettingsManager::get('redis_handler')) {
                         foreach((array)json_decode((string)$row['parent_id'],true) as $parent)foreach(\XcVm\Domain\Stream\ConnectionTracker::getRedisConnections(null,$parent,null,true,false,false) as $connection)if((int)($connection['proxy_id']??0)===$id)\XcVm\Domain\Stream\ConnectionTracker::closeConnection($connection);
                     } else {
                         $GLOBALS['db']->query('SELECT * FROM lines_live WHERE proxy_id=?',$id);foreach($GLOBALS['db']->get_rows() as $connection)\XcVm\Domain\Stream\ConnectionTracker::closeConnection($connection);
                     }
-                } else $GLOBALS['db']->query('UPDATE servers SET enabled=? WHERE id=? AND server_type=1',(int)($action==='enable'),$id);
+                } else {
+                    $doc=$profiles->document($id);if(!isset($doc['profile']))throw new \InvalidArgumentException('PROFILE_NOT_CONFIGURED');
+                    $profile=$doc['profile'];$profile['enabled']=$action==='enable';$profiles->save($id,$profile,$doc['revision']);
+                }
                 self::refresh();$this->ok();
             }
             if($action==='enrollment') {

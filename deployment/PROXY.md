@@ -20,7 +20,12 @@ registered upstream servers and a default upstream, then configure:
 - Optional upstream TLS names and additional **public** certificates / CAs.
 
 Save the profile, then download the private installer as a full administrator.
-Saving does not install nginx or prove that the new ports are listening. The UI
+Saving does not install nginx or prove that the new ports are listening. Advertised
+ports, domains, upstream coverage and enabled state remain at the last confirmed
+revision until the agent acknowledges a healthy matching configuration. A failed
+apply therefore keeps newly generated playback URLs on the working endpoint.
+The registered proxy IP is an immutable node identity; register another proxy
+instead of changing the IP of an enrolled node. The UI
 shows waiting, pending, applied, failed or offline. **Applied** requires an
 authenticated acknowledgement after a new nginx worker answers the private Unix
 health socket with the expected effective revision. Offline means no successful
