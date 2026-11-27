@@ -86,6 +86,28 @@ agent checks hostname coverage and at least one day of remaining validity.
 Use your certificate renewal process to replace those files; the agent notices
 changed fingerprints and reloads. All certificates must cover their selected host.
 
+### Public HTTPS without a domain
+
+An installed proxy can optionally request a publicly trusted IP certificate from
+Let's Encrypt using Certbot 5.10, with a staging check before production issuance:
+
+```sh
+python3 /opt/horus_proxy/proxy_ip_tls.py setup
+```
+
+This requires a public proxy IP, enabled traffic and reachable HTTP port 80. It
+installs an isolated Certbot environment, validates the issued IP certificate,
+copies the certificate/key to alias `public-ip` and enables a four-hour renewal
+timer. Add the proxy IP as a host with that alias in the admin profile. IP TLS
+clients normally omit SNI; nginx also uses that IP host's certificate as the default.
+The local `/.well-known/acme-challenge/` location serves only challenge files and
+does not forward them to MAIN. Keep port 80 reachable while automatic renewal is
+in use; these IP certificates last about six days. Renewal deploy hooks update
+the files, and the agent validates and gracefully reloads changed fingerprints.
+The helper never installs a certificate or private key on MAIN.
+
+Primary documentation: [Let's Encrypt IP certificates in Certbot](https://letsencrypt.org/2026/03/11/shorter-certs-certbot/).
+
 Viewer IPs are forwarded only through registered proxy peers. The proxy overwrites
 client-supplied forwarding headers and sends its registered IP. Trusted CDN ranges
 are empty by default; add only actual networks you operate or trust. Do not add a

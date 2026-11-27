@@ -25,7 +25,7 @@ def main():
         else:policy.write_bytes(previous);policy.chmod(mode)
     run('systemctl','disable','--now','nginx.service')
     root.mkdir(mode=0o755,exist_ok=True)
-    for name in ['proxy_agent.py','proxy_config.py']:
+    for name in ['proxy_agent.py','proxy_config.py','proxy_ip_tls.py']:
         shutil.copy2(source/name,root/name);(root/name).chmod(0o644)
     temporary=root/'enrollment.next';temporary.write_text(json.dumps(enrollment));temporary.chmod(0o600);temporary.replace(root/'enrollment.json')
     units={'horus-proxy-nginx.service':'''[Unit]

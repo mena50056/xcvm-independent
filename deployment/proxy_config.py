@@ -169,11 +169,17 @@ def render(wire,root,worker_user='www-data',effective_revision=None,certificate_
         if not p['allow_admin']:result.append('if ($horus_deny_admin) { return 404; }')
         return result
 
+    def acme():
+        # Serve only HTTP-01 challenge files locally; never send them to an upstream.
+        return [f'location ^~ /.well-known/acme-challenge/ {{ root {root}/acme/www; default_type text/plain; limit_except GET HEAD {{ deny all; }} try_files $uri =404; }}']
+
     default_parent=next(n for n in wire['parents'] if n['id']==p['default_parent_id'])
-    lines+=['server {',*listeners(True),'server_name _;',*certificate(p['server_ip'],'auto')]
+    ip_certificate=next((row['certificate'] for row in p['hosts'] if row['host']==p['server_ip']),'auto')
+    # IP clients normally send no TLS SNI: their certificate must also be the default.
+    lines+=['server {',*listeners(True),'server_name _;',*certificate(p['server_ip'],ip_certificate)]
     if p['reject_unknown_hosts'] or not p['enabled']:lines+=['return 444;']
     else:
-        lines+=policies()
+        lines+=policies()+acme()
         for n in wire['parents']:lines+=location(n,True)
         lines+=location(default_parent)
     lines+=['}']
@@ -185,7 +191,7 @@ def render(wire,root,worker_user='www-data',effective_revision=None,certificate_
         lines+=['server {',*listeners(),f'server_name {row["host"]};',*certificate(row['host'],row['certificate'])]
         if not p['enabled']:
             lines+=['return 503;','}'];continue
-        lines+=policies()
+        lines+=policies()+acme()
         for n in wire['parents']:lines+=location(n,True)
         lines+=location(target)+['}']
     return '\n'.join(lines+['}'])+'\n'

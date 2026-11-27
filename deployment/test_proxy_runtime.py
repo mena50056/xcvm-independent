@@ -74,6 +74,15 @@ class Runtime(unittest.TestCase):
             with context.wrap_socket(raw,server_hostname='upstream.horus.test') as connection:
                 connection.sendall(b'GET / HTTP/1.1\r\nHost: upstream.horus.test\r\nConnection: close\r\n\r\n');self.assertIn(b'200 OK',connection.recv(4096))
         self.applier.apply(self.wire)
+    def test_ip_certificate_without_sni_and_local_acme(self):
+        cert=self.root/'edge/tls/public-ip.crt';key=self.root/'edge/tls/public-ip.key'
+        subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','2','-subj','/CN=127.0.0.1','-addext','subjectAltName=IP:127.0.0.1','-keyout',str(key),'-out',str(cert)],check=True,capture_output=True)
+        wire=copy.deepcopy(self.wire);wire['profile']['hosts'].append({'host':'127.0.0.1','parent_id':0,'certificate':'public-ip'});self.revision(wire);self.applier.apply(wire)
+        connection=http.client.HTTPSConnection('127.0.0.1',self.https[0],context=ssl.create_default_context(cafile=str(cert)),timeout=5);connection.request('GET','/');response=connection.getresponse();self.assertEqual(response.status,200);response.read();connection.close()
+        directory=self.root/'edge/acme/www/.well-known/acme-challenge';directory.mkdir(parents=True);(directory/'probe').write_text('local-challenge-proof')
+        self.assertEqual(self.request('/.well-known/acme-challenge/probe',host='127.0.0.1')[1],b'local-challenge-proof')
+        self.assertEqual(self.request('/.well-known/acme-challenge/missing',host='127.0.0.1')[0],404)
+        self.applier.apply(self.wire)
     @classmethod
     def tearDownClass(cls):
         subprocess.run([cls.nginx,'-c',str(cls.root/'edge/nginx.conf'),'-s','quit'],capture_output=True)
