@@ -98,7 +98,9 @@ python3 /opt/horus_proxy/proxy_ip_tls.py setup
 This requires a public proxy IP, enabled traffic and reachable HTTP port 80. It
 installs an isolated Certbot environment, validates the issued IP certificate,
 copies the certificate/key to alias `public-ip` and enables a four-hour renewal
-timer. Add the proxy IP as a host with that alias in the admin profile. IP TLS
+timer. Add the proxy IP as a host with that alias in the admin profile, then enable
+**Prefer HTTPS for generated URLs** to advertise secure playback URLs while
+keeping HTTP available. IP TLS
 clients normally omit SNI; nginx also uses that IP host's certificate as the default.
 The local `/.well-known/acme-challenge/` location serves only challenge files and
 does not forward them to MAIN. Keep port 80 reachable while automatic renewal is

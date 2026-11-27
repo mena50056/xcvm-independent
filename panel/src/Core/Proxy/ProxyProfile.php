@@ -75,7 +75,8 @@ final class ProxyProfile {
         $profile=['schema'=>1,'name'=>trim($name),'server_ip'=>$ip,'enabled'=>self::boolean($input,'enabled'),
             'parent_ids'=>array_values($parents),'default_parent_id'=>$default,'http_ports'=>$http,'https_ports'=>$https,
             'hosts'=>array_values($normalized),'allow_ip_access'=>self::boolean($input,'allow_ip_access',true),
-            'reject_unknown_hosts'=>self::boolean($input,'reject_unknown_hosts',true), 'allow_admin'=>self::boolean($input,'allow_admin'), 'http2'=>self::boolean($input,'http2')];
+            'reject_unknown_hosts'=>self::boolean($input,'reject_unknown_hosts',true), 'allow_admin'=>self::boolean($input,'allow_admin'), 'http2'=>self::boolean($input,'http2'), 'prefer_https'=>self::boolean($input,'prefer_https')];
+        if($profile['prefer_https']&&$https===[])throw new \InvalidArgumentException('HTTPS_PORT_REQUIRED');
         if (!$profile['allow_ip_access']&&$profile['hosts']===[]) throw new \InvalidArgumentException('HOST_REQUIRED');
         foreach (self::LIMITS as $key=>[$min,$max,$default]) $profile[$key]=self::number($input[$key]??$default,$min,$max);
         $trusted=$input['trusted_proxies']??[];

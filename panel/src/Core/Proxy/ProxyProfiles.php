@@ -31,7 +31,7 @@ final class ProxyProfiles {
         $p=['name'=>$row['server_name']??'','server_ip'=>$row['server_ip']??'','enabled'=>(bool)($row['enabled']??false),'parent_ids'=>$ids,'default_parent_id'=>$ids[0]??0,
             'http_ports'=>$row?array_values(array_filter(array_merge([(int)$row['http_broadcast_port']],ProxyProfile::ports((string)($row['http_ports_add']??''))))):[80],
             'https_ports'=>$row?array_values(array_filter(array_merge([(int)$row['https_broadcast_port']],ProxyProfile::ports((string)($row['https_ports_add']??''))))):[443],
-            'hosts'=>[],'allow_ip_access'=>true,'reject_unknown_hosts'=>true,'allow_admin'=>false,'http2'=>true,'trusted_proxies'=>[],
+            'hosts'=>[],'allow_ip_access'=>true,'reject_unknown_hosts'=>true,'allow_admin'=>false,'http2'=>true,'prefer_https'=>(bool)($row['enable_https']??false),'trusted_proxies'=>[],
             'outbound_bind_ip'=>'','upstream_cas'=>[],'upstream_tls_names'=>[]];
         foreach(explode(',',(string)($row['domain_name']??'')) as $host)if(trim($host)!=='')$p['hosts'][]=['host'=>$host,'parent_id'=>0,'certificate'=>'auto'];
         foreach(ProxyProfile::LIMITS as $key=>$range)$p[$key]=$range[2];return $p;
@@ -96,7 +96,7 @@ final class ProxyProfiles {
             $advertised=$previous['advertised_revision']??'';
             if($promote) {
                 $p=$wire['profile'];
-                $this->query('UPDATE servers SET enabled=?,parent_id=?,http_broadcast_port=?,https_broadcast_port=?,http_ports_add=?,https_ports_add=?,domain_name=?,total_clients=?,enable_https=? WHERE id=? AND server_type=1',[(int)$p['enabled'],json_encode($p['parent_ids']),$p['http_ports'][0]??0,$p['https_ports'][0]??0,implode(',',array_slice($p['http_ports'],1)),implode(',',array_slice($p['https_ports'],1)),implode(',',array_column($p['hosts'],'host')),$p['connection_limit'],(int)($p['http_ports']===[]),$id]);
+                $this->query('UPDATE servers SET enabled=?,parent_id=?,http_broadcast_port=?,https_broadcast_port=?,http_ports_add=?,https_ports_add=?,domain_name=?,total_clients=?,enable_https=? WHERE id=? AND server_type=1',[(int)$p['enabled'],json_encode($p['parent_ids']),$p['http_ports'][0]??0,$p['https_ports'][0]??0,implode(',',array_slice($p['http_ports'],1)),implode(',',array_slice($p['https_ports'],1)),implode(',',array_column($p['hosts'],'host')),$p['connection_limit'],(int)($p['http_ports']===[]||!empty($p['prefer_https'])),$id]);
                 $advertised=$revision;
             }
             $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready,'advertised_revision'=>$advertised]);
