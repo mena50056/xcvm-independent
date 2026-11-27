@@ -18,4 +18,21 @@ check(ProxySync::serve($store,$body,$header.'x',$now,$claim)[0]===403&&$claims==
 [$code,$answer]=ProxySync::serve($store,$body,$header,$now,$claim);check($code===200,'Authenticated sync');$env=json_decode($answer,true);check(hash_equals(ProxyKey::responseMac($key,$id,$nonce,$env['payload']),$env['mac']),'MAIN response signed');check(ProxySync::serve($store,$body,$header,$now,$claim)[0]===403,'Replay rejected');check(ProxySync::serve($store,$body,$header,$now+90001,$claim)[0]===403,'Expired request rejected');
 $db->exec('UPDATE servers SET proxy_key_gen=2 WHERE id=3');$nonce=str_repeat('de',16);$header=ProxyKey::requestAuth($key,$id,$now,$nonce,$body);$revoked=json_decode(ProxySync::serve($store,$body,$header,$now,$claim)[1],true);check(json_decode($revoked['payload'],true)['revoked']===true,'Old authentic key gets signed revocation');
 $peer=['REMOTE_ADDR'=>'198.51.100.2','HTTP_X_FORWARDED_FOR'=>'203.0.113.8','HTTP_X_IP'=>'192.0.2.3'];$map=['192.0.2.3'=>['server_type'=>1,'enabled'=>1]];check(HorusProxyPeer::resolve($peer,$map)['REMOTE_ADDR']===$peer['REMOTE_ADDR'],'Direct forwarded spoof rejected');$peer['REMOTE_ADDR']='192.0.2.3';check(HorusProxyPeer::resolve($peer,$map)['REMOTE_ADDR']==='203.0.113.8','Registered peer forwards viewer');$peer['HTTP_X_FORWARDED_FOR']='1.2.3.4, 5.6.7.8';check(HorusProxyPeer::resolve($peer,$map)['REMOTE_ADDR']==='192.0.2.3','Ambiguous forwarding rejected');
-foreach(glob($dir.'/*') as $file)unlink($file);rmdir($dir);echo "Proxy profiles, routing, conflict, HMAC, replay, revocation and peer checks passed\n";
+$forced=['restreamer_bypass_proxy'=>0];$origins=[1=>['enable_proxy'=>1]];
+$registered=['192.0.2.3'=>['server_type'=>1,'enabled'=>1,'parent_id'=>[1]]];
+$direct=['REMOTE_ADDR'=>'198.51.100.2','XC_PEER_ADDR'=>'198.51.100.2','HTTP_X_IP'=>'192.0.2.3','HTTP_X_FORWARDED_FOR'=>'192.0.2.3'];
+$via=['REMOTE_ADDR'=>'198.51.100.2','XC_PEER_ADDR'=>'192.0.2.3'];
+foreach(['/live/viewer/password/1.ts','/live/viewer/password/1.m3u8','/auth/signed-token','/hls/signed-segment','/key/signed-key'] as $route){
+ check(HorusProxyPeer::streamingStatus($route,$direct,$forced,$origins,$registered,1)===403,'Direct credentials/token/segment/key bypassed proxy-only policy');
+ check(HorusProxyPeer::streamingStatus($route,$via,$forced,$origins,$registered,1)===0,'Registered proxy playback denied');
+ check(HorusProxyPeer::streamingStatus($route,$via,$forced,$origins,[],1)===403,'Unknown peer accepted');
+ check(HorusProxyPeer::streamingStatus($route,$via,$forced,$origins,['192.0.2.3'=>['server_type'=>1,'enabled'=>0,'parent_id'=>[1]]],1)===403,'Disabled proxy accepted');
+ check(HorusProxyPeer::streamingStatus($route,$via,$forced,$origins,['192.0.2.3'=>['server_type'=>1,'enabled'=>1,'parent_id'=>[2]]],1)===403,'Proxy of another origin accepted');
+ check(HorusProxyPeer::streamingStatus($route,$via,$forced,null,$registered,1)===503,'Missing server policy failed open');
+ check(HorusProxyPeer::streamingStatus($route,$via,null,$origins,$registered,1)===503,'Missing settings failed open');
+ check(HorusProxyPeer::streamingStatus($route,$direct,$forced,[1=>['enable_proxy'=>0]],$registered,1)===0,'Native playback changed with force disabled');
+ check(HorusProxyPeer::streamingStatus($route,$direct,['restreamer_bypass_proxy'=>1],$origins,$registered,1)===0,'Legacy restreamer admission exception changed');
+}
+foreach(['/horus_xc/login','/horus-proxy/v1/sync','/cluster/v1/heartbeat','/get.php','/playlist'] as $route)check(HorusProxyPeer::streamingStatus($route,$direct,null,null,[],1)===0,'Non-playback endpoint blocked');
+check(HorusProxyPeer::streamingStatus('/auth/token',$via,$forced,$origins,['192.0.2.3'=>['server_type'=>1,'enabled'=>1,'parent_id'=>'[1]']],1)===0,'Serialized parent list rejected');
+foreach(glob($dir.'/*') as $file)unlink($file);rmdir($dir);echo "Proxy profiles, routing, conflict, HMAC, replay, revocation, peer and playback enforcement checks passed\n";

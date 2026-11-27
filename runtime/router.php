@@ -12,6 +12,19 @@ if(!str_starts_with($path,'/horus_xc/assets/')) {
     require_once __DIR__.'/ProxyPeer.php';
     $proxyPeers=\XcVm\Core\Cache\FileCache::getCache('proxy_servers')?:[];
     $_SERVER=HorusProxyPeer::resolve($_SERVER,is_array($proxyPeers)?$proxyPeers:[]);
+    // Initial credentials are not the only playback entry: replaying an /auth,
+    // /hls or /key token directly on MAIN must obey the same proxy-only policy.
+    if(HorusProxyPeer::isStreamingPath($path)) {
+        $streamSettings=\XcVm\Core\Cache\FileCache::getCache('settings');
+        $streamServers=\XcVm\Core\Cache\FileCache::getCache('servers');
+        $streamStatus=HorusProxyPeer::streamingStatus($path,$_SERVER,
+            is_array($streamSettings)?$streamSettings:null,is_array($streamServers)?$streamServers:null,
+            is_array($proxyPeers)?$proxyPeers:[],(int)\XcVm\Core\Config\ConfigReader::get('server_id'));
+        if($streamStatus!==0){
+            http_response_code($streamStatus);header('Cache-Control: no-store');
+            echo $streamStatus===403?'Proxy access required.':'Streaming configuration unavailable.';return;
+        }
+    }
 }
 if($path==='/horus-proxy/v1/sync'){require __DIR__.'/proxy-sync.php';return;}
 if(str_starts_with($path,'/cluster/v1/')){require __DIR__.'/cluster-http.php';return;}
