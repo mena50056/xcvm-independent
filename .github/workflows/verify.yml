@@ -43,6 +43,7 @@ jobs:
       - run: python3 tests/proxy-monitor-http.py
       - run: php tests/admin-sessions.php
       - run: php tests/assistant-permissions.php
+      - run: php tests/assistant-playback.php
       - run: php tests/assistant-management.php
       - run: php tests/assistant-creation.php
       - run: python3 tests/assistant-http.py

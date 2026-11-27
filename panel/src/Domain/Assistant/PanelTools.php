@@ -47,7 +47,7 @@ final class PanelTools {
                 'enabled' => ['type' => 'boolean']
             ]);
         }
-        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions());
+        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions());
     }
 
     private function definition(string $name, string $description, array $properties): array {
@@ -57,6 +57,7 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
+        if ($name === 'diagnose_playback') { return (new PlaybackTools($this->scope))->call($name, $arguments); }
         global $db;
         if (in_array($name, ['creation_options', 'create_subscription', 'create_subscriptions_bulk', 'create_reseller'], true)) { return (new CreationTools($this->scope))->call($name, $arguments); }
         if (in_array($name, ['list_packages', 'renew_line_package'], true)) { return (new SubscriptionTools($this->scope))->call($name, $arguments); }
