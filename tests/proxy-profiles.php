@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxyHistory.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
+$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxyHistory.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Core/Proxy/ProxyOperations.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
 use XcVm\Core\Proxy\{ProxyProfile,ProxyProfiles,ProxySync};use XcVm\Domain\Server\ProxyKey;
 function check(bool $ok,string $why): void {if(!$ok)throw new RuntimeException($why);}
 function refuses(callable $fn,string $reason): void {try{$fn();}catch(Throwable $e){check($e->getMessage()===$reason,'Wrong rejection: '.$e->getMessage());return;}throw new RuntimeException('Accepted '.$reason);}

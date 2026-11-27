@@ -153,6 +153,44 @@ class ProxyApplier:
             return True
 
 
+    def restart(self, operation, generation):
+        """Durably consume before restarting: a crash can be unknown, never an automatic retry."""
+        if not isinstance(operation,dict) or operation.get('type')!='restart':raise ValueError('INVALID_OPERATION')
+        import re
+        oid=operation.get('id','')
+        if not isinstance(oid,str) or not re.fullmatch('[a-f0-9]{32}',oid):raise ValueError('INVALID_OPERATION')
+        path=self.root/('operation-'+oid+'.json')
+        with open(self.root/'apply.lock','a') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            if path.exists():
+                result=json.loads(path.read_text())
+                if result['state']=='claimed':result=dict(id=oid,state='unknown',code='INTERRUPTED');atomic(path,json.dumps(result))
+                atomic(self.root/'operation-result.json',json.dumps(result));return result
+            result=dict(id=oid,state='rejected',code='EXPIRED')
+            state=self.state()
+            if not isinstance(operation.get('expires_at'),int) or operation['expires_at']<time.time() or operation['expires_at']>time.time()+180:pass
+            elif operation.get('generation')!=generation or operation.get('revision')!=state.get('applied_revision') or not state.get('wire',{}).get('profile',{}).get('enabled'):
+                result['code']='STALE_CONFIGURATION'
+            else:
+                atomic(path,json.dumps(dict(id=oid,state='claimed',code='INTERRUPTED')))
+                try:
+                    self.command([self.nginx,'-t','-c',str(self.root/'nginx.conf')])
+                    if self.systemd:self.command(['systemctl','restart','horus-proxy-nginx.service'])
+                    else:
+                        self.command([self.nginx,'-c',str(self.root/'nginx.conf'),'-s','stop'])
+                        for _ in range(40):
+                            if not (self.root/'run/nginx.pid').exists():break
+                            time.sleep(.1)
+                        self.activate(False)
+                    for _ in range(40):
+                        if self.health()==state['effective_revision']:break
+                        time.sleep(.2)
+                    else:raise RuntimeError('RESTART_NOT_CONFIRMED')
+                    result=dict(id=oid,state='succeeded',code='RESTART_CONFIRMED')
+                except Exception:result=dict(id=oid,state='failed',code='RESTART_FAILED')
+            atomic(path,json.dumps(result));atomic(self.root/'operation-result.json',json.dumps(result));return result
+
+
 class Agent:
     def __init__(self,root,nginx='/usr/sbin/nginx',systemd=True):
         self.root=pathlib.Path(root);self.enrollment=json.loads((self.root/'enrollment.json').read_text());self.applier=ProxyApplier(root,nginx,systemd)
@@ -165,7 +203,9 @@ class Agent:
     def fetch(self):
         state=self.applier.state();sid=self.enrollment['server_id'];nonce=secrets.token_hex(16);stamp=int(time.time()*1000)
         data={'server_id':sid,'generation':self.enrollment['generation'],'applied_revision':state.get('applied_revision',''),
-              'last_error':self.error,'stats':self.metrics()}
+              'last_error':self.error,'stats':self.metrics(),'operations_version':1}
+        receipt=self.root/'operation-result.json'
+        if receipt.exists():data['operation_result']=json.loads(receipt.read_text())
         body=json.dumps(data,separators=(',',':')).encode()
         message=f'xcvm proxy req v1|{sid}|{stamp}|{nonce}|'+hashlib.sha256(body).hexdigest()
         signature=hmac.new(self.key,message.encode(),hashlib.sha256).hexdigest()
@@ -216,7 +256,9 @@ class Agent:
         try:
             had_error=bool(self.error)
             changed=self.applier.apply(wire);self.error='';self.failed_revision=''
-            if changed or had_error:self.fetch()  # acknowledge only after the worker's private health endpoint confirms it
+            if answer.get('operation'):
+                self.applier.restart(answer['operation'],self.enrollment['generation']);self.fetch()
+            elif changed or had_error:self.fetch()  # acknowledge only after the worker's private health endpoint confirms it
         except Exception as error:
             self.error=str(error)[-1500:];self.failed_revision=wire['revision'];self.fetch()
 

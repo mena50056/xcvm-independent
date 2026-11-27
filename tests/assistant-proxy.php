@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxyHistory.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
+$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxyHistory.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Core/Proxy/ProxyOperations.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
 use XcVm\Core\Proxy\{ProxyProfile,ProxyProfiles,ProxySync};use XcVm\Domain\Server\ProxyKey;
 function check(bool $ok,string $why): void {if(!$ok)throw new RuntimeException($why);}
 function refuses(callable $fn,string $reason): void {try{$fn();}catch(Throwable $e){check($e->getMessage()===$reason,'Wrong rejection: '.$e->getMessage());return;}throw new RuntimeException('Accepted '.$reason);}
@@ -44,6 +44,26 @@ try {
  $tool->execute($tool->call('set_proxy_parents',['proxy_id'=>$id,'parent_ids'=>[1,2],'default_parent_id'=>2])['proposal']);
  $p=$store->document($id)['profile'];check($p['http_ports']===[8080]&&$p['https_ports']===[8443]&&$p['default_parent_id']===2,'Ports/upstreams not saved');
  $reseller=new \XcVm\Domain\Assistant\ProxyTools('reseller',$store);check($reseller->definitions()===[],'Reseller definitions');refuses(fn()=>$reseller->execute($proposal),'FORBIDDEN');
+
+ $rPermissions['advanced']=[];
+ $doc=$store->document($id);$doc=$store->save($id,array_replace($doc['profile'],['enabled'=>true,'monitor_enabled'=>false]),$doc['revision']);
+ $wire=$store->wire($id);$store->acknowledge($id,['applied_revision'=>$wire['revision'],'stats'=>['proxy_ready'=>true]]);
+ $ops=new \XcVm\Core\Proxy\ProxyOperations($store);
+ refuses(fn()=>$tool->call('restart_proxy',['proxy_id'=>$id,'reason'=>'maintenance']),'PROXY_RESTART_UNAVAILABLE');
+ $ops->sync($id,['operations_version'=>1]);
+ $diagnosis=$tool->call('diagnose_proxy',['proxy_id'=>$id]);check(in_array('UNKNOWN',$diagnosis['codes'],true),'Disabled monitoring falsely healthy');
+ refuses(fn()=>$tool->call('restart_proxy',['proxy_id'=>$id,'reason'=>'recovery']),'PROXY_RESTART_NOT_INDICATED');
+ $restart=$tool->call('restart_proxy',['proxy_id'=>$id,'reason'=>'maintenance'])['proposal'];
+ check($ops->state($id)['operation']===null,'Restart proposal queued before confirmation');
+ check(str_contains(implode(' ',$restart['public']['details']),'nginx'),'Missing action preview');
+ $rPermissions['advanced']=['servers'];refuses(fn()=>$tool->execute($restart),'FORBIDDEN');$rPermissions['advanced']=[];
+ $queued=$tool->execute($restart);check($queued['proxy_restart_queued']&&$queued['operation']['state']==='queued','Queue was reported as success');
+ refuses(fn()=>$tool->execute($restart),'PROXY_OPERATION_PENDING');
+ $wireOp=$ops->sync($id,['operations_version'=>1]);check($wireOp['type']==='restart'&&!isset($wireOp['actor'],$wireOp['evidence']),'Unsafe wire payload');
+ $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>'wrong','state'=>'succeeded']]);check($ops->state($id)['operation']['state']==='queued','Mismatched receipt accepted');
+ $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>$wireOp['id'],'state'=>'failed','code'=>'RAW_SECRET']]);check($ops->state($id)['operation']['code']==='RESTART_FAILED','Raw error leaked');
+ check($ops->sync($id,['operations_version'=>1])===null,'Completed operation redelivered');
+ $expired=$restart;$expired['checked_at']=time()-121;refuses(fn()=>$tool->execute($expired),'STALE_PROPOSAL');
  $rPermissions['advanced']=['users'];refuses(fn()=>$tool->call('proxy_status',['proxy_id'=>$id]),'FORBIDDEN');
  echo "PASS: native proxy saves/audits, explicit proposals, no secret leakage, strict bounds, permissions, replay and concurrent edits\n";
 } finally {

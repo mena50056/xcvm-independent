@@ -22,6 +22,9 @@
     el('status').textContent = value ? t('جارٍ المعالجة…', 'Working…') : '';
   }
   const errors = {
+    PROXY_RESTART_UNAVAILABLE: t('إعادة التشغيل غير متاحة: تحقق من تحديث الوكيل واتصاله والتفعيل واكتمال تطبيق الإعداد.', 'Restart unavailable: check agent version, connection, enabled state and configuration acknowledgement.'),
+    PROXY_RESTART_NOT_INDICATED: t('التشخيص لا يثبت عطلًا يناسب إعادة التشغيل. راجع السبب والخطوة المقترحة.', 'Diagnosis does not show a restart-relevant fault. Review the findings and next step.'),
+    PROXY_OPERATION_PENDING: t('يوجد طلب إعادة تشغيل قيد الانتظار. افحص نتيجته أولًا.', 'A restart is already pending. Check its result first.'),
     PROFILE_NOT_CONFIGURED: t('البروكسي يحتاج إعداد ملفه أولًا من صفحة البروكسي.', 'Configure this proxy profile on the proxy page first.'),
     INVALID_PROXY_CONFIGURATION: t('إعداد البروكسي غير صالح. راجع المنافذ والسيرفرات والقيم المطلوبة.', 'Invalid proxy configuration. Review ports, upstreams and requested values.'),
     FORBIDDEN: t('ليس لديك صلاحية لهذا الإجراء.', 'You do not have permission for this action.'),
@@ -56,6 +59,7 @@
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      restart_proxy: t('تأكيد إعادة تشغيل البروكسي', 'Confirm proxy restart'),
       set_proxy_enabled: t('تغيير حالة البروكسي', 'Change proxy state'), set_proxy_limit: t('تعديل حدود البروكسي', 'Change proxy limit'),
       set_proxy_ports: t('تعديل منافذ البروكسي', 'Change proxy ports'), set_proxy_parents: t('تعديل سيرفرات البروكسي', 'Change proxy upstreams'),
       create_subscriptions_bulk: t('إنشاء اشتراكات بالجملة', 'Create subscription batch'),
@@ -74,6 +78,7 @@
         const answer = await request({operation, token});
         clearPending();
         message(operation === 'cancel' ? t('تم إلغاء الطلب.', 'Request cancelled.') :
+          answer.execution.proxy_restart_queued ? t('تم إرسال طلب إعادة التشغيل، ولم تتأكد النتيجة بعد. اطلب حالة البروكسي لمراجعة نتيجة الوكيل.', 'Restart queued; outcome is not confirmed yet. Ask for proxy status to check the agent result.') :
           answer.execution.proxy_pending && answer.execution.signal_pending ? t('تم حفظ إعداد البروكسي، لكن إشعار التحديث تعذر. راجع حالة البروكسي قبل إعادة الطلب.', 'Proxy configuration saved, but refresh notification failed. Check proxy status before retrying.') :
           answer.execution.proxy_pending ? t('تم حفظ إعداد البروكسي وتسجيله. ينتظر تأكيد التطبيق من البروكسي؛ افحص حالته قبل اعتبار التغيير مطبقًا.', 'Proxy configuration saved and audited. Awaiting proxy acknowledgement; check its status before treating the change as applied.') :
           answer.execution.queued ? t('خادم البث قبل الطلب. افحص حالة القناة للتأكد من النتيجة.', 'The stream backend accepted the request. Check channel status for the outcome.') :

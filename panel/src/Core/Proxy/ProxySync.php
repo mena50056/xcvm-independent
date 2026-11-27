@@ -15,6 +15,7 @@ final class ProxySync {
         $row=$profiles->row($id);
         if(!$row||(int)$row['proxy_key_gen']!==$data['generation'])return [200,ProxyKey::answer($key,$id,$verified['nonce'],['revoked'=>true])];
         if($profiles->acknowledge($id,$data)&&$afterApply!==null)$afterApply();
-        return [200,ProxyKey::answer($key,$id,$verified['nonce'],['config'=>$profiles->wire($id)])];
+        $operation=(new ProxyOperations($profiles))->sync($id,$data);
+        return [200,ProxyKey::answer($key,$id,$verified['nonce'],['config'=>$profiles->wire($id),'operation'=>$operation])];
     }
 }

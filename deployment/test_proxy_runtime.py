@@ -38,6 +38,17 @@ class Runtime(unittest.TestCase):
         cls.wire={'schema':1,'profile':dict(limits,server_ip='127.0.0.1',http_ports=cls.http,https_ports=cls.https,enabled=True,allow_ip_access=True,reject_unknown_hosts=True,allow_admin=False,http2=True,default_parent_id=1,hosts=[{'host':'alias.horus.test','parent_id':0,'certificate':'auto'},{'host':'vod.horus.test','parent_id':2,'certificate':'auto'}],trusted_proxies=[],outbound_bind_ip=''),
             'parents':[{'id':i+1,'ip':'127.0.0.1','port':s.server_port,'tls_name':'upstream.horus.test','route':str(i+1)*32} for i,s in enumerate(cls.servers)],'upstream_ca':cls.ca.read_text()}
         cls.revision(cls.wire);cls.applier=ProxyApplier(cls.root/'edge',cls.nginx,False);cls.applier.apply(cls.wire)
+    def test_explicit_restart_and_replay(self):
+        import secrets
+        state=self.applier.state();operation=dict(id=secrets.token_hex(16),type='restart',revision=state['applied_revision'],generation=1,expires_at=int(time.time())+120)
+        old_pid=(self.applier.root/'run/nginx.pid').read_text()
+        result=self.applier.restart(operation,1)
+        self.assertEqual(result['state'],'succeeded')
+        new_pid=(self.applier.root/'run/nginx.pid').read_text();self.assertNotEqual(old_pid,new_pid)
+        self.assertEqual(self.applier.restart(operation,1),result)
+        self.assertEqual((self.applier.root/'run/nginx.pid').read_text(),new_pid)
+        self.assertEqual(self.applier.health(),state['effective_revision'])
+
     @staticmethod
     def revision(wire):wire['revision']=hashlib.sha256(json.dumps({k:v for k,v in wire.items() if k!='revision'},sort_keys=True).encode()).hexdigest()
     def request(self,path='/',host='alias.horus.test',port=None,tls=False,headers=None):
