@@ -18,7 +18,11 @@ final class ProxyOperations {
     public function state(int $id): array {
         $s=$this->read($id);$op=$s['operation']??null;
         if($op&&$op['state']==='queued'&&$op['expires_at']<time())$op['state']='expired';
-        return ['supported'=>($s['version']??0)===1&&($s['seen_at']??0)>=time()-30,'operation'=>$op?array_intersect_key($op,array_flip(['id','state','created_at','expires_at','finished_at','code'])):null];
+        return ['supported'=>($s['version']??0)===1&&($s['seen_at']??0)>=time()-30,'operation'=>$op?array_intersect_key($op,array_flip(['id','state','created_at','expires_at','finished_at','code','verification'])):null];
+    }
+    public function verificationCandidate(int $id): ?array {return $this->read($id)['operation']??null;}
+    public function recordVerification(int $id,string $operationId,array $result): void {
+        $this->locked($id,function()use($id,$operationId,$result){$s=$this->read($id);if(($s['operation']['id']??'')!==$operationId)return;$s['operation']['verification']=$result;$this->write($id,$s);});
     }
     public function queue(int $id,string $revision,array $actor,array $evidence): array {
         return $this->locked($id,function()use($id,$revision,$actor,$evidence){

@@ -21,6 +21,8 @@ final class ProxyTools {
         ];
         if ($this->allowed(true)) {
             $catalog+= [
+                'proxy_followup'=>['Read the automatic post-restart verification for an exact operation ID; does not trigger a restart.',['proxy_id'=>$id,'operation_id'=>['type'=>'string','pattern'=>'^[a-f0-9]{32}$']]],
+                'recheck_proxy_after_restart'=>['PROPOSE a new read-only diagnosis after reviewing an unresolved automatic postcheck. Separate confirmation required. No restart or settings change.',['proxy_id'=>$id,'operation_id'=>['type'=>'string','pattern'=>'^[a-f0-9]{32}$']]],
                 'diagnose_proxy'=>['Run bounded native proxy probes and explain observed faults, unknowns and recommended actions. No restart or configuration changes.',['proxy_id'=>$id]],
                 'restart_proxy'=>['PROPOSE restarting only the proxy nginx service after diagnosis. Reason recovery requires an observed restart-relevant fault; maintenance is only for an explicit user restart request. Show evidence and viewer interruption warning; separate human confirmation required.',['proxy_id'=>$id,'reason'=>['type'=>'string','enum'=>['recovery','maintenance']]]],
                 'set_proxy_enabled'=>['PROPOSE enabling or disabling one proxy. Requires separate human confirmation and may interrupt viewers; application is asynchronous.',['proxy_id'=>$id,'enabled'=>['type'=>'boolean']]],
@@ -37,7 +39,7 @@ final class ProxyTools {
         $properties=(array)$definition['properties'];
         if(count($args)!==count($properties)||array_diff(array_keys($args),array_keys($properties))) {throw new \RuntimeException('INVALID_ARGUMENTS');}
         foreach($properties as $key=>$spec) {
-            $value=$args[$key];$valid=match($spec['type']) {'integer'=>is_int($value)&&$value>=($spec['minimum']??0),'boolean'=>is_bool($value),'string'=>is_string($value)&&in_array($value,$spec['enum'],true),'array'=>is_array($value)&&array_is_list($value)&&count($value)<=($spec['maxItems']??32)&&count($value)>=($spec['minItems']??0),default=>false};
+            $value=$args[$key];$valid=match($spec['type']) {'integer'=>is_int($value)&&$value>=($spec['minimum']??0),'boolean'=>is_bool($value),'string'=>is_string($value)&&(isset($spec['enum'])?in_array($value,$spec['enum'],true):preg_match('/^[a-f0-9]{32}$/D',$value)===1),'array'=>is_array($value)&&array_is_list($value)&&count($value)<=($spec['maxItems']??32)&&count($value)>=($spec['minItems']??0),default=>false};
             if(!$valid)throw new \RuntimeException('INVALID_ARGUMENTS');
             if($spec['type']==='array')foreach($value as $id)if(!is_int($id)||$id<1)throw new \RuntimeException('INVALID_ARGUMENTS');
         }
@@ -67,6 +69,13 @@ final class ProxyTools {
                 return ['proxies'=>$list,'limit'=>20,'total'=>count($all)];
             }
             if($name==='proxy_parents'){$all=$this->store()->parents();return ['parents'=>array_map(static fn($row)=>['id'=>(int)$row['id'],'name'=>$row['server_name'],'enabled'=>(bool)$row['enabled']],array_slice($all,0,100)),'limit'=>100];}
+            if(in_array($name,['proxy_followup','recheck_proxy_after_restart'],true)){
+                $op=(new ProxyOperations($this->store()))->state($args['proxy_id'])['operation'];
+                if(!$op||$op['id']!==$args['operation_id'])throw new \RuntimeException('STALE_PROPOSAL');
+                if($name==='proxy_followup')return ['operation'=>$op];
+                $v=$op['verification']??[];if(($v['status']??'')!=='complete'||empty($v['followup_available']))throw new \RuntimeException('STALE_PROPOSAL');
+                return ['proposal'=>['kind'=>'proxy','tool'=>$name,'arguments'=>$args,'checked_at'=>$v['checked_at'],'public'=>['title'=>$name,'target'=>'Proxy #'.$args['proxy_id'],'details'=>[$v['report_ar'],$v['report_en'],'الإجراء: فحص جديد بعد مراجعة السبب؛ بدون تعديل الإعداد أو إعادة التشغيل / New diagnosis after reviewing the cause; no settings changes or restart']]]];
+            }
             if($name==='diagnose_proxy')return $this->diagnose($args['proxy_id']);
             if($name==='restart_proxy')return ['proposal'=>$this->restartProposal($args)];
             if($name==='proxy_status')return $this->status($args['proxy_id']);
@@ -129,6 +138,10 @@ final class ProxyTools {
     public function execute(array $proposal): array {
         global $rUserInfo;
         $name=$proposal['tool']??'';$args=$proposal['arguments']??[];$this->validate($name,$args);
+        if($name==='recheck_proxy_after_restart') {
+            $fresh=$this->call($name,$args)['proposal'];if($fresh['checked_at']!==($proposal['checked_at']??null))throw new \RuntimeException('STALE_PROPOSAL');
+            $report=$this->diagnose($args['proxy_id']);return ['proxy_followup_report'=>['ar'=>$report['report_ar'],'en'=>$report['report_en']]];
+        }
         if($name==='restart_proxy') {
             if(time()-(int)($proposal['checked_at']??0)>120)throw new \RuntimeException('STALE_PROPOSAL');
             $fresh=$this->restartProposal($args);

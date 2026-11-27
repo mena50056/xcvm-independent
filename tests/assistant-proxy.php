@@ -9,7 +9,7 @@ $db=new PDO('sqlite::memory:');$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_
 $db->exec('CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT,server_name TEXT,server_ip TEXT,server_type INTEGER DEFAULT 0,is_main INTEGER DEFAULT 0,enabled INTEGER,status INTEGER,proxy_key_gen INTEGER DEFAULT 0,proxy_signed INTEGER DEFAULT 0,parent_id TEXT,http_broadcast_port INTEGER,https_broadcast_port INTEGER,http_ports_add TEXT,https_ports_add TEXT,domain_name TEXT,total_clients INTEGER,enable_https INTEGER,last_check_ago INTEGER,watchdog_data TEXT);INSERT INTO servers (id,server_name,server_ip,is_main,enabled,https_broadcast_port) VALUES (1,"Main","192.0.2.1",1,1,443),(2,"LB","192.0.2.2",0,1,8443)');
 
 require $root.'/panel/src/Core/Auth/Authorization.php';
-require $root.'/panel/src/Core/Proxy/ProxyMonitor.php';
+require $root.'/panel/src/Core/Proxy/ProxyMonitor.php';require $root.'/panel/src/Core/Proxy/ProxyPostcheck.php';
 require $root.'/panel/src/Core/Proxy/ProxyDiagnostics.php';
 require $root.'/panel/src/Domain/Assistant/ProxyTools.php';
 define('XCVM_INDEPENDENT_LAB',true);
@@ -64,6 +64,28 @@ try {
  $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>'wrong','state'=>'succeeded']]);check($ops->state($id)['operation']['state']==='queued','Mismatched receipt accepted');
  $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>$wireOp['id'],'state'=>'failed','code'=>'RAW_SECRET']]);check($ops->state($id)['operation']['code']==='RESTART_FAILED','Raw error leaked');
  check($ops->sync($id,['operations_version'=>1])===null,'Completed operation redelivered');
+
+ $worker=new \XcVm\Core\Proxy\ProxyPostcheck($store);$t=time();
+ $healthy=static fn($wire)=>array_map(static fn($p)=>$p+['state'=>'healthy','code'=>'OK'],\XcVm\Core\Proxy\ProxyDiagnostics::targets($wire));
+ $first=$worker->run($id,$healthy,$t+4);check($first['status']==='verifying','Single sample marked complete');
+ $second=$worker->run($id,$healthy,$t+20);check($second['status']==='complete'&&$second['outcome']==='healthy'&&$second['restart_state']==='failed','Conflated restart failure and health');
+ $count=0;$worker->run($id,function()use(&$count){$count++;return [];},$t+40);check($count===0,'Completed check probed again');
+ $pclass=\XcVm\Core\Proxy\ProxyPostcheck::class;
+ check($pclass::compare(['CONNECT_FAILED'],[['state'=>'healthy','code'=>'OK']],1,true,true)['outcome']==='resolved','Previous failure not compared');
+ check($pclass::compare(['CONNECT_FAILED'],[['state'=>'failed','code'=>'TIMEOUT']],1,true,true)['outcome']==='unresolved','Persistent/new fault called resolved');
+ check($pclass::compare([],[],1,true,true)['outcome']==='inconclusive','Missing ports called healthy');
+ check($pclass::compare([],[['state'=>'unsupported','code'=>'PROBE_FAILED']],1,true,true)['outcome']==='inconclusive','Probe failure blamed on proxy');
+ check($pclass::compare([],[['state'=>'healthy','code'=>'OK']],1,false,true)['outcome']==='inconclusive','Stale sync called healthy');
+ check($pclass::compare([],[['state'=>'healthy','code'=>'OK']],1,true,false)['outcome']==='inconclusive','Changed revision ignored');
+ $ops->recordVerification($id,$wireOp['id'],['status'=>'verifying','attempts'=>1,'checked_at'=>$t-20,'outcome'=>'unresolved']);
+ $flap=$worker->run($id,$healthy,$t+4);check($flap['outcome']==='inconclusive','One recovery sample after failure claimed fixed');
+ $failed=$pclass::describe(['outcome'=>'unresolved','previous_codes'=>['CONNECT_FAILED'],'current_codes'=>['TIMEOUT'],'next_step'=>'network'],'succeeded',$id)+['status'=>'complete','attempts'=>2,'checked_at'=>$t];
+ $ops->recordVerification($id,$wireOp['id'],$failed);$ops->recordVerification($id,str_repeat('c',32),$second);check($ops->state($id)['operation']['verification']['outcome']==='unresolved','Foreign verification replaced current operation');
+ $followArgs=['proxy_id'=>$id,'operation_id'=>$wireOp['id']];$beforeRevision=$store->document($id)['revision'];
+ $follow=$tool->call('recheck_proxy_after_restart',$followArgs)['proposal'];check($store->document($id)['revision']===$beforeRevision,'Next-step proposal mutated profile');
+ check(isset($tool->execute($follow)['proxy_followup_report']),'Confirmed next diagnosis missing');
+ check($store->document($id)['revision']===$beforeRevision,'Follow-up changed settings');
+ $rPermissions['advanced']=['servers'];refuses(fn()=>$tool->call('proxy_followup',$followArgs),'FORBIDDEN');$rPermissions['advanced']=[];
  $expired=$restart;$expired['checked_at']=time()-121;refuses(fn()=>$tool->execute($expired),'STALE_PROPOSAL');
  $rPermissions['advanced']=['users'];refuses(fn()=>$tool->call('proxy_status',['proxy_id'=>$id]),'FORBIDDEN');
  echo "PASS: native proxy saves/audits, explicit proposals, no secret leakage, strict bounds, permissions, replay and concurrent edits\n";

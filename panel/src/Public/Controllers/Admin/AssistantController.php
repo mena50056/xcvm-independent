@@ -50,10 +50,23 @@ class AssistantController {
         try {
             if ($operation === 'reset') {
                 $state['history'] = [];
-                unset($state['pending'], $state['busy'], $state['conversation']);
+                unset($state['pending'], $state['busy'], $state['conversation'], $state['postcheck_context'], $state['last_postcheck']);
                 $this->reply(['ok' => true]);
             }
             if (!AssistantClient::enabled()) { throw new \RuntimeException('AI_UNAVAILABLE'); }
+            if (in_array($operation,['proxy_followup','proxy_next_step'],true)) {
+                $result=$tools->call($operation==='proxy_followup'?'proxy_followup':'recheck_proxy_after_restart',['proxy_id'=>$input['proxy_id']??null,'operation_id'=>$input['operation_id']??null]);
+                if($operation==='proxy_followup'){
+                    $v=$result['operation']['verification']??[];
+                    if(($v['status']??'')==='complete'&&($state['last_postcheck']??'')!==$input['operation_id']){
+                        $state['last_postcheck']=$input['operation_id'];
+                        $state['postcheck_context']='Automatic verification at '.gmdate('c',(int)$v['checked_at']).': '.$v['report_en'];
+                    }
+                    $this->reply(['ok'=>true]+$result);
+                }
+                $state['pending']=['token'=>bin2hex(random_bytes(32)),'expires'=>time()+120,'proposal'=>base64_encode(json_encode($result['proposal'],JSON_THROW_ON_ERROR))];
+                $this->reply(['ok'=>true,'proposal'=>$result['proposal']['public'],'token'=>$state['pending']['token']]);
+            }
             if ($operation === 'confirm' || $operation === 'cancel') {
                 $pending = $state['pending'] ?? null;
                 if (!$pending || !is_string($input['token'] ?? null) || !hash_equals($pending['token'], $input['token'])
@@ -84,6 +97,7 @@ class AssistantController {
             $state['busy'] = ['id' => $requestId, 'until' => time() + 150];
             $history = isset($state['conversation']) ? json_decode((string) base64_decode($state['conversation'], true), true) : [];
             $messages = array_slice(is_array($history) ? $history : [], -8);
+            if(isset($state['postcheck_context'])){$messages[]=['role'=>'assistant','content'=>$state['postcheck_context']];unset($state['postcheck_context']);}
             $messages[] = ['role' => 'user', 'content' => trim($input['message'])];
             // Avoid blocking navigation and header polling during CPU inference.
             session_write_close();

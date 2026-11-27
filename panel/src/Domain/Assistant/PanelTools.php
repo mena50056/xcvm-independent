@@ -57,7 +57,7 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
-        if (in_array($name, ['diagnose_proxy','restart_proxy','list_proxies','proxy_status','proxy_parents','set_proxy_enabled','set_proxy_limit','set_proxy_ports','set_proxy_parents'], true)) { return (new ProxyTools($this->scope))->call($name,$arguments); }
+        if (in_array($name, ['proxy_followup','recheck_proxy_after_restart','diagnose_proxy','restart_proxy','list_proxies','proxy_status','proxy_parents','set_proxy_enabled','set_proxy_limit','set_proxy_ports','set_proxy_parents'], true)) { return (new ProxyTools($this->scope))->call($name,$arguments); }
         if ($name === 'diagnose_playback') { return (new PlaybackTools($this->scope))->call($name, $arguments); }
         global $db;
         if (in_array($name, ['creation_options', 'create_subscription', 'create_subscriptions_bulk', 'create_reseller'], true)) { return (new CreationTools($this->scope))->call($name, $arguments); }

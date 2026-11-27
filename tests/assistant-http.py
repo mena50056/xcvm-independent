@@ -15,6 +15,11 @@ namespace XcVm\Domain\Assistant {
  }
  final class PanelTools {
   public function __construct(string $scope) {}
+  public function call(string $name,array $args): array {
+   if ($args!==['proxy_id'=>2,'operation_id'=>str_repeat('a',32)])throw new \RuntimeException('INVALID_ARGUMENTS');
+   if($name==='proxy_followup')return ['operation'=>['verification'=>['status'=>'complete','checked_at'=>time(),'report_en'=>'POSTCHECK_UNRESOLVED','report_ar'=>'POSTCHECK_UNRESOLVED','outcome'=>'unresolved']]];
+   return ['proposal'=>['kind'=>'proxy','tool'=>'recheck_proxy_after_restart','public'=>['title'=>'recheck_proxy_after_restart','target'=>'Proxy #2','details'=>['New read-only check']]]];
+  }
   public function execute(array $proposal): array {if (($proposal['tool']??'')==='create_subscriptions_bulk') { if (($proposal['arguments']['count']??null)!==2) {throw new \RuntimeException('INVALID_ARGUMENTS');} file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND); return ['saved'=>true,'signal_pending'=>false,'created_batch'=>[['kind'=>'subscription','id'=>11,'credentials'=>['username'=>'bulk1','password'=>'BULK_SECRET_1']],['kind'=>'subscription','id'=>12,'credentials'=>['username'=>'bulk2','password'=>'BULK_SECRET_2']]],'total_debit'=>10,'credits_after'=>90]; }file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false] + (($proposal['kind']??'')==='creation' ? ['created'=>['kind'=>'reseller','id'=>2,'credentials'=>['username'=>'new_user','password'=>'NEW_SECRET_PASSWORD']],'credits_after'=>87] : []);}
  }
 }
@@ -108,6 +113,16 @@ class AssistantHTTP(unittest.TestCase):
    self.assertEqual(self.request(a,{'operation':operation,'message':'create','token':'legacy-token'},'old-csrf',path='/reseller-api')[0],403)
    self.assertEqual(self.request(a,{'operation':operation,'message':'create','token':'legacy-token'},'old-csrf')[0],401)
   self.assertEqual((self.path/'executed').read_text() if (self.path/'executed').exists() else '',before)
+ def test_followup_context_and_separate_confirmation(self):
+  a=self.client();csrf=self.request(a)[1]['csrf'];data={'operation':'proxy_followup','proxy_id':2,'operation_id':'a'*32}
+  self.assertEqual(self.request(a,data,'bad')[0],403)
+  self.assertEqual(self.request(a,data,csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'chat','message':'next step'},csrf)[0],200)
+  self.assertIn('POSTCHECK_UNRESOLVED',(self.path/'seen_messages').read_text())
+  data['operation']='proxy_next_step';status,result=self.request(a,data,csrf);self.assertEqual(status,200)
+  self.assertEqual(result['proposal']['title'],'recheck_proxy_after_restart')
+  self.assertEqual(self.request(a,{'operation':'cancel','token':result['token']},csrf)[0],200)
+  self.assertEqual(self.request(a,{'operation':'confirm','token':result['token']},csrf)[0],409)
  def test_widget_only_renders_for_admin_scope_and_role(self):
   source=r'''<?php
 namespace XcVm\Domain\Assistant {final class AssistantClient {public static function enabled():bool{return true;}}}

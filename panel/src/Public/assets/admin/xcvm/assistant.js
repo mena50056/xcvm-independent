@@ -53,12 +53,42 @@
     if (!response.ok || result.error) throw new Error(errors[result.error] || t('تعذر إكمال الطلب. تحقق من الحالة قبل إعادة المحاولة.', 'Request failed. Check the current state before retrying.'));
     return result;
   }
+  let followupTimer = null, followupGeneration = 0;
+  const followupKey = 'xc-proxy-followup:' + root.dataset.endpoint;
+  function stopFollowup(clear = false) { followupGeneration++; clearTimeout(followupTimer); if (clear) { try { sessionStorage.removeItem(followupKey); } catch (_) {} } }
+  function watchProxy(proxyId, operationId) {
+    stopFollowup(); const generation = followupGeneration, started = Date.now(); let failures = 0;
+    try { sessionStorage.setItem(followupKey, JSON.stringify({proxyId, operationId})); } catch (_) {}
+    async function poll() {
+      if (generation !== followupGeneration) return;
+      try {
+        const result = await request({operation:'proxy_followup', proxy_id:proxyId, operation_id:operationId});
+        if (generation !== followupGeneration) return;
+        failures = 0; const verification = result.operation?.verification;
+        if (verification?.status === 'complete') {
+          stopFollowup(true); message((ar ? verification.report_ar : verification.report_en) + '\n' + t('وقت الفحص: ', 'Checked at: ') + new Date(verification.checked_at * 1000).toLocaleString());
+          if (verification.followup_available) {
+            const button = document.createElement('button'); button.type = 'button'; button.textContent = t('عرض إعادة الفحص للتأكيد', 'Review another check for confirmation');
+            button.onclick = async () => { if (busy) return; setBusy(true); button.disabled = true;
+              try { proposal(await request({operation:'proxy_next_step',proxy_id:proxyId,operation_id:operationId})); }
+              catch (error) { message(error.message); } finally { setBusy(false); button.disabled = false; }
+            }; el('feed').append(button);
+          }
+          return;
+        }
+      } catch (error) { if (generation !== followupGeneration) return; if (++failures >= 3) { stopFollowup(); message(t('تعذر جلب نتيجة المتابعة. الفحص يعمل في الخلفية؛ أعد فتح الشات أو اطلب حالة البروكسي.', 'Could not fetch follow-up. Verification continues in the background; reopen chat or ask for proxy status.')); return; } }
+      if (Date.now() - started > 300000) { stopFollowup(); message(t('لم تصل نتيجة نهائية بعد. اطلب حالة البروكسي لمراجعة المتابعة؛ لا نعتبر المشكلة محلولة.', 'No final result yet. Ask for proxy status; the issue is not assumed resolved.')); return; }
+      followupTimer = setTimeout(poll, 5000);
+    }
+    followupTimer = setTimeout(poll, 4000);
+  }
   function clearPending() { token = ''; el('pending').replaceChildren(); el('pending').hidden = true; }
   function proposal(result) {
     clearPending(); token = result.token;
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      recheck_proxy_after_restart: t('تأكيد فحص البروكسي مجددًا', 'Confirm another proxy diagnosis'),
       restart_proxy: t('تأكيد إعادة تشغيل البروكسي', 'Confirm proxy restart'),
       set_proxy_enabled: t('تغيير حالة البروكسي', 'Change proxy state'), set_proxy_limit: t('تعديل حدود البروكسي', 'Change proxy limit'),
       set_proxy_ports: t('تعديل منافذ البروكسي', 'Change proxy ports'), set_proxy_parents: t('تعديل سيرفرات البروكسي', 'Change proxy upstreams'),
@@ -78,12 +108,14 @@
         const answer = await request({operation, token});
         clearPending();
         message(operation === 'cancel' ? t('تم إلغاء الطلب.', 'Request cancelled.') :
-          answer.execution.proxy_restart_queued ? t('تم إرسال طلب إعادة التشغيل، ولم تتأكد النتيجة بعد. اطلب حالة البروكسي لمراجعة نتيجة الوكيل.', 'Restart queued; outcome is not confirmed yet. Ask for proxy status to check the agent result.') :
+          answer.execution.proxy_followup_report ? (ar ? answer.execution.proxy_followup_report.ar : answer.execution.proxy_followup_report.en) :
+          answer.execution.proxy_restart_queued ? t('تم إرسال طلب إعادة التشغيل، ولم تتأكد النتيجة بعد. سأتابع نتيجة الوكيل وأفحص المنافذ تلقائيًا وأعرض النتيجة هنا.', 'Restart queued; outcome is not confirmed yet. I will follow the agent result, verify the ports automatically and show the outcome here.') :
           answer.execution.proxy_pending && answer.execution.signal_pending ? t('تم حفظ إعداد البروكسي، لكن إشعار التحديث تعذر. راجع حالة البروكسي قبل إعادة الطلب.', 'Proxy configuration saved, but refresh notification failed. Check proxy status before retrying.') :
           answer.execution.proxy_pending ? t('تم حفظ إعداد البروكسي وتسجيله. ينتظر تأكيد التطبيق من البروكسي؛ افحص حالته قبل اعتبار التغيير مطبقًا.', 'Proxy configuration saved and audited. Awaiting proxy acknowledgement; check its status before treating the change as applied.') :
           answer.execution.queued ? t('خادم البث قبل الطلب. افحص حالة القناة للتأكد من النتيجة.', 'The stream backend accepted the request. Check channel status for the outcome.') :
           answer.execution.signal_pending ? t('تم حفظ التغيير، لكن تعذر إرسال إشعار التحديث. راجع الحالة.', 'Change saved, but the update notification failed. Check the current state.') :
           t('تم تنفيذ التغيير وتسجيل العملية بنجاح.', 'Change saved and audited successfully.'));
+        if (operation === 'confirm' && answer.execution.proxy_restart_queued) watchProxy(answer.execution.proxy_id, answer.execution.operation.id);
         if (operation === 'confirm' && answer.execution.created_batch) {
           const batch = answer.execution.created_batch;
           message(t('تم إنشاء ', 'Created ') + batch.length + t(' اشتراك. إجمالي الخصم: ', ' subscriptions. Total debit: ') + answer.execution.total_debit + '\n' + t('رصيدك الحالي: ', 'Your balance: ') + answer.execution.credits_after);
@@ -117,7 +149,7 @@
     el('input').focus();
     if (!csrf) {
       setBusy(true);
-      try { const result = await request(); csrf = result.csrf; if (!result.enabled) throw new Error(errors.AI_UNAVAILABLE);
+      try { const result = await request(); csrf = result.csrf; try { const saved = JSON.parse(sessionStorage.getItem(followupKey)); if (saved && Number.isInteger(saved.proxyId) && /^[a-f0-9]{32}$/.test(saved.operationId)) watchProxy(saved.proxyId, saved.operationId); } catch (_) {} if (!result.enabled) throw new Error(errors.AI_UNAVAILABLE);
         message(t('أساعدك في الاشتراكات والبث والريسيلرز والأرصدة والتقارير حسب صلاحياتك. حدّد الهدف والقيم المطلوبة؛ سأعرض تفاصيل أي تغيير لتأكيدها قبل التنفيذ.', 'I can help with subscriptions, streaming, resellers, credits and reports within your permissions. Specify the target and values; review each change before confirming.'));
       } catch (error) { message(error.message); } finally { setBusy(false); }
     }
@@ -132,7 +164,7 @@
   };
   el('reset').onclick = async () => {
     if (busy || !csrf) return; setBusy(true);
-    try { await request({operation: 'reset'}); clearPending(); el('feed').replaceChildren(); }
+    try { await request({operation: 'reset'}); stopFollowup(true); clearPending(); el('feed').replaceChildren(); }
     catch (error) { message(error.message); } finally { setBusy(false); }
   };
 })();
