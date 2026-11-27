@@ -22,6 +22,8 @@
     el('status').textContent = value ? t('جارٍ المعالجة…', 'Working…') : '';
   }
   const errors = {
+    PROFILE_NOT_CONFIGURED: t('البروكسي يحتاج إعداد ملفه أولًا من صفحة البروكسي.', 'Configure this proxy profile on the proxy page first.'),
+    INVALID_PROXY_CONFIGURATION: t('إعداد البروكسي غير صالح. راجع المنافذ والسيرفرات والقيم المطلوبة.', 'Invalid proxy configuration. Review ports, upstreams and requested values.'),
     FORBIDDEN: t('ليس لديك صلاحية لهذا الإجراء.', 'You do not have permission for this action.'),
     STALE_PROPOSAL: t('انتهى التأكيد أو تغيرت البيانات. اطلب الإجراء مرة أخرى.', 'Confirmation expired or the data changed. Request it again.'),
     ACTIVATION_REQUIRED: t('هذا الخط يحتاج استرداد كود التفعيل أولًا.', 'This line requires activation code redemption first.'),
@@ -54,6 +56,8 @@
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      set_proxy_enabled: t('تغيير حالة البروكسي', 'Change proxy state'), set_proxy_limit: t('تعديل حدود البروكسي', 'Change proxy limit'),
+      set_proxy_ports: t('تعديل منافذ البروكسي', 'Change proxy ports'), set_proxy_parents: t('تعديل سيرفرات البروكسي', 'Change proxy upstreams'),
       create_subscriptions_bulk: t('إنشاء اشتراكات بالجملة', 'Create subscription batch'),
       create_subscription: t('إنشاء اشتراك جديد', 'Create subscription'), create_reseller: t('إنشاء ريسيلر جديد', 'Create reseller'),
       extend_line_days: t('تمديد صلاحية اشتراك', 'Extend subscription expiry'), set_line_connections: t('تعديل عدد الاتصالات', 'Change connection limit'),
@@ -70,6 +74,8 @@
         const answer = await request({operation, token});
         clearPending();
         message(operation === 'cancel' ? t('تم إلغاء الطلب.', 'Request cancelled.') :
+          answer.execution.proxy_pending && answer.execution.signal_pending ? t('تم حفظ إعداد البروكسي، لكن إشعار التحديث تعذر. راجع حالة البروكسي قبل إعادة الطلب.', 'Proxy configuration saved, but refresh notification failed. Check proxy status before retrying.') :
+          answer.execution.proxy_pending ? t('تم حفظ إعداد البروكسي وتسجيله. ينتظر تأكيد التطبيق من البروكسي؛ افحص حالته قبل اعتبار التغيير مطبقًا.', 'Proxy configuration saved and audited. Awaiting proxy acknowledgement; check its status before treating the change as applied.') :
           answer.execution.queued ? t('خادم البث قبل الطلب. افحص حالة القناة للتأكد من النتيجة.', 'The stream backend accepted the request. Check channel status for the outcome.') :
           answer.execution.signal_pending ? t('تم حفظ التغيير، لكن تعذر إرسال إشعار التحديث. راجع الحالة.', 'Change saved, but the update notification failed. Check the current state.') :
           t('تم تنفيذ التغيير وتسجيل العملية بنجاح.', 'Change saved and audited successfully.'));

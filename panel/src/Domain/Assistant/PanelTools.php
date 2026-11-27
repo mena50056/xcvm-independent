@@ -47,7 +47,7 @@ final class PanelTools {
                 'enabled' => ['type' => 'boolean']
             ]);
         }
-        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions());
+        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions());
     }
 
     private function definition(string $name, string $description, array $properties): array {
@@ -57,6 +57,7 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
+        if (in_array($name, ['list_proxies','proxy_status','proxy_parents','set_proxy_enabled','set_proxy_limit','set_proxy_ports','set_proxy_parents'], true)) { return (new ProxyTools($this->scope))->call($name,$arguments); }
         if ($name === 'diagnose_playback') { return (new PlaybackTools($this->scope))->call($name, $arguments); }
         global $db;
         if (in_array($name, ['creation_options', 'create_subscription', 'create_subscriptions_bulk', 'create_reseller'], true)) { return (new CreationTools($this->scope))->call($name, $arguments); }
@@ -104,6 +105,7 @@ final class PanelTools {
 
     public function execute(array $proposal): array {
         global $db, $rUserInfo;
+        if (($proposal['kind'] ?? '') === 'proxy') { return (new ProxyTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'creation') { return (new CreationTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'subscription') { return (new SubscriptionTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'management') { return (new ManagementTools($this->scope))->execute($proposal); }
