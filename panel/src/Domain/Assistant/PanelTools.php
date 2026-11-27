@@ -47,7 +47,7 @@ final class PanelTools {
                 'enabled' => ['type' => 'boolean']
             ]);
         }
-        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions());
+        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions(), (new RecoveryTools($this->scope))->definitions());
     }
 
     private function definition(string $name, string $description, array $properties): array {
@@ -57,6 +57,7 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
+        if (in_array($name, ['repair_playback','diagnose_panel','repair_import_queue','create_panel_backup'], true)) return (new RecoveryTools($this->scope))->call($name, $arguments);
         if (in_array($name, ['proxy_followup','recheck_proxy_after_restart','diagnose_proxy','restart_proxy','list_proxies','proxy_status','proxy_parents','set_proxy_enabled','set_proxy_limit','set_proxy_ports','set_proxy_parents'], true)) { return (new ProxyTools($this->scope))->call($name,$arguments); }
         if ($name === 'diagnose_playback') { return (new PlaybackTools($this->scope))->call($name, $arguments); }
         global $db;
@@ -105,6 +106,7 @@ final class PanelTools {
 
     public function execute(array $proposal): array {
         global $db, $rUserInfo;
+        if (($proposal['kind'] ?? '') === 'recovery') return (new RecoveryTools($this->scope))->execute($proposal);
         if (($proposal['kind'] ?? '') === 'proxy') { return (new ProxyTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'creation') { return (new CreationTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'subscription') { return (new SubscriptionTools($this->scope))->execute($proposal); }

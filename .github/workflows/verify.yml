@@ -45,6 +45,7 @@ jobs:
       - run: php tests/admin-sessions.php
       - run: php tests/assistant-permissions.php
       - run: php tests/assistant-playback.php
+      - run: php tests/assistant-recovery.php
       - run: php tests/assistant-proxy.php
       - run: python3 deployment/test_proxy_operations.py
       - run: php tests/assistant-management.php

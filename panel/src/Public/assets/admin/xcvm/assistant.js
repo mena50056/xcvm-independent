@@ -88,6 +88,9 @@
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      repair_playback: t('تأكيد إصلاح التشغيل', 'Confirm playback repair'),
+      repair_import_queue: t('تأكيد إصلاح مجلد الاستيراد', 'Confirm import queue repair'),
+      create_panel_backup: t('تأكيد طلب نسخة احتياطية', 'Confirm backup request'),
       recheck_proxy_after_restart: t('تأكيد فحص البروكسي مجددًا', 'Confirm another proxy diagnosis'),
       restart_proxy: t('تأكيد إعادة تشغيل البروكسي', 'Confirm proxy restart'),
       set_proxy_enabled: t('تغيير حالة البروكسي', 'Change proxy state'), set_proxy_limit: t('تعديل حدود البروكسي', 'Change proxy limit'),
@@ -108,6 +111,7 @@
         const answer = await request({operation, token});
         clearPending();
         message(operation === 'cancel' ? t('تم إلغاء الطلب.', 'Request cancelled.') :
+          answer.execution.recovery_report ? (ar ? answer.execution.recovery_report.ar : answer.execution.recovery_report.en) :
           answer.execution.proxy_followup_report ? (ar ? answer.execution.proxy_followup_report.ar : answer.execution.proxy_followup_report.en) :
           answer.execution.proxy_restart_queued ? t('تم إرسال طلب إعادة التشغيل، ولم تتأكد النتيجة بعد. سأتابع نتيجة الوكيل وأفحص المنافذ تلقائيًا وأعرض النتيجة هنا.', 'Restart queued; outcome is not confirmed yet. I will follow the agent result, verify the ports automatically and show the outcome here.') :
           answer.execution.proxy_pending && answer.execution.signal_pending ? t('تم حفظ إعداد البروكسي، لكن إشعار التحديث تعذر. راجع حالة البروكسي قبل إعادة الطلب.', 'Proxy configuration saved, but refresh notification failed. Check proxy status before retrying.') :
