@@ -111,7 +111,7 @@ they do not replace subscriber connection limits enforced by MAIN.
 ```sh
 php tests/proxy-profiles.php
 node --check panel/src/Public/assets/admin/horus/proxy.js
-sudo python3 deployment/test_proxy_runtime.py
+sudo python3 -B deployment/test_proxy_runtime.py
 ```
 
 The last command uses temporary directories and ephemeral ports. It tests real

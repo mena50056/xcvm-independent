@@ -41,7 +41,7 @@ jobs:
       - run: php tests/proxy-profiles.php
       - run: node --check panel/src/Public/assets/admin/horus/proxy.js
       - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl
-      - run: sudo python3 deployment/test_proxy_runtime.py
+      - run: sudo python3 -B deployment/test_proxy_runtime.py
       - run: python3 deployment/test_vendor_isolation.py
       - run: python3 deployment/test_horus_paths.py
       - run: python3 deployment/test_horus_home.py
