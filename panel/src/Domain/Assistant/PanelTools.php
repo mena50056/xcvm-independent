@@ -47,6 +47,7 @@ final class PanelTools {
                 'enabled' => ['type' => 'boolean']
             ]);
         }
+        if ($this->scope === 'admin' && defined('XCVM_INDEPENDENT_LAB') && InstallationWizard::allowed()) $tools[] = $this->definition('begin_server_installation', 'Start the protected, step-by-step admin installation conversation for a NEW proxy, streaming node or load balancer. Do not collect SSH passwords in model messages; the wizard collects them securely, presents a plan, requires confirmation and tracks the background job.', []);
         return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions(), (new RecoveryTools($this->scope))->definitions());
     }
 
@@ -57,6 +58,11 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
+        if ($name === 'begin_server_installation') {
+            if ($this->scope !== 'admin' || !defined('XCVM_INDEPENDENT_LAB') || !InstallationWizard::allowed()) throw new \RuntimeException('FORBIDDEN');
+            if ($arguments) throw new \RuntimeException('INVALID_ARGUMENTS');
+            return ['begin_installation'=>true];
+        }
         if (in_array($name, ['repair_playback','diagnose_panel','repair_import_queue','create_panel_backup'], true)) return (new RecoveryTools($this->scope))->call($name, $arguments);
         if (in_array($name, ['proxy_followup','recheck_proxy_after_restart','diagnose_proxy','restart_proxy','list_proxies','proxy_status','proxy_parents','set_proxy_enabled','set_proxy_limit','set_proxy_ports','set_proxy_parents'], true)) { return (new ProxyTools($this->scope))->call($name,$arguments); }
         if ($name === 'diagnose_playback') { return (new PlaybackTools($this->scope))->call($name, $arguments); }

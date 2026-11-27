@@ -12,16 +12,22 @@
   el('input').placeholder = t('اسأل أو اطلب إجراءً محددًا داخل البانل…', 'Ask a question or request a specific panel action…');
   el('send').textContent = t('إرسال', 'Send');
   el('reset').textContent = t('محادثة جديدة', 'New conversation');
+  let installationActive = false, installationTimer = null, installationGeneration = 0;
   function message(text, user = false) {
     const node = document.createElement('div'); node.className = 'xc-ai-message' + (user ? ' user' : '');
     node.dir = 'auto'; node.textContent = text; el('feed').append(node); el('feed').scrollTop = el('feed').scrollHeight;
   }
   function setBusy(value) {
-    busy = value; el('send').disabled = value; el('reset').disabled = value;
+    root.classList.toggle('xc-install-active', installationActive);
+    busy = value; el('send').disabled = value || installationActive; el('input').disabled = installationActive; el('reset').disabled = value || installationActive;
+    if (el('install')) el('install').disabled = value || installationActive;
     el('pending').querySelectorAll('button').forEach(button => { button.disabled = value; });
     el('status').textContent = value ? t('جارٍ المعالجة…', 'Working…') : '';
   }
   const errors = {
+    INSTALL_EXISTING_SERVER: t('هذا العنوان مسجل بالفعل أو يخص MAIN. التنصيب الجديد فقط متاح.', 'This address is already registered or belongs to MAIN. Only fresh installations are supported.'),
+    INSTALL_TARGET_BUSY: t('يوجد تنصيب قيد التنفيذ أو نتيجة غير مؤكدة لهذا العنوان؛ راجعها أولًا.', 'An installation is pending or uncertain for this address; review it first.'),
+    INSTALL_CREDENTIALS: t('بيانات التنصيب غير متاحة. ابدأ خطة جديدة.', 'Installation credentials are unavailable. Start a new plan.'),
     PROXY_RESTART_UNAVAILABLE: t('إعادة التشغيل غير متاحة: تحقق من تحديث الوكيل واتصاله والتفعيل واكتمال تطبيق الإعداد.', 'Restart unavailable: check agent version, connection, enabled state and configuration acknowledgement.'),
     PROXY_RESTART_NOT_INDICATED: t('التشخيص لا يثبت عطلًا يناسب إعادة التشغيل. راجع السبب والخطوة المقترحة.', 'Diagnosis does not show a restart-relevant fault. Review the findings and next step.'),
     PROXY_OPERATION_PENDING: t('يوجد طلب إعادة تشغيل أو فحص متابعة قيد الانتظار. انتظر نتيجته أولًا.', 'A restart or follow-up check is pending. Wait for its result first.'),
@@ -83,6 +89,86 @@
     followupTimer = setTimeout(poll, 4000);
   }
   function clearPending() { token = ''; el('pending').replaceChildren(); el('pending').hidden = true; }
+
+  const installationQuestions = {
+    kind: t('ما نوع السيرفر الذي تريد تنصيبه؟', 'Which server type do you want to install?'),
+    name: t('ما الاسم الذي سيظهر للسيرفر في البانل؟', 'What display name should the server have?'),
+    ip: t('اكتب عنوان IPv4 العام للسيرفر الجديد. لا تستخدم عنوان البانل أو سيرفرًا مسجلًا.', 'Enter the fresh server public IPv4 address. Do not use MAIN or a registered server.'),
+    ssh_port: t('ما منفذ SSH؟', 'What is the SSH port?'),
+    fingerprint: t('اكتب بصمة مفتاح SSH بصيغة SHA1 من مصدر موثوق. يمكن عرضها من كونسول مزود السيرفر بالأمر: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha1', 'Enter the expected SHA1 SSH host-key fingerprint from a trusted source. Provider console command: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha1'),
+    parent_id: t('اختر السيرفر الأصل الذي سيخدمه البروكسي.', 'Choose the upstream server for this proxy.'),
+    tls_mode: t('كيف تريد إعداد شهادة HTTPS للبروكسي؟', 'How should proxy HTTPS be configured?'),
+    capacity: t('ما الحد الأقصى للاتصالات؟ من 1 إلى 100000.', 'What is the connection limit? From 1 to 100000.'),
+    fresh: t('هل السيرفر جديد ومخصص للتنصيب؟ Ubuntu 22.04 x86_64، وللبروكسي يمكن 24.04 أيضًا. المنافذ 80 و443 و8080 و18080 يجب ألا تستخدمها خدمة أخرى.', 'Is this a fresh dedicated Ubuntu 22.04 x86_64 server? Proxy also supports 24.04. Ports 80, 443, 8080 and 18080 must be unused.'),
+    password: t('أدخل كلمة مرور SSH للمستخدم root في الحقل المحمي. لن تُرسل للموديل أو تظهر في سجل الشات.', 'Enter the root SSH password in the protected field. It is not sent to the model or shown in chat history.')
+  };
+  const installationPhases = {
+    queued:t('ينتظر عامل التنصيب', 'Waiting for installation worker'), preflight:t('فحص SSH والبصمة ونظام السيرفر', 'Checking SSH, host key and fresh host'),
+    registering:t('تسجيل السيرفر', 'Registering server'), installing:t('تنصيب الحزم والخدمات', 'Installing packages and services'),
+    verifying:t('التحقق من اتصال الوكيل والمنافذ', 'Verifying agent connectivity and ports'), tls:t('إصدار شهادة HTTPS وإعداد التجديد', 'Issuing HTTPS certificate and configuring renewal'),
+    worker_interrupted:t('انقطعت المتابعة؛ النتيجة غير مؤكدة', 'Worker interrupted; result is unknown')
+  };
+  const installationResults = {
+    node_heartbeat_verified:t('اكتمل التنصيب ووصل نبض موثق حديث من العقدة. توزيع القنوات واختبار مشاهدة العميل خطوة منفصلة.', 'Installed and a fresh authenticated node heartbeat was verified. Channel assignment and viewer playback testing remain separate.'),
+    proxy_ports_verified:t('اكتمل التنصيب وتحقق مسار الأصل عبر HTTP وHTTPS. هذا ليس اختبار مشاهدة عميل.', 'Installed and the upstream path was verified over HTTP and HTTPS. This is not a viewer playback test.'),
+    proxy_installed_check_tls_firewall:t('البروكسي اتصل وطبق الإعداد، لكن فحص المنافذ لم ينجح بالكامل. راجع حالة التفعيل وتطبيق الإعداد وشهادة TLS وجدار مزود الخدمة قبل تشغيل العملاء.', 'Proxy connected and applied configuration, but not all port checks passed. Review the enabled and applied state, TLS and provider firewall before customer use.'),
+    public_tls_failed:t('تعذر إصدار شهادة عامة؛ قد يكون البروكسي منصبًا بشهادة محلية. راجع منفذ 80 لدى المزود وإعداد TLS، ولا تعد التنصيب تلقائيًا.', 'Public TLS issuance failed; the proxy may be installed with local TLS. Review provider port 80 and TLS before any retry.'),
+    fresh_server_required:t('توقف قبل التنصيب: نظام غير مدعوم أو تثبيت موجود أو منافذ مشغولة. اختر سيرفرًا جديدًا مناسبًا.', 'Stopped before installation: unsupported OS, existing installation or occupied ports. Choose a suitable fresh server.'),
+    ssh_connection:t('تعذر الاتصال بمنفذ SSH. راجع العنوان والمنفذ وجدار الخدمة.', 'SSH connection failed. Check address, port and firewall.'),
+    ssh_fingerprint:t('بصمة SSH لا تطابق البصمة المؤكدة؛ لم يبدأ التنصيب.', 'SSH host key does not match the confirmed fingerprint; installation did not begin.'),
+    ssh_authentication:t('رفض السيرفر بيانات دخول SSH؛ لم يبدأ التنصيب.', 'SSH authentication failed; installation did not begin.'),
+    permission_revoked:t('توقف الطلب لأن صلاحية الأدمن تغيرت.', 'Stopped because administrator permission changed.'),
+    existing_server:t('العنوان أصبح مسجلًا؛ تم رفض التنصيب.', 'Address is now registered; installation refused.'),
+    node_install_failed:t('فشل مثبت العقدة أو تحقق النبض. قد تبقى حزم أو سجل سيرفر؛ راجع صفحة السيرفر قبل أي محاولة جديدة.', 'Node installer or heartbeat verification failed. Packages or a server record may remain; review the server before retrying.'),
+    proxy_sync_failed:t('لم تصل مزامنة موثقة حديثة من البروكسي. راجع اتصاله بـMAIN وخدمة الوكيل.', 'Fresh authenticated proxy sync was not received. Check MAIN connectivity and the agent service.')
+  };
+  function showInstallation(result) {
+    const job=result.installation; if (!job) return;
+    clearTimeout(installationTimer); const generation=++installationGeneration;
+    clearPending(); installationActive=['draft','review','queued','running'].includes(job.state);
+    el('pending').hidden=false;
+    const box=document.createElement('div');box.className='xc-ai-installation';
+    const text=document.createElement('div');box.append(text);
+    const submit=async(operation,value) => {
+      if(busy)return;setBusy(true);
+      try { showInstallation(await request({operation,job_id:job.id,token:job.token,...(value===undefined?{}:{value})})); }
+      catch(error){message(error.message);}
+      finally {setBusy(false);}
+    };
+    const button=(label,handler)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=handler;box.append(b);return b;};
+    if(job.state==='draft') {
+      text.textContent=installationQuestions[job.field];
+      const choices=Object.entries(job.choices||{});const input=document.createElement(choices.length?'select':'input');
+      input.setAttribute('aria-label',installationQuestions[job.field]);input.id='xc-ai-install-value';
+      if(choices.length){const placeholder=document.createElement('option');placeholder.value='';placeholder.textContent=t('اختر…','Choose…');input.append(placeholder);for(const [value,label] of choices){const option=document.createElement('option');option.value=value;option.textContent=label;input.append(option);}}
+      else {input.type=job.field==='password'?'password':'text';input.autocomplete='off';input.maxLength=job.field==='password'?512:160;if(job.field==='ssh_port')input.value='22';if(job.field==='capacity')input.inputMode='numeric';}
+      box.append(input);
+      const next=()=>{const value=input.value;if(!value)return;if(job.field==='password')input.value='';submit('install_step',value);};
+      input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();next();}};
+      button(t('متابعة','Continue'),next);button(t('إلغاء التنصيب','Cancel installation'),()=>submit('install_cancel'));
+      setTimeout(()=>input.focus(),0);
+    } else if(job.state==='review') {
+      text.textContent=t('راجع خطة التنصيب قبل التنفيذ:','Review the installation plan:')+'\n'+Object.entries(job.plan).map(([k,v])=>({kind:t('النوع','Type'),name:t('الاسم','Name'),ip:t('العنوان','Address'),ssh_port:t('منفذ SSH','SSH port'),fingerprint:t('بصمة SSH','SSH fingerprint'),parent_id:t('رقم السيرفر الأصل','Upstream ID'),tls_mode:t('شهادة HTTPS','HTTPS certificate'),capacity:t('حد الاتصالات','Connection limit'),fresh:t('سيرفر جديد','Fresh server')}[k]||k)+': '+({proxy:t('بروكسي','Proxy'),stream:t('سيرفر بث','Streaming node'),lb:t('لود بالانسر','Load balancer'),public_ip:t('شهادة IP عامة وتجديد آلي','Public IP TLS and renewal'),later:t('إعداد لاحق','Configure later'),true:t('نعم','Yes')}[String(v)]||v)).join('\n')+'\nSSH: root | HTTP: 80 | HTTPS: 443\n\n'+job.notes.join('\n\n');
+      button(t('تأكيد خطة التنصيب والتنفيذ','Confirm plan and install'),()=>submit('install_confirm'));
+      button(t('إلغاء','Cancel'),()=>submit('install_cancel'));
+    } else {
+      const terminal=!['queued','running'].includes(job.state);
+      text.textContent=t('طلب التنصيب: ','Installation: ')+job.id+'\n'+(job.plan.name||'')+' — '+(job.plan.ip||'')+'\n'+
+        (job.server_id?t('رقم السيرفر: ','Server ID: ')+job.server_id+'\n':'')+
+        (installationPhases[job.phase]||job.state)+'\n'+(installationResults[job.result]||
+          (job.state==='unknown'?t('لا نعتبر التنصيب ناجحًا ولا نعيده تلقائيًا. راجع حالة السيرفر قبل أي إجراء.', 'Success is unknown; no automatic retry. Review the server before another action.'):
+          job.state==='expired'?t('انتهت صلاحية الخطة وحُذفت بيانات الدخول.', 'Plan expired and credentials were removed.'):
+          job.state==='cancelled'?t('أُلغي الطلب وحُذفت بيانات الدخول.', 'Cancelled and credentials removed.'):
+          job.state==='failed'?t('فشل التنفيذ؛ قد يكون جزئيًا. راجع حالة السيرفر ولا تعِد التنصيب تلقائيًا.', 'Execution failed and may be partial. Review server state; do not reinstall automatically.'):
+          t('التنفيذ في الخلفية؛ يمكنك إغلاق الشات والعودة للمتابعة.', 'Running in the background; you may close the chat and return.')));
+      if(job.state==='queued')button(t('إلغاء قبل بدء التنفيذ','Cancel before execution starts'),()=>submit('install_cancel'));
+      if(!terminal) {
+        installationTimer=setTimeout(async()=>{try{const answer=await request({operation:'install_status',job_id:job.id});if(generation===installationGeneration)showInstallation(answer);}catch(error){if(generation===installationGeneration){message(error.message);installationActive=false;setBusy(false);button(t('إعادة متابعة الحالة','Refresh progress'),()=>submit('install_status'));}}},5000);
+      }
+    }
+    el('pending').append(box);setBusy(busy);el('pending').scrollTop=0;
+  }
+
   function proposal(result) {
     clearPending(); token = result.token;
     const p = result.proposal;
@@ -153,7 +239,7 @@
     el('input').focus();
     if (!csrf) {
       setBusy(true);
-      try { const result = await request(); csrf = result.csrf; try { const saved = JSON.parse(sessionStorage.getItem(followupKey)); if (saved && Number.isInteger(saved.proxyId) && /^[a-f0-9]{32}$/.test(saved.operationId)) watchProxy(saved.proxyId, saved.operationId); } catch (_) {} if (!result.enabled) throw new Error(errors.AI_UNAVAILABLE);
+      try { const result = await request(); csrf = result.csrf; if(el('install')) {el('install').hidden=!result.installation_enabled;el('install').textContent=t('تنصيب سيرفر خطوة بخطوة','Install a server step by step');} if(result.installation)showInstallation(result); try { const saved = JSON.parse(sessionStorage.getItem(followupKey)); if (saved && Number.isInteger(saved.proxyId) && /^[a-f0-9]{32}$/.test(saved.operationId)) watchProxy(saved.proxyId, saved.operationId); } catch (_) {} if (!result.enabled) throw new Error(errors.AI_UNAVAILABLE);
         message(t('أساعدك في الاشتراكات والبث والريسيلرز والأرصدة والتقارير حسب صلاحياتك. حدّد الهدف والقيم المطلوبة؛ سأعرض تفاصيل أي تغيير لتأكيدها قبل التنفيذ.', 'I can help with subscriptions, streaming, resellers, credits and reports within your permissions. Specify the target and values; review each change before confirming.'));
       } catch (error) { message(error.message); } finally { setBusy(false); }
     }
@@ -163,9 +249,10 @@
   el('form').onsubmit = async event => {
     event.preventDefault(); const text = el('input').value.trim(); if (busy || !text || !csrf) return;
     clearPending(); message(text, true); el('input').value = ''; setBusy(true);
-    try { const result = await request({operation: 'chat', message: text}); if (result.proposal) proposal(result); else message(result.message); }
+    try { const result = await request({operation: 'chat', message: text}); if (result.installation) showInstallation(result); else if (result.proposal) proposal(result); else message(result.message); }
     catch (error) { message(error.message); } finally { setBusy(false); el('input').focus(); }
   };
+  if(el('install'))el('install').onclick=async()=>{if(busy||!csrf)return;setBusy(true);try{showInstallation(await request({operation:'install_begin'}));}catch(error){message(error.message);}finally{setBusy(false);}};
   el('reset').onclick = async () => {
     if (busy || !csrf) return; setBusy(true);
     try { await request({operation: 'reset'}); stopFollowup(true); clearPending(); el('feed').replaceChildren(); }

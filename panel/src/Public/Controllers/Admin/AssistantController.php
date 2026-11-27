@@ -3,6 +3,7 @@ namespace XcVm\Public\Controllers\Admin;
 
 use XcVm\Domain\Assistant\AssistantClient;
 use XcVm\Domain\Assistant\PanelTools;
+use XcVm\Domain\Assistant\InstallationWizard;
 
 class AssistantController {
     protected string $scope = 'admin';
@@ -36,7 +37,13 @@ class AssistantController {
         }
         $state =& $_SESSION[$key];
         if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
-            $this->reply(['enabled' => AssistantClient::enabled(), 'csrf' => $state['csrf']]);
+
+            $installEnabled = defined('XCVM_INDEPENDENT_LAB') && InstallationWizard::allowed();
+            $resume=[];
+            if ($installEnabled && isset($state['install_job'])) {
+                try {$resume=InstallationWizard::app()->handle(['operation'=>'install_status','job_id'=>$state['install_job']]);} catch (\Throwable) {unset($state['install_job']);}
+            }
+            $this->reply(['enabled' => AssistantClient::enabled(), 'csrf' => $state['csrf'], 'installation_enabled'=>$installEnabled]+$resume);
         }
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') { $this->reply(['error' => 'METHOD_NOT_ALLOWED'], 405); }
         if (!hash_equals($state['csrf'], (string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''))) {
@@ -54,6 +61,16 @@ class AssistantController {
                 $this->reply(['ok' => true]);
             }
             if (!AssistantClient::enabled()) { throw new \RuntimeException('AI_UNAVAILABLE'); }
+            if (in_array($operation,['install_begin','install_step','install_confirm','install_cancel','install_status'],true)) {
+                $result=InstallationWizard::app()->handle($input);
+                $state['install_job']=$result['installation']['id'];
+                unset($state['pending']);
+                $this->reply(['ok'=>true]+$result);
+            }
+            if ($operation==='chat' && isset($state['install_job'])) {
+                $resume=InstallationWizard::app()->handle(['operation'=>'install_status','job_id'=>$state['install_job']]);
+                if(in_array($resume['installation']['state'],['draft','review'],true))$this->reply(['ok'=>true]+$resume);
+            }
             if (in_array($operation,['proxy_followup','proxy_next_step'],true)) {
                 $result=$tools->call($operation==='proxy_followup'?'proxy_followup':'recheck_proxy_after_restart',['proxy_id'=>$input['proxy_id']??null,'operation_id'=>$input['operation_id']??null]);
                 if($operation==='proxy_followup'){
@@ -115,6 +132,11 @@ class AssistantController {
             unset($state['busy']);
             if ($failure) { throw $failure; }
             $state['conversation'] = base64_encode(json_encode($messages, JSON_THROW_ON_ERROR));
+            if (!empty($response['begin_installation'])) {
+                $result=InstallationWizard::app()->handle(['operation'=>'install_begin']);
+                $state['install_job']=$result['installation']['id'];
+                $this->reply(['ok'=>true]+$result);
+            }
             if ($response['proposal']) {
                 $state['pending'] = ['token' => bin2hex(random_bytes(24)), 'expires' => time() + 300,
                     'proposal' => base64_encode(json_encode($response['proposal'], JSON_THROW_ON_ERROR))];
@@ -128,7 +150,7 @@ class AssistantController {
             $this->reply(['ok' => true, 'message' => $message]);
         } catch (\Throwable $error) {
             $code = $error->getMessage();
-            $known = ['PROXY_RESTART_UNAVAILABLE', 'PROXY_RESTART_NOT_INDICATED', 'PROXY_OPERATION_PENDING', 'PROFILE_NOT_CONFIGURED', 'INVALID_PROXY_CONFIGURATION', 'FORBIDDEN', 'NOT_FOUND_OR_FORBIDDEN', 'STALE_PROPOSAL', 'ACTIVATION_REQUIRED', 'AI_UNAVAILABLE', 'TOO_MANY_TOOLS', 'INVALID_ARGUMENTS', 'INSUFFICIENT_CREDITS', 'PAIRED_LINE_UNSUPPORTED', 'UNLIMITED_EXPIRY', 'CONTROL_REFUSED', 'PACKAGE_RENEWAL_REFUSED', 'CREATION_REFUSED', 'USERNAME_EXISTS'];
+            $known = ['INSTALL_EXISTING_SERVER','INSTALL_TARGET_BUSY','INSTALL_CREDENTIALS','PROXY_RESTART_UNAVAILABLE', 'PROXY_RESTART_NOT_INDICATED', 'PROXY_OPERATION_PENDING', 'PROFILE_NOT_CONFIGURED', 'INVALID_PROXY_CONFIGURATION', 'FORBIDDEN', 'NOT_FOUND_OR_FORBIDDEN', 'STALE_PROPOSAL', 'ACTIVATION_REQUIRED', 'AI_UNAVAILABLE', 'TOO_MANY_TOOLS', 'INVALID_ARGUMENTS', 'INSUFFICIENT_CREDITS', 'PAIRED_LINE_UNSUPPORTED', 'UNLIMITED_EXPIRY', 'CONTROL_REFUSED', 'PACKAGE_RENEWAL_REFUSED', 'CREATION_REFUSED', 'USERNAME_EXISTS'];
             $this->reply(['error' => in_array($code, $known, true) ? $code : 'REQUEST_FAILED'], $code === 'FORBIDDEN' ? 403 : 409);
         }
     }

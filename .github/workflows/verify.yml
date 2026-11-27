@@ -46,11 +46,14 @@ jobs:
       - run: php tests/assistant-permissions.php
       - run: php tests/assistant-playback.php
       - run: php tests/assistant-recovery.php
+      - run: php tests/assistant-installation.php
+      - run: php tests/assistant-install-worker.php
       - run: php tests/assistant-proxy.php
       - run: python3 deployment/test_proxy_operations.py
       - run: php tests/assistant-management.php
       - run: php tests/assistant-creation.php
       - run: python3 tests/assistant-http.py
+      - run: python3 tests/assistant-install-http.py
       - run: python3 tests/assistant-client.py
       - run: node --check panel/src/Public/assets/admin/xcvm/assistant.js
       - run: node --check panel/src/Public/assets/admin/horus/proxy.js

@@ -8,6 +8,7 @@
         <div id="xc-ai-pending" hidden></div>
         <div id="xc-ai-status" role="status"></div>
         <form id="xc-ai-form"><label class="xc-ai-sr" for="xc-ai-input">Message / الرسالة</label><textarea id="xc-ai-input" rows="2" maxlength="1000" required dir="auto"></textarea><button type="submit" id="xc-ai-send"></button></form>
+        <button type="button" id="xc-ai-install" hidden></button>
         <button type="button" id="xc-ai-reset"></button>
     </section>
 </div>
