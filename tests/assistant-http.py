@@ -8,13 +8,14 @@ namespace XcVm\Domain\Assistant {
   public static function enabled(): bool {return true;}
   public function chat(array $messages, PanelTools $tools): array {
    file_put_contents(__DIR__.'/seen_messages',json_encode($messages));
+   if (end($messages)['content']==='bulk') { return ['message'=>'','proposal'=>['kind'=>'creation','tool'=>'create_subscriptions_bulk','arguments'=>['count'=>2,'package_id'=>1],'revision'=>'internal-only','public'=>['title'=>'create_subscriptions_bulk','target'=>'2 subscriptions','details'=>['Total: 10','Balance: 100 → 90']]]]; }
    if (end($messages)['content']==='create') { return ['message'=>'','proposal'=>['kind'=>'creation','revision'=>'internal-only','public'=>['title'=>'create_reseller','target'=>'new_user','details'=>['Fee: 3','Initial credits: 10','Balance: 100 → 87']]]]; }
    return ['message'=>'','proposal'=>['line_id'=>1,'username'=>'fixture','member_id'=>1,'before'=>1,'enabled'=>false]];
   }
  }
  final class PanelTools {
   public function __construct(string $scope) {}
-  public function execute(array $proposal): array {file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false] + (($proposal['kind']??'')==='creation' ? ['created'=>['kind'=>'reseller','id'=>2,'credentials'=>['username'=>'new_user','password'=>'NEW_SECRET_PASSWORD']],'credits_after'=>87] : []);}
+  public function execute(array $proposal): array {if (($proposal['tool']??'')==='create_subscriptions_bulk') { if (($proposal['arguments']['count']??null)!==2) {throw new \RuntimeException('INVALID_ARGUMENTS');} file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND); return ['saved'=>true,'signal_pending'=>false,'created_batch'=>[['kind'=>'subscription','id'=>11,'credentials'=>['username'=>'bulk1','password'=>'BULK_SECRET_1']],['kind'=>'subscription','id'=>12,'credentials'=>['username'=>'bulk2','password'=>'BULK_SECRET_2']]],'total_debit'=>10,'credits_after'=>90]; }file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false] + (($proposal['kind']??'')==='creation' ? ['created'=>['kind'=>'reseller','id'=>2,'credentials'=>['username'=>'new_user','password'=>'NEW_SECRET_PASSWORD']],'credits_after'=>87] : []);}
  }
 }
 namespace {
@@ -80,4 +81,16 @@ class AssistantHTTP(unittest.TestCase):
   self.assertEqual(self.request(a,{'operation':'confirm','token':proposal['token']},csrf)[0],409)
   self.assertEqual(self.request(a,{'operation':'chat','message':'inspect history'},csrf)[0],200)
   self.assertNotIn('NEW_SECRET_PASSWORD',(self.path/'seen_messages').read_text())
+ def test_bulk_confirmation_is_single_use_and_credentials_are_not_history(self):
+  a=self.client();csrf=self.request(a)[1]['csrf']
+  before=len((self.path/'executed').read_text().splitlines()) if (self.path/'executed').exists() else 0
+  status,proposal=self.request(a,{'operation':'chat','message':'bulk'},csrf)
+  self.assertEqual(status,200);self.assertEqual(proposal['proposal']['title'],'create_subscriptions_bulk')
+  self.assertNotIn('internal-only',json.dumps(proposal));self.assertNotIn('BULK_SECRET',json.dumps(proposal))
+  status,result=self.request(a,{'operation':'confirm','token':proposal['token'],'count':999},csrf)
+  self.assertEqual(status,200);self.assertEqual(len(result['execution']['created_batch']),2)
+  self.assertEqual(self.request(a,{'operation':'confirm','token':proposal['token']},csrf)[0],409)
+  self.assertEqual(len((self.path/'executed').read_text().splitlines()),before+1)
+  self.request(a,{'operation':'chat','message':'inspect history'},csrf)
+  self.assertNotIn('BULK_SECRET',(self.path/'seen_messages').read_text())
 if __name__=='__main__':unittest.main()

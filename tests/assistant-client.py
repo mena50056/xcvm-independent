@@ -3,12 +3,13 @@ import http.server,json,pathlib,subprocess,tempfile,threading,unittest,shutil
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 class ClientProtocol(unittest.TestCase):
  def test_tool_round_trip_and_transport_failure(self):
-  requests=[];fail=False
+  requests=[];fail=False;empty=False
   class Handler(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
    def do_POST(self):
     body=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(body)
-    if fail:self.send_response(503);response={'error':'unavailable'}
+    if empty:self.send_response(200);response={'done':True,'message':{'role':'assistant','content':''}}
+    elif fail:self.send_response(503);response={'error':'unavailable'}
     else:
      self.send_response(200)
      response={'done':True,'message':{'role':'assistant','content':'' if len(requests)==1 else 'READY'}}
@@ -40,5 +41,6 @@ catch(\\RuntimeException $e){echo json_encode(['error'=>$e->getMessage()]);}
     self.assertIsInstance(replay,dict);self.assertEqual(requests[1]['messages'][-1]['role'],'tool')
     self.assertFalse(requests[0]['think']);self.assertFalse(requests[0]['stream'])
     fail=True;self.assertEqual(run()['error'],'AI_UNAVAILABLE')
+    fail=False;empty=True;before=len(requests);self.assertEqual(run()['error'],'AI_UNAVAILABLE');self.assertEqual(len(requests)-before,3)
   finally:server.shutdown();server.server_close();worker.join()
 if __name__=='__main__':unittest.main()

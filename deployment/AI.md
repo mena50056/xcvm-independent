@@ -41,7 +41,16 @@ Paired lines and unlimited-expiry lines cannot use extension/package renewal.
 Package changes follow native duration, bouquet and connection rules, including
 restarting the term for incompatible packages. Prices and group access are checked
 again at confirmation. Stream acceptance is reported as queued, not proof of playback.
-Deletion, bulk actions, shell commands and arbitrary SQL are not tools.
+Bulk creation supports 2–50 normal subscriptions in one explicitly selected official
+package, with server-generated usernames and passwords. The confirmation shows
+count, effective unit price, total debit and remaining balance. It holds one
+transaction across native purchases and audits: a failure rolls back every member
+and every charge. Confirmation tokens are single-use for the entire batch.
+Successful credentials are displayed in an expandable list and downloadable as CSV
+in the browser only; they are never sent to inference or saved in chat history.
+The summary audit records total debit in metadata, without duplicating the costs
+of the individual purchase audit entries. Admin batches explicitly show no debit.
+Deletion, other bulk mutations, shell commands and arbitrary SQL are not tools.
 
 Creation always belongs to the authenticated actor; the model cannot override the
 owner, password, price or permission fields. The review shows the selected package

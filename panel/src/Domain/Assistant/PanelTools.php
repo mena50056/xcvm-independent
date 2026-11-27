@@ -58,7 +58,7 @@ final class PanelTools {
 
     public function call(string $name, array $arguments): array {
         global $db;
-        if (in_array($name, ['creation_options', 'create_subscription', 'create_reseller'], true)) { return (new CreationTools($this->scope))->call($name, $arguments); }
+        if (in_array($name, ['creation_options', 'create_subscription', 'create_subscriptions_bulk', 'create_reseller'], true)) { return (new CreationTools($this->scope))->call($name, $arguments); }
         if (in_array($name, ['list_packages', 'renew_line_package'], true)) { return (new SubscriptionTools($this->scope))->call($name, $arguments); }
         if (!in_array($name, ['line_summary', 'find_lines', 'set_line_enabled'], true)) {
             return (new ManagementTools($this->scope))->call($name, $arguments);

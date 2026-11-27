@@ -54,6 +54,7 @@
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      create_subscriptions_bulk: t('إنشاء اشتراكات بالجملة', 'Create subscription batch'),
       create_subscription: t('إنشاء اشتراك جديد', 'Create subscription'), create_reseller: t('إنشاء ريسيلر جديد', 'Create reseller'),
       extend_line_days: t('تمديد صلاحية اشتراك', 'Extend subscription expiry'), set_line_connections: t('تعديل عدد الاتصالات', 'Change connection limit'),
       control_stream: t('التحكم في قناة بث', 'Control live stream'), set_reseller_enabled: t('تغيير حالة ريسيلر', 'Change reseller status'),
@@ -72,6 +73,20 @@
           answer.execution.queued ? t('خادم البث قبل الطلب. افحص حالة القناة للتأكد من النتيجة.', 'The stream backend accepted the request. Check channel status for the outcome.') :
           answer.execution.signal_pending ? t('تم حفظ التغيير، لكن تعذر إرسال إشعار التحديث. راجع الحالة.', 'Change saved, but the update notification failed. Check the current state.') :
           t('تم تنفيذ التغيير وتسجيل العملية بنجاح.', 'Change saved and audited successfully.'));
+        if (operation === 'confirm' && answer.execution.created_batch) {
+          const batch = answer.execution.created_batch;
+          message(t('تم إنشاء ', 'Created ') + batch.length + t(' اشتراك. إجمالي الخصم: ', ' subscriptions. Total debit: ') + answer.execution.total_debit + '\n' + t('رصيدك الحالي: ', 'Your balance: ') + answer.execution.credits_after);
+          const details = document.createElement('details'); details.className = 'xc-ai-message';
+          const summary = document.createElement('summary'); summary.textContent = t('عرض بيانات دخول الاشتراكات', 'Show subscription credentials');
+          const body = document.createElement('div'); body.textContent = batch.map(c => '#' + c.id + ' | ' + c.credentials.username + ' | ' + c.credentials.password).join('\n');
+          const download = document.createElement('button'); download.type = 'button'; download.textContent = t('تنزيل بيانات الدخول CSV', 'Download credentials CSV');
+          download.onclick = () => {
+            const csv = [['id', 'username', 'password'], ...batch.map(c => [c.id, c.credentials.username, c.credentials.password])].map(row => row.map(v => '"' + String(v).replaceAll('"', '""') + '"').join(',')).join('\r\n');
+            const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8'}));
+            const link = document.createElement('a'); link.href = url; link.download = 'subscriptions.csv'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+          };
+          details.append(summary, download, body); el('feed').append(details); el('feed').scrollTop = el('feed').scrollHeight;
+        }
         if (operation === 'confirm' && answer.execution.created) {
           const c = answer.execution.created;
           message([t('تم الإنشاء برقم: ', 'Created ID: ') + c.id,

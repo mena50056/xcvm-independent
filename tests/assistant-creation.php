@@ -18,9 +18,12 @@ namespace XcVm\Domain\User {
         }
     }
     final class ResellerAPI {
+        public static int $calls=0; public static int $failAt=0;
         public static function init(int $id):void {}
         public static function processLine(array $form):array {
+            self::$calls++;
             UserCredits::debit((int)$GLOBALS['rUserInfo']['id'],5);
+            if (self::$failAt===self::$calls) { throw new \RuntimeException('CREATION_REFUSED'); }
             return \XcVm\Domain\Line\LineService::process($form);
         }
         public static function processUser(array $form,bool $returnCreatedCredentials=false):array {
@@ -92,10 +95,29 @@ namespace {
     check(UserCredits::balance(10)===95.0 && (int)$db->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn()===2,'Failed transfer audit left account/fee');
     $created=$tools->execute($reseller);$id=$created['created']['id'];check(UserCredits::balance(10)===82.0 && UserCredits::balance($id)===10.0,'Incorrect reseller fee/transfer');
     check(!str_contains((string)$db->pdo->query('SELECT GROUP_CONCAT(deleted_info) FROM users_logs')->fetchColumn(),$created['created']['credentials']['password']),'Assistant audit exposed credentials');
+    foreach ([0,1,51,2.5,'3'] as $count) { denied(fn()=>$tools->call('create_subscriptions_bulk',['package_id'=>1,'count'=>$count]),'INVALID_ARGUMENTS'); }
+    denied(fn()=>$tools->call('create_subscriptions_bulk',['package_id'=>1,'count'=>2,'username'=>'injected']),'INVALID_ARGUMENTS');
+    denied(fn()=>$tools->call('create_subscriptions_bulk',['package_id'=>2,'count'=>2]),'FORBIDDEN');
+    denied(fn()=>$tools->call('create_subscriptions_bulk',['package_id'=>1,'count'=>50]),'INSUFFICIENT_CREDITS');
+    $bulk=$tools->call('create_subscriptions_bulk',['package_id'=>1,'count'=>3])['proposal'];
+    check($bulk['debit']===15.0 && $bulk['unit_price']===5.0,'Incorrect bulk quote');
+    check(UserCredits::balance(10)===82.0,'Bulk proposal charged');
+    $rPermissions['create_line']=0;denied(fn()=>$tools->execute($bulk),'FORBIDDEN');$rPermissions['create_line']=1;
+    $db->pdo->exec('UPDATE users_packages SET official_credits=6 WHERE id=1');denied(fn()=>$tools->execute($bulk),'STALE_PROPOSAL');$db->pdo->exec('UPDATE users_packages SET official_credits=5 WHERE id=1');
+    $beforeLines=(int)$db->pdo->query('SELECT COUNT(*) FROM lines')->fetchColumn();$beforeLogs=(int)$db->pdo->query('SELECT COUNT(*) FROM users_logs')->fetchColumn();
+    \XcVm\Domain\User\ResellerAPI::$calls=0;\XcVm\Domain\User\ResellerAPI::$failAt=2;
+    denied(fn()=>$tools->execute($bulk),'CREATION_REFUSED');\XcVm\Domain\User\ResellerAPI::$failAt=0;
+    check(UserCredits::balance(10)===82.0 && (int)$db->pdo->query('SELECT COUNT(*) FROM lines')->fetchColumn()===$beforeLines && (int)$db->pdo->query('SELECT COUNT(*) FROM users_logs')->fetchColumn()===$beforeLogs,'Partial batch persisted after second native sale failed');
+    $db->fail="'create_subscriptions_bulk'";denied(fn()=>$tools->execute($bulk),'DATABASE_ERROR');$db->fail='';
+    check(UserCredits::balance(10)===82.0 && (int)$db->pdo->query('SELECT COUNT(*) FROM lines')->fetchColumn()===$beforeLines,'Final batch audit failure did not roll back');
+    $batch=$tools->execute($bulk);check(count($batch['created_batch'])===3 && UserCredits::balance(10)===67.0 && $batch['total_debit']===15.0,'Bulk creation/charge incorrect');
+    check(count(array_unique(array_column(array_column($batch['created_batch'],'credentials'),'username')))===3,'Batch usernames repeated');
+    denied(fn()=>$tools->execute($bulk),'STALE_PROPOSAL');
     $rUserInfo=['id'=>1,'member_group_id'=>1];$rPermissions=['is_admin'=>1,'advanced'=>[]];$admin=new CreationTools('admin');
     $p=$admin->call('create_reseller',['username'=>'admin_child','group_id'=>4,'initial_credits'=>1.25])['proposal'];check($p['debit']===0.0,'Admin charged reseller fee');
     $c=$admin->execute($p);check(UserCredits::balance(1)===100.0 && UserCredits::balance($c['created']['id'])===1.25,'Admin initial credit incorrect');
     $p=$admin->call('create_subscription',['username'=>'admin_line','package_id'=>2])['proposal'];$admin->execute($p);check(UserCredits::balance(1)===100.0,'Admin package unexpectedly charged');
+    $bulk=$admin->call('create_subscriptions_bulk',['package_id'=>2,'count'=>2])['proposal'];check($bulk['debit']===0.0,'Admin bulk quote debited');$admin->execute($bulk);check(UserCredits::balance(1)===100.0,'Admin bulk charged');
     $rUserInfo['member_group_id']=7;$rPermissions['advanced']=['users','mng_regusers'];check($admin->definitions()===[],'Read-only admin can create');
-    echo "PASS: creation scope, explicit proposals, prices, groups, balances, atomic rollback, native boundary, credentials, duplicate names and admin permissions\n";
+    echo "PASS: creation scope, explicit proposals, prices, groups, balances, atomic rollback, native boundary, credentials, duplicate names, atomic bulk purchases and admin permissions\n";
 }
