@@ -64,6 +64,7 @@ try {
  $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>'wrong','state'=>'succeeded']]);check($ops->state($id)['operation']['state']==='queued','Mismatched receipt accepted');
  $ops->sync($id,['operations_version'=>1,'operation_result'=>['id'=>$wireOp['id'],'state'=>'failed','code'=>'RAW_SECRET']]);check($ops->state($id)['operation']['code']==='RESTART_FAILED','Raw error leaked');
  check($ops->sync($id,['operations_version'=>1])===null,'Completed operation redelivered');
+ refuses(fn()=>$ops->queue($id,$store->document($id)['revision'],['id'=>7,'name'=>'Admin'],['codes'=>[]]),'PROXY_OPERATION_PENDING');
 
  $worker=new \XcVm\Core\Proxy\ProxyPostcheck($store);$t=time();
  $healthy=static fn($wire)=>array_map(static fn($p)=>$p+['state'=>'healthy','code'=>'OK'],\XcVm\Core\Proxy\ProxyDiagnostics::targets($wire));

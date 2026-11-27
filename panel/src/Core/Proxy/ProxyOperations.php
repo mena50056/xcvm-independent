@@ -30,7 +30,7 @@ final class ProxyOperations {
             if(($s['version']??0)!==1||($s['seen_at']??0)<time()-30)throw new \RuntimeException('PROXY_RESTART_UNAVAILABLE');
             if(!hash_equals($doc['revision']??'',$revision))throw new \RuntimeException('STALE_PROPOSAL');
             if(empty($row['enabled'])||empty($doc['profile']['enabled'])||!$status['last_sync']||$status['last_sync']<time()-30||$status['desired_revision']!==$status['applied_revision'])throw new \RuntimeException('PROXY_RESTART_UNAVAILABLE');
-            if(($s['operation']['state']??'')==='queued'&&$s['operation']['expires_at']>=time())throw new \RuntimeException('PROXY_OPERATION_PENDING');
+            if(isset($s['operation'])&&($s['operation']['verification']['status']??'')!=='complete')throw new \RuntimeException('PROXY_OPERATION_PENDING');
             $op=['id'=>bin2hex(random_bytes(16)),'type'=>'restart','revision'=>$status['desired_revision'],'generation'=>(int)$row['proxy_key_gen'],'created_at'=>time(),'expires_at'=>time()+120,'state'=>'queued','actor'=>['id'=>(int)$actor['id'],'name'=>mb_substr((string)$actor['name'],0,80)],'evidence'=>$evidence];
             // Archive the previous record before replacing it; fail closed if audit storage fails.
             if(isset($s['operation'])){$dir=$this->profiles->directory().'/operations';if(!is_dir($dir)&&!mkdir($dir,0700,true))throw new \RuntimeException('OPERATION_STORAGE_FAILED');$path=$dir.'/'.$id.'-'.$s['operation']['id'].'.json';if(file_put_contents($path,json_encode($s['operation'],JSON_THROW_ON_ERROR),LOCK_EX)===false)throw new \RuntimeException('OPERATION_STORAGE_FAILED');chmod($path,0600);}

@@ -24,7 +24,7 @@
   const errors = {
     PROXY_RESTART_UNAVAILABLE: t('إعادة التشغيل غير متاحة: تحقق من تحديث الوكيل واتصاله والتفعيل واكتمال تطبيق الإعداد.', 'Restart unavailable: check agent version, connection, enabled state and configuration acknowledgement.'),
     PROXY_RESTART_NOT_INDICATED: t('التشخيص لا يثبت عطلًا يناسب إعادة التشغيل. راجع السبب والخطوة المقترحة.', 'Diagnosis does not show a restart-relevant fault. Review the findings and next step.'),
-    PROXY_OPERATION_PENDING: t('يوجد طلب إعادة تشغيل قيد الانتظار. افحص نتيجته أولًا.', 'A restart is already pending. Check its result first.'),
+    PROXY_OPERATION_PENDING: t('يوجد طلب إعادة تشغيل أو فحص متابعة قيد الانتظار. انتظر نتيجته أولًا.', 'A restart or follow-up check is pending. Wait for its result first.'),
     PROFILE_NOT_CONFIGURED: t('البروكسي يحتاج إعداد ملفه أولًا من صفحة البروكسي.', 'Configure this proxy profile on the proxy page first.'),
     INVALID_PROXY_CONFIGURATION: t('إعداد البروكسي غير صالح. راجع المنافذ والسيرفرات والقيم المطلوبة.', 'Invalid proxy configuration. Review ports, upstreams and requested values.'),
     FORBIDDEN: t('ليس لديك صلاحية لهذا الإجراء.', 'You do not have permission for this action.'),
