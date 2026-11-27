@@ -92,6 +92,7 @@ final class ProxyProfiles {
         try {
             $previous=$this->read($this->path($id,'.status'));$wire=$this->buildWire($id);
             $promote=$ready&&$error===''&&hash_equals($wire['revision'],$revision)&&($previous['advertised_revision']??'')!==$revision;
+            $refresh=$promote||$ready!==($previous['ready']??false)||time()-($previous['last_sync']??0)>30;
             $advertised=$previous['advertised_revision']??'';
             if($promote) {
                 $p=$wire['profile'];
@@ -99,10 +100,11 @@ final class ProxyProfiles {
                 $advertised=$revision;
             }
             $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready,'advertised_revision'=>$advertised]);
-            return $promote;
+            return $refresh;
         } finally {flock($lock,LOCK_UN);fclose($lock);}
     }
     public static function refreshRouting(): void {
+        \XcVm\Core\Cluster\ReplicaEtagCache::bump();
         foreach(['servers','proxy_servers','allowed_domains','allowed_ips'] as $cache)@unlink(CACHE_TMP_PATH.$cache);
         $GLOBALS['rServers']=\XcVm\Domain\Server\ServerRepository::getAll(true);
         \XcVm\Domain\Security\BlocklistService::getProxyIPs(true);
