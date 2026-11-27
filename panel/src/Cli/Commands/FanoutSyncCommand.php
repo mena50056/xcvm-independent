@@ -361,6 +361,10 @@ class FanoutSyncCommand implements CommandInterface {
 	 */
 	private function daemonConnections(): ?array {
 		global $rSettings;
+		// refreshOrBreak() refreshes SettingsManager, not the legacy global.
+		// Follow a live handler switch for both this read and reconcile's helpers;
+		// reading the former store would falsely orphan healthy daemon viewers.
+		$rSettings = SettingsManager::getAll();
 
 		// With CONNECTIONS on, this node's viewers live in its agent's registry,
 		// which the agent reconciles against the fanout itself; in mode 2 there is

@@ -38,6 +38,7 @@ jobs:
       - run: php tests/vendor-disconnect.php
       - run: php tests/independent-backups.php
       - run: php tests/connection-telemetry.php
+      - run: php tests/fanout-handler-switch.php
       - run: php tests/proxy-profiles.php
       - run: php tests/proxy-monitor.php
       - run: python3 tests/proxy-monitor-http.py
