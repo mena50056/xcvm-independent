@@ -819,9 +819,10 @@ class ResellerAPI {
 	 * Create or update a sub-user on behalf of a reseller.
 	 *
 	 * @param array $rData Submitted user data.
+	 * @param bool $returnCreatedCredentials Internal opt-in for a newly created account only.
 	 * @return array|false Result status payload, or false on authorization/validation failure.
 	 */
-	public static function processUser(array $rData) {
+	public static function processUser(array $rData, bool $returnCreatedCredentials = false) {
 		$db = self::db();
 		$rData = self::processData('user', $rData);
 
@@ -890,6 +891,7 @@ class ResellerAPI {
 						$rArray['username'] = $rData['username'];
 
 						if ((string) $rData['password'] !== '') {
+							$rPlainCreatedPassword = $rData['password'];
 							$rArray['password'] = Authenticator::hashPassword($rData['password']);
 						}
 
@@ -948,7 +950,13 @@ class ResellerAPI {
 								$db->query("INSERT INTO `users_logs`(`owner`, `type`, `action`, `log_id`, `package_id`, `cost`, `credits_after`, `date`, `deleted_info`) VALUES(?, 'user', ?, ?, null, ?, ?, ?, ?);", self::$rUserInfo['id'], 'edit', $rInsertID, 0, self::$rUserInfo['credits'], time(), json_encode($rData));
 							}
 
-							return ['status' => STATUS_SUCCESS, 'data' => ['insert_id' => $rInsertID]];
+							$result = ['status' => STATUS_SUCCESS, 'data' => ['insert_id' => $rInsertID]];
+							// Internal confirmed-creation callers may deliver the new credentials once.
+							// Existing API callers keep their original response; edits never return credentials.
+							if ($returnCreatedCredentials && !isset($rArray['id']) && isset($rCost, $rPlainCreatedPassword)) {
+								$result['created_credentials'] = ['username' => $rArray['username'], 'password' => $rPlainCreatedPassword];
+							}
+							return $result;
 						}
 
 						// Nothing was sold: the price goes back.

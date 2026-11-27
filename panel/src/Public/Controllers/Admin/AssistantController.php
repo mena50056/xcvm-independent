@@ -27,7 +27,7 @@ class AssistantController {
         $owner = $this->scope . ':' . $rUserInfo['id'];
         $key = 'xc_assistant_' . $this->scope;
         $fingerprint = hash('sha256', json_encode([$owner, $rUserInfo['member_group_id'],
-            array_intersect_key($rPermissions, array_flip(['is_admin', 'is_reseller', 'advanced', 'create_line', 'create_sub_resellers', 'all_reports']))]));
+            array_intersect_key($rPermissions, array_flip(['is_admin', 'is_reseller', 'advanced', 'create_line', 'create_sub_resellers', 'subresellers', 'create_sub_resellers_price', 'allow_change_username', 'minimum_username_length', 'all_reports']))]));
         if (($_SESSION[$key]['fingerprint'] ?? '') !== $fingerprint) {
             $_SESSION[$key] = ['fingerprint' => $fingerprint, 'csrf' => bin2hex(random_bytes(32)), 'history' => []];
         }
@@ -111,7 +111,7 @@ class AssistantController {
             $this->reply(['ok' => true, 'message' => $message]);
         } catch (\Throwable $error) {
             $code = $error->getMessage();
-            $known = ['FORBIDDEN', 'NOT_FOUND_OR_FORBIDDEN', 'STALE_PROPOSAL', 'ACTIVATION_REQUIRED', 'AI_UNAVAILABLE', 'TOO_MANY_TOOLS', 'INVALID_ARGUMENTS', 'INSUFFICIENT_CREDITS', 'PAIRED_LINE_UNSUPPORTED', 'UNLIMITED_EXPIRY', 'CONTROL_REFUSED', 'PACKAGE_RENEWAL_REFUSED'];
+            $known = ['FORBIDDEN', 'NOT_FOUND_OR_FORBIDDEN', 'STALE_PROPOSAL', 'ACTIVATION_REQUIRED', 'AI_UNAVAILABLE', 'TOO_MANY_TOOLS', 'INVALID_ARGUMENTS', 'INSUFFICIENT_CREDITS', 'PAIRED_LINE_UNSUPPORTED', 'UNLIMITED_EXPIRY', 'CONTROL_REFUSED', 'PACKAGE_RENEWAL_REFUSED', 'CREATION_REFUSED', 'USERNAME_EXISTS'];
             $this->reply(['error' => in_array($code, $known, true) ? $code : 'REQUEST_FAILED'], $code === 'FORBIDDEN' ? 403 : 409);
         }
     }

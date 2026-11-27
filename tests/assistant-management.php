@@ -28,6 +28,7 @@ namespace {
     require $root.'/panel/src/Domain/User/UserCredits.php';
     require $root.'/panel/src/Domain/Assistant/ManagementTools.php';
     require $root.'/panel/src/Domain/Assistant/SubscriptionTools.php';
+    require $root.'/panel/src/Domain/Assistant/CreationTools.php';
     define('STATUS_SUCCESS',1);
     use XcVm\Domain\Assistant\{ManagementTools,SubscriptionTools};
     function check(bool $ok,string $message):void {if(!$ok)throw new \RuntimeException($message);}

@@ -15,6 +15,9 @@ only the conversation and allowlisted tool results, never database credentials.
 - Search resellers, propose account activation/suspension and credit adjustments.
   Reseller adjustments transfer funds to/from managed sub-resellers; they do not
   create credits. Admin adjustments support four decimal places. No negative balance.
+- Propose creating one subscription from an explicitly selected official package,
+  or one reseller from an explicitly selected permitted group and initial balance.
+  `creation_options` lists permitted choices and naming rules before creation.
 - Report recent credit movements and net credits within the user's account scope.
 
 Every mutation requires a separate explicit confirmation, valid for five minutes.
@@ -29,6 +32,8 @@ The backend revalidates permissions, ownership, balances and reviewed snapshots.
 | Channel status/control | `streams` + `servers`; control also `edit_stream` | Unavailable |
 | Server health | `servers` | Unavailable |
 | Resellers and credits | `mng_regusers`; changes also `edit_reguser` | `create_sub_resellers`, managed descendants |
+| Subscription creation | `add_user`; administrative package application, no debit | `create_line`; effective package price charged |
+| Reseller creation | `add_reguser`; non-admin group, initial credits issued | `create_sub_resellers`; allowed non-admin group, creation fee plus initial credit transfer |
 | Credit report | `credits_log` | `create_sub_resellers`, scoped movements |
 
 MAG/Enigma lines are excluded. Pending activation codes cannot be enabled or renewed.
@@ -36,7 +41,23 @@ Paired lines and unlimited-expiry lines cannot use extension/package renewal.
 Package changes follow native duration, bouquet and connection rules, including
 restarting the term for incompatible packages. Prices and group access are checked
 again at confirmation. Stream acceptance is reported as queued, not proof of playback.
-Creation, deletion, bulk actions, shell commands and arbitrary SQL are not tools.
+Deletion, bulk actions, shell commands and arbitrary SQL are not tools.
+
+Creation always belongs to the authenticated actor; the model cannot override the
+owner, password, price or permission fields. The review shows the selected package
+or group, initial credits, total debit and resulting balance. Reseller creation
+fees and initial funding are separate: the fee is spent, the funding is transferred.
+Admin creation explicitly states that no balance is debited. The actor, group and
+package snapshots are revalidated under transaction locks; failed native saves,
+funding or assistant audit writes roll back the creation and charges together.
+
+Passwords are generated only during confirmed execution and returned directly to
+the authenticated browser, never to inference or session conversation history.
+The new account credentials are displayed once in the current widget; clearing or
+reloading it removes that display. ResellerAPI keeps its existing response by
+default; only the internal opt-in creation caller receives newly generated
+credentials, never an existing account password. Native account/line audit formats
+remain unchanged. Username collisions fail rather than updating an existing row.
 
 ## Enable the panel integration
 
@@ -143,6 +164,7 @@ a test of panel integration or permission enforcement. Panel regression checks:
 ```sh
 php tests/assistant-permissions.php
 php tests/assistant-management.php
+php tests/assistant-creation.php
 python3 tests/assistant-http.py
 python3 tests/assistant-client.py
 node --check panel/src/Public/assets/admin/xcvm/assistant.js

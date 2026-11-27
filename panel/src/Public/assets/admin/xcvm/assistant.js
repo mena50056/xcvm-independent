@@ -31,6 +31,8 @@
     CSRF_FAILED: t('حدّث الصفحة ثم حاول مجددًا.', 'Refresh the page and try again.'),
     SESSION_CHANGED: t('تغيرت الجلسة. حدّث الصفحة.', 'Your session changed. Refresh the page.'),
     INSUFFICIENT_CREDITS: t('الرصيد لا يكفي لتنفيذ العملية.', 'Insufficient credits.'),
+    CREATION_REFUSED: t('تعذر الإنشاء بقواعد البانل الحالية ولم يُحفظ الطلب. راجع الباقة والمجموعة والرصيد.', 'Creation was refused by the panel rules and rolled back. Check the package, group and balance.'),
+    USERNAME_EXISTS: t('اسم المستخدم موجود بالفعل. اختر اسمًا آخر.', 'That username already exists. Choose another name.'),
     PACKAGE_RENEWAL_REFUSED: t('تعذر تجديد الاشتراك بقواعد الباقة الحالية. راجع الباقة والصلاحيات.', 'The package renewal was refused. Check package rules and permissions.'),
     CONTROL_REFUSED: t('خادم البث رفض الطلب أو لم يؤكد استلامه. راجع حالة القناة.', 'The stream backend refused or did not acknowledge the request. Check channel status.'),
     PAIRED_LINE_UNSUPPORTED: t('هذا الخط مرتبط بجهاز أو خط آخر. عدّله من صفحة الاشتراك.', 'This subscription is paired. Use the subscription page.'),
@@ -52,6 +54,7 @@
     const p = result.proposal;
     const text = t(p.enabled ? 'تأكيد تفعيل الخط' : 'تأكيد إيقاف الخط', p.enabled ? 'Confirm enabling subscription' : 'Confirm disabling subscription');
     const titles = {
+      create_subscription: t('إنشاء اشتراك جديد', 'Create subscription'), create_reseller: t('إنشاء ريسيلر جديد', 'Create reseller'),
       extend_line_days: t('تمديد صلاحية اشتراك', 'Extend subscription expiry'), set_line_connections: t('تعديل عدد الاتصالات', 'Change connection limit'),
       control_stream: t('التحكم في قناة بث', 'Control live stream'), set_reseller_enabled: t('تغيير حالة ريسيلر', 'Change reseller status'),
       adjust_reseller_credits: t('تعديل رصيد ريسيلر', 'Adjust reseller credits'), renew_line_package: t('تجديد اشتراك بباقة مدفوعة', 'Renew subscription with a paid package')
@@ -69,10 +72,18 @@
           answer.execution.queued ? t('خادم البث قبل الطلب. افحص حالة القناة للتأكد من النتيجة.', 'The stream backend accepted the request. Check channel status for the outcome.') :
           answer.execution.signal_pending ? t('تم حفظ التغيير، لكن تعذر إرسال إشعار التحديث. راجع الحالة.', 'Change saved, but the update notification failed. Check the current state.') :
           t('تم تنفيذ التغيير وتسجيل العملية بنجاح.', 'Change saved and audited successfully.'));
+        if (operation === 'confirm' && answer.execution.created) {
+          const c = answer.execution.created;
+          message([t('تم الإنشاء برقم: ', 'Created ID: ') + c.id,
+            t('اسم المستخدم: ', 'Username: ') + c.credentials.username,
+            t('كلمة المرور: ', 'Password: ') + c.credentials.password,
+            t('رصيدك الحالي: ', 'Your balance: ') + answer.execution.credits_after,
+            t('احفظ بيانات الدخول. لا تُرسل للموديل ولا تُحفظ في سجل المحادثة.', 'Save these credentials. They are not sent to the model or stored in chat history.')].join('\n'));
+        }
       } catch (error) { clearPending(); message(error.message); }
       finally { setBusy(false); }
     };
-    el('pending').append(description, confirm, cancel); el('pending').hidden = false;
+    el('pending').append(description, confirm, cancel); el('pending').hidden = false; el('pending').scrollTop = 0;
   }
   el('launch').onclick = async () => {
     el('panel').hidden = !el('panel').hidden; el('launch').setAttribute('aria-expanded', String(!el('panel').hidden));

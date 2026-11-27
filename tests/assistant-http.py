@@ -7,12 +7,14 @@ namespace XcVm\Domain\Assistant {
  final class AssistantClient {
   public static function enabled(): bool {return true;}
   public function chat(array $messages, PanelTools $tools): array {
+   file_put_contents(__DIR__.'/seen_messages',json_encode($messages));
+   if (end($messages)['content']==='create') { return ['message'=>'','proposal'=>['kind'=>'creation','revision'=>'internal-only','public'=>['title'=>'create_reseller','target'=>'new_user','details'=>['Fee: 3','Initial credits: 10','Balance: 100 → 87']]]]; }
    return ['message'=>'','proposal'=>['line_id'=>1,'username'=>'fixture','member_id'=>1,'before'=>1,'enabled'=>false]];
   }
  }
  final class PanelTools {
   public function __construct(string $scope) {}
-  public function execute(array $proposal): array {file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false];}
+  public function execute(array $proposal): array {file_put_contents(__DIR__.'/executed',"1\n",FILE_APPEND);return ['saved'=>true,'signal_pending'=>false] + (($proposal['kind']??'')==='creation' ? ['created'=>['kind'=>'reseller','id'=>2,'credentials'=>['username'=>'new_user','password'=>'NEW_SECRET_PASSWORD']],'credits_after'=>87] : []);}
  }
 }
 namespace {
@@ -31,7 +33,7 @@ class AssistantHTTP(unittest.TestCase):
  def setUpClass(cls):
   cls.tmp=tempfile.TemporaryDirectory();cls.path=pathlib.Path(cls.tmp.name)
   source=HARNESS.replace('CONTROLLER',json.dumps(str(ROOT/'panel/src/Public/Controllers/Admin/AssistantController.php').replace('\\','/')))
-  (cls.path/'router.php').write_text(source)
+  (cls.path/'router.php').write_text(source,encoding='utf-8')
   with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
   cls.url=f'http://127.0.0.1:{port}'
   cls.process=subprocess.Popen([shutil.which('php'),'-S',f'127.0.0.1:{port}',str(cls.path/'router.php')],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
@@ -68,4 +70,14 @@ class AssistantHTTP(unittest.TestCase):
   for _ in range(5):self.assertEqual(self.request(a,{'operation':'chat','message':'disable'},csrf)[0],200)
   self.assertEqual(self.request(a,{'operation':'reset'},csrf)[0],200)
   self.assertEqual(self.request(a,{'operation':'chat','message':'disable'},csrf)[0],429)
+ def test_creation_confirmation_keeps_credentials_out_of_history(self):
+  a=self.client();csrf=self.request(a)[1]['csrf']
+  status,proposal=self.request(a,{'operation':'chat','message':'create'},csrf)
+  self.assertEqual(status,200);self.assertEqual(proposal['proposal']['title'],'create_reseller')
+  self.assertNotIn('internal-only',json.dumps(proposal));self.assertNotIn('NEW_SECRET_PASSWORD',json.dumps(proposal))
+  status,result=self.request(a,{'operation':'confirm','token':proposal['token']},csrf)
+  self.assertEqual(status,200);self.assertEqual(result['execution']['created']['credentials']['password'],'NEW_SECRET_PASSWORD')
+  self.assertEqual(self.request(a,{'operation':'confirm','token':proposal['token']},csrf)[0],409)
+  self.assertEqual(self.request(a,{'operation':'chat','message':'inspect history'},csrf)[0],200)
+  self.assertNotIn('NEW_SECRET_PASSWORD',(self.path/'seen_messages').read_text())
 if __name__=='__main__':unittest.main()

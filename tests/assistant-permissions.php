@@ -9,6 +9,7 @@ namespace {
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/PanelTools.php';
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/ManagementTools.php';
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/SubscriptionTools.php';
+    require dirname(__DIR__) . '/panel/src/Domain/Assistant/CreationTools.php';
     use XcVm\Domain\Assistant\PanelTools;
     function check(bool $ok, string $why): void { if (!$ok) { throw new RuntimeException($why); } }
     function refused(callable $fn, string $code): void {
