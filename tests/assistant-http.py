@@ -21,10 +21,14 @@ namespace XcVm\Domain\Assistant {
 namespace {
 session_start();
 if ($_SERVER['REQUEST_URI']==='/signin') {$_SESSION['hash']=1;echo 'ok';exit;}
-$rUserInfo=['id'=>1,'member_group_id'=>1];$rPermissions=['is_admin'=>1];
+if ($_SERVER['REQUEST_URI']==='/reseller-signin') {$_SESSION['reseller']=1;$_SESSION['hash']=1;$_SESSION['role']='reseller';$_SESSION['xc_assistant_reseller']=['pending'=>['token'=>'legacy-token']];echo 'ok';exit;}
+if ($_SERVER['REQUEST_URI']==='/legacy-state') {echo json_encode(isset($_SESSION['xc_assistant_reseller']));exit;}
+$rUserInfo=['id'=>1,'member_group_id'=>1];$rPermissions=['is_admin'=>($_SESSION['role']??'admin')==='admin'?1:0,'is_reseller'=>1];
 array_walk_recursive($_SESSION, static function (&$value) { $value = (string) $value; });
 session_write_close(); // Scope bootstraps may release the lock before dispatch.
 require CONTROLLER;
+require RESELLER_CONTROLLER;
+if ($_SERVER['REQUEST_URI']==='/reseller-api') {(new \XcVm\Public\Controllers\Reseller\AssistantController())->index();}
 (new \XcVm\Public\Controllers\Admin\AssistantController())->index();
 }
 '''
@@ -33,7 +37,7 @@ class AssistantHTTP(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
   cls.tmp=tempfile.TemporaryDirectory();cls.path=pathlib.Path(cls.tmp.name)
-  source=HARNESS.replace('CONTROLLER',json.dumps(str(ROOT/'panel/src/Public/Controllers/Admin/AssistantController.php').replace('\\','/')))
+  source=HARNESS.replace('RESELLER_CONTROLLER',json.dumps(str(ROOT/'panel/src/Public/Controllers/Reseller/AssistantController.php').replace('\\','/'))).replace('CONTROLLER',json.dumps(str(ROOT/'panel/src/Public/Controllers/Admin/AssistantController.php').replace('\\','/')))
   (cls.path/'router.php').write_text(source,encoding='utf-8')
   with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
   cls.url=f'http://127.0.0.1:{port}'
@@ -47,8 +51,8 @@ class AssistantHTTP(unittest.TestCase):
   op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
   if login:op.open(self.url+'/signin').read()
   return op
- def request(self,op,data=None,csrf=''):
-  req=urllib.request.Request(self.url+'/api',data=json.dumps(data).encode() if data else None,headers={'Content-Type':'application/json','X-CSRF-Token':csrf})
+ def request(self,op,data=None,csrf='',path='/api'):
+  req=urllib.request.Request(self.url+path,data=json.dumps(data).encode() if data else None,headers={'Content-Type':'application/json','X-CSRF-Token':csrf})
   try:
    with op.open(req) as response:return response.status,json.load(response)
   except urllib.error.HTTPError as error:
@@ -93,4 +97,28 @@ class AssistantHTTP(unittest.TestCase):
   self.assertEqual(len((self.path/'executed').read_text().splitlines()),before+1)
   self.request(a,{'operation':'chat','message':'inspect history'},csrf)
   self.assertNotIn('BULK_SECRET',(self.path/'seen_messages').read_text())
+ def test_reseller_endpoints_and_old_confirmations_are_rejected(self):
+  self.assertEqual(self.request(self.client(),path='/reseller-api')[0],403)
+  a=self.client();a.open(self.url+'/reseller-signin').read()
+  before=(self.path/'executed').read_text() if (self.path/'executed').exists() else ''
+  self.assertEqual(self.request(a,path='/reseller-api')[0],403)
+  self.assertFalse(json.load(a.open(self.url+'/legacy-state')))
+  self.assertEqual(self.request(a)[0],401)
+  for operation in ['chat','confirm','cancel','reset']:
+   self.assertEqual(self.request(a,{'operation':operation,'message':'create','token':'legacy-token'},'old-csrf',path='/reseller-api')[0],403)
+   self.assertEqual(self.request(a,{'operation':operation,'message':'create','token':'legacy-token'},'old-csrf')[0],401)
+  self.assertEqual((self.path/'executed').read_text() if (self.path/'executed').exists() else '',before)
+ def test_widget_only_renders_for_admin_scope_and_role(self):
+  source=r'''<?php
+namespace XcVm\Domain\Assistant {final class AssistantClient {public static function enabled():bool{return true;}}}
+namespace {
+define('MAIN_HOME',ROOT);
+$result=[];
+foreach ([['admin',1],['reseller',0],['reseller',1],['admin',0]] as [$scope,$admin]) {
+ $rUserInfo=['id'=>1];$rPermissions=['is_admin'=>$admin];ob_start();require VIEW;$result[]=str_contains(ob_get_clean(),'id="xc-assistant"');
+}
+echo json_encode($result);
+}'''.replace('ROOT',json.dumps((ROOT/'panel/src').as_posix()+'/')).replace('VIEW',json.dumps((ROOT/'panel/src/Public/Views/layouts/assistant.php').as_posix()))
+  file=self.path/'view-test.php';file.write_text(source,encoding='utf-8')
+  self.assertEqual(json.loads(subprocess.check_output([shutil.which('php'),str(file)])),[True,False,False,False])
 if __name__=='__main__':unittest.main()

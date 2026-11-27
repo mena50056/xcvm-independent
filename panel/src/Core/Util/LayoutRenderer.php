@@ -150,7 +150,7 @@ class LayoutRenderer {
 			return;
 		}
 
-		if (in_array($scope, ['admin', 'reseller'], true) && !empty($rUserInfo['id'])) {
+		if ($scope === 'admin' && !empty($rPermissions['is_admin']) && !empty($rUserInfo['id'])) {
 			require MAIN_HOME . 'Public/Views/layouts/assistant.php';
 		}
 

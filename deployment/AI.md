@@ -1,72 +1,51 @@
 # XC local AI service
 
-The panel includes an Arabic/English assistant in its authenticated admin and
-reseller layouts. Inference runs on a separate Ollama host. The model receives
-only the conversation and allowlisted tool results, never database credentials.
+The panel assistant is available **only in the authenticated admin panel**.
+Reseller pages do not render its widget or assets. The legacy reseller endpoint
+returns HTTP 403 for every operation, including metadata and old confirmations,
+and clears its old session state. A reseller cannot use the admin endpoint either.
+The admin's existing per-action permissions still apply; access to the assistant
+does not grant full administrator privileges. Inference runs on a separate local
+Ollama host and receives no database credentials or generated account passwords.
 
-## Available panel actions
+## Available admin actions
 
-- Search subscriptions, read details and report upcoming expirations or totals.
-- Propose enabling/disabling a subscription. Admins can extend expiry by days and
-  change connection limits. Resellers can list official packages and purchase a
-  renewal through the existing sale service at their effective package price.
-- Search ordinary live channels, inspect assigned-server state, and propose
-  start/stop/restart on one assigned server. Read server health snapshots.
-- Search resellers, propose account activation/suspension and credit adjustments.
-  Reseller adjustments transfer funds to/from managed sub-resellers; they do not
-  create credits. Admin adjustments support four decimal places. No negative balance.
-- Propose creating one subscription from an explicitly selected official package,
-  or one reseller from an explicitly selected permitted group and initial balance.
-  `creation_options` lists permitted choices and naming rules before creation.
-- Report recent credit movements and net credits within the user's account scope.
+| Area | Required admin permissions |
+| --- | --- |
+| Subscription reads and enable/disable | `users`; changes also `edit_user` |
+| Expiry/connection edits | `users` and `edit_user` |
+| Channel lookup | `streams` |
+| Channel status/control | `streams` + `servers`; control also `edit_stream` |
+| Server health | `servers` |
+| Resellers and credits | `mng_regusers`; changes also `edit_reguser` |
+| Subscription creation, single or bulk | `add_user` |
+| Reseller creation in a non-admin group | `add_reguser` |
+| Credit report | `credits_log` |
 
 Every mutation requires a separate explicit confirmation, valid for five minutes.
 The backend revalidates permissions, ownership, balances and reviewed snapshots.
+MAG/Enigma lines are excluded. Pending activation codes cannot be enabled or extended.
+Paired lines and unlimited-expiry lines cannot use administrative expiry extensions.
+Stream acceptance is reported as queued, not proof of playback.
 
-| Area | Admin permissions | Reseller permissions |
-| --- | --- | --- |
-| Subscription reads and enable/disable | `users`; changes also `edit_user` | `create_line`, own/report-tree lines |
-| Expiry/connection administrative edits | `users` and `edit_user` | Unavailable |
-| Package renewal | Unavailable; use administrative extension | `create_line`, available official package; charges actor |
-| Channel lookup | `streams` | Unavailable |
-| Channel status/control | `streams` + `servers`; control also `edit_stream` | Unavailable |
-| Server health | `servers` | Unavailable |
-| Resellers and credits | `mng_regusers`; changes also `edit_reguser` | `create_sub_resellers`, managed descendants |
-| Subscription creation | `add_user`; administrative package application, no debit | `create_line`; effective package price charged |
-| Reseller creation | `add_reguser`; non-admin group, initial credits issued | `create_sub_resellers`; allowed non-admin group, creation fee plus initial credit transfer |
-| Credit report | `credits_log` | `create_sub_resellers`, scoped movements |
+Creation supports a single subscription or a batch of 2–50 normal subscriptions
+from an explicitly selected official package, plus single reseller accounts with
+an explicitly selected permitted group and initial balance. Admin creation applies
+the administrative rules: no debit from the admin's balance; initial reseller
+credits are issued administratively. The confirmation states this clearly.
+The model cannot override owner, password, price or permissions.
 
-MAG/Enigma lines are excluded. Pending activation codes cannot be enabled or renewed.
-Paired lines and unlimited-expiry lines cannot use extension/package renewal.
-Package changes follow native duration, bouquet and connection rules, including
-restarting the term for incompatible packages. Prices and group access are checked
-again at confirmation. Stream acceptance is reported as queued, not proof of playback.
-Bulk creation supports 2–50 normal subscriptions in one explicitly selected official
-package, with server-generated usernames and passwords. The confirmation shows
-count, effective unit price, total debit and remaining balance. It holds one
-transaction across native purchases and audits: a failure rolls back every member
-and every charge. Confirmation tokens are single-use for the entire batch.
-Successful credentials are displayed in an expandable list and downloadable as CSV
-in the browser only; they are never sent to inference or saved in chat history.
-The summary audit records total debit in metadata, without duplicating the costs
-of the individual purchase audit entries. Admin batches explicitly show no debit.
+Bulk creation holds one transaction across all native saves and audits: any
+failure rolls back every subscription and charge. Confirmation is single-use for
+the entire batch. Credentials are shown directly to the authenticated admin,
+including an expandable list and browser-only CSV download for bulk results.
+They are never sent to inference or saved in conversation history. Reset/reload
+removes the displayed credentials. Native audit formats remain unchanged.
 Deletion, other bulk mutations, shell commands and arbitrary SQL are not tools.
 
-Creation always belongs to the authenticated actor; the model cannot override the
-owner, password, price or permission fields. The review shows the selected package
-or group, initial credits, total debit and resulting balance. Reseller creation
-fees and initial funding are separate: the fee is spent, the funding is transferred.
-Admin creation explicitly states that no balance is debited. The actor, group and
-package snapshots are revalidated under transaction locks; failed native saves,
-funding or assistant audit writes roll back the creation and charges together.
-
-Passwords are generated only during confirmed execution and returned directly to
-the authenticated browser, never to inference or session conversation history.
-The new account credentials are displayed once in the current widget; clearing or
-reloading it removes that display. ResellerAPI keeps its existing response by
-default; only the internal opt-in creation caller receives newly generated
-credentials, never an existing account password. Native account/line audit formats
-remain unchanged. Username collisions fail rather than updating an existing row.
+Legacy reseller domain helpers remain for regression coverage, but no reseller
+session can reach them through the assistant. Package purchase and sub-reseller
+transfer behavior in the regular panel is unchanged.
 
 ## Enable the panel integration
 
@@ -79,7 +58,7 @@ service account, with this server-owned configuration (do not commit runtime con
 
 Only loopback ports 11434 and 11435 are accepted. Set `enabled` to false to hide
 the widget and reject new chat/confirmation requests. The same-origin endpoint
-is `api?action=assistant` in both authenticated scopes. GET obtains a session CSRF
+is `api?action=assistant` in the authenticated admin scope only. GET obtains a session CSRF
 token; POST requires it in `X-CSRF-Token`. The browser never contacts Ollama directly.
 
 Conversation state stays in the PHP session. Permission changes reset it. Model

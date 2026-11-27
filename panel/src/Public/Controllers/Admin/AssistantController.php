@@ -18,10 +18,13 @@ class AssistantController {
     public function index(): never {
         global $rUserInfo, $rPermissions;
         if (session_status() !== PHP_SESSION_ACTIVE) { session_start(); }
-        // Scope bootstraps validate credentials, group membership and 2FA first.
-        $identityKey = $this->scope === 'admin' ? 'hash' : 'reseller';
+        // Reject legacy reseller URLs before metadata, inference or pending execution.
+        unset($_SESSION['xc_assistant_reseller']);
+        if ($this->scope !== 'admin') { $this->reply(['error'=>'FORBIDDEN'], 403); }
+        // Admin bootstrap validates credentials, group membership and 2FA first.
+        $identityKey = 'hash';
         if (empty($rUserInfo['id']) || (int) ($_SESSION[$identityKey] ?? 0) !== (int) $rUserInfo['id']
-            || empty($rPermissions[$this->scope === 'admin' ? 'is_admin' : 'is_reseller'])) {
+            || empty($rPermissions['is_admin'])) {
             $this->reply(['error' => 'UNAUTHENTICATED'], 401);
         }
         $owner = $this->scope . ':' . $rUserInfo['id'];

@@ -1,4 +1,4 @@
-<?php if (\XcVm\Domain\Assistant\AssistantClient::enabled()): ?>
+<?php if (($scope ?? null) === 'admin' && !empty($rPermissions['is_admin']) && !empty($rUserInfo['id']) && \XcVm\Domain\Assistant\AssistantClient::enabled()): ?>
 <link rel="stylesheet" href="assets/xcvm/assistant.css?v=<?= (int) filemtime(MAIN_HOME . 'Public/assets/admin/xcvm/assistant.css') ?>">
 <div id="xc-assistant" data-endpoint="api?action=assistant">
     <button type="button" id="xc-ai-launch" aria-controls="xc-ai-panel" aria-expanded="false" aria-label="XC AI Assistant">✦ <span>XC AI</span></button>
