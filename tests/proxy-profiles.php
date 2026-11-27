@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
+$root=dirname(__DIR__);require $root.'/panel/src/Core/Proxy/ProxyProfile.php';require $root.'/panel/src/Core/Proxy/ProxyProfiles.php';require $root.'/panel/src/Core/Proxy/ProxyHistory.php';require $root.'/panel/src/Core/Proxy/ProxySync.php';require $root.'/panel/src/Domain/Server/ProxyKey.php';require $root.'/panel/src/Domain/Server/ProxyRoute.php';require $root.'/runtime/ProxyPeer.php';
 use XcVm\Core\Proxy\{ProxyProfile,ProxyProfiles,ProxySync};use XcVm\Domain\Server\ProxyKey;
 function check(bool $ok,string $why): void {if(!$ok)throw new RuntimeException($why);}
 function refuses(callable $fn,string $reason): void {try{$fn();}catch(Throwable $e){check($e->getMessage()===$reason,'Wrong rejection: '.$e->getMessage());return;}throw new RuntimeException('Accepted '.$reason);}
@@ -35,4 +35,4 @@ foreach(['/live/viewer/password/1.ts','/live/viewer/password/1.m3u8','/auth/sign
 }
 foreach(['/horus_xc/login','/horus-proxy/v1/sync','/cluster/v1/heartbeat','/get.php','/playlist'] as $route)check(HorusProxyPeer::streamingStatus($route,$direct,null,null,[],1)===0,'Non-playback endpoint blocked');
 check(HorusProxyPeer::streamingStatus('/auth/token',$via,$forced,$origins,['192.0.2.3'=>['server_type'=>1,'enabled'=>1,'parent_id'=>'[1]']],1)===0,'Serialized parent list rejected');
-foreach(glob($dir.'/*') as $file)unlink($file);rmdir($dir);echo "Proxy profiles, routing, conflict, HMAC, replay, revocation, peer and playback enforcement checks passed\n";
+function cleanup(string $path):void{foreach(scandir($path) as $name)if($name!=='.'&&$name!=='..'){is_dir($path.'/'.$name)?cleanup($path.'/'.$name):unlink($path.'/'.$name);}rmdir($path);}cleanup($dir);echo "Proxy profiles, routing, conflict, HMAC, replay, revocation, peer and playback enforcement checks passed\n";

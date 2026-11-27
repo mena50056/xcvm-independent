@@ -5,6 +5,8 @@ namespace XcVm\Core\Proxy;
 
 /** The admin-editable proxy contract. No raw nginx directives or arbitrary upstream URLs. */
 final class ProxyProfile {
+    public const MONITOR_LIMITS = ['monitor_interval'=>[30,3600,60],'monitor_timeout'=>[1,10,3],
+        'monitor_failures'=>[1,5,2],'monitor_recoveries'=>[1,5,2],'certificate_warning_hours'=>[1,720,48]];
     public const LIMITS = [
         'connection_limit'=>[1,100000,5000], 'per_ip_connections'=>[0,5000,0],
         'requests_per_second'=>[0,1000,0], 'request_burst'=>[1,10000,100],
@@ -96,6 +98,17 @@ final class ProxyProfile {
         if (!is_string($bind)||($bind!==''&&!filter_var($bind,FILTER_VALIDATE_IP))) throw new \InvalidArgumentException('INVALID_BIND_IP');
         $profile['outbound_bind_ip']=$bind;
         $profile['upstream_cas']=$profile['upstream_tls_names']=[];
+        $profile['monitor_enabled']=self::boolean($input,'monitor_enabled',true);
+        foreach(self::MONITOR_LIMITS as $key=>[$min,$max,$default])$profile[$key]=self::number($input[$key]??$default,$min,$max);
+        $probeCA=$input['monitor_ca']??'';
+        if(!is_string($probeCA)||strlen($probeCA)>65536||str_contains($probeCA,'PRIVATE KEY'))throw new \InvalidArgumentException('INVALID_MONITOR_CA');
+        if(trim($probeCA)!=='') {
+            preg_match_all('/-----BEGIN CERTIFICATE-----[A-Za-z0-9+\/=\r\n]+-----END CERTIFICATE-----/',$probeCA,$certs);
+            if(empty($certs[0])||count($certs[0])>8||trim(str_replace($certs[0],'',$probeCA))!=='')throw new \InvalidArgumentException('INVALID_MONITOR_CA');
+            foreach($certs[0] as $cert)if(@openssl_x509_parse($cert)===false)throw new \InvalidArgumentException('INVALID_MONITOR_CA');
+            $probeCA=implode("\n",$certs[0])."\n";
+        }
+        $profile['monitor_ca']=$probeCA;
         foreach (['upstream_cas','upstream_tls_names'] as $field) {
             $entries=$input[$field]??[];
             if (!is_array($entries)) throw new \InvalidArgumentException('INVALID_UPSTREAM_TLS');

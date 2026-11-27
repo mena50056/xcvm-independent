@@ -17,6 +17,10 @@ class Runtime(unittest.TestCase):
             protocol_version='HTTP/1.1'
             def log_message(self,*args):pass
             def do_GET(self):
+                if self.path.startswith('/.well-known/horus-proxy-origin?'):
+                    import urllib.parse
+                    body=json.dumps({'protocol':'horus-origin-v1','origin_id':self.server.origin_id,'nonce':urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get('nonce',[''])[0],'revision':self.headers.get('X-Horus-Proxy-Revision','')}).encode()
+                    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
                 if self.path=='/slow':
                     self.send_response(200);self.send_header('Content-Length','30');self.end_headers()
                     for _ in range(30):self.wfile.write(b'x');self.wfile.flush();time.sleep(.1)
@@ -24,8 +28,9 @@ class Runtime(unittest.TestCase):
                 if self.path.startswith('/redirect'):
                     self.send_response(302);self.send_header('Location','https://127.0.0.1:'+str(self.server.server_port)+'/auth/token');self.send_header('Content-Length','0');self.end_headers();return
                 body=json.dumps({'path':self.path,'parent':self.server.server_port,'headers':dict(self.headers)}).encode();self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
-        for _ in range(2):
+        for i in range(2):
             server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);context.load_cert_chain(cls.ca,key);server.socket=context.wrap_socket(server.socket,server_side=True);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();cls.servers.append(server);cls.threads.append(thread)
+            server.origin_id=i+1
         def port():
             with socket.socket() as s:s.bind(('127.0.0.1',0));return s.getsockname()[1]
         cls.http=[port(),port()];cls.https=[port(),port()]

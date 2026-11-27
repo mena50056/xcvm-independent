@@ -47,7 +47,7 @@ if [[ "$ROLE" == main ]]; then
   nginx -t
   systemctl enable --now nginx
   systemctl reload nginx
-  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-signals xcvm-independent-maintenance.timer xcvm-independent-backups.timer xcvm-independent-connections.timer
+  systemctl enable --now xcvm-independent-lab xcvm-independent-fanout xcvm-independent-monitor xcvm-independent-fanout-sync xcvm-independent-signals xcvm-independent-maintenance.timer xcvm-independent-backups.timer xcvm-independent-connections.timer xcvm-independent-proxy-monitor.timer
   echo "MAIN installed. Private login details: $ROOT/.runtime-state/main/admin-login.json"
 else
   systemctl enable --now xcvm-independent-fanout xcvm-independent-agent

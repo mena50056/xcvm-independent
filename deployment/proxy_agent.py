@@ -125,7 +125,8 @@ class ProxyApplier:
             fcntl.flock(lock,fcntl.LOCK_EX)
             state=self.state();generation=hashlib.sha256((wire['revision']+'|'+datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m')).encode()).hexdigest()
             fingerprints=self.prepare_certificates(wire,generation)
-            effective=hashlib.sha256(json.dumps([wire['revision'],generation,fingerprints],sort_keys=True).encode()).hexdigest()
+            # Bump the renderer generation when deploying new nginx diagnostics headers.
+            effective=hashlib.sha256(json.dumps([wire['revision'],generation,fingerprints,2],sort_keys=True).encode()).hexdigest()
             if state.get('effective_revision')==effective and self.health()==effective:return False
             config=self.root/'nginx.conf';old=config.read_text() if config.exists() else None;running=bool(self.health())
             system_ca=pathlib.Path('/etc/ssl/certs/ca-certificates.crt').read_text()
@@ -188,6 +189,13 @@ class Agent:
                 'bytes_received':0,'bytes_sent':0,'bytes_received_total':incoming,'bytes_sent_total':outgoing,
                 'uptime':str(datetime.timedelta(seconds=int(float(pathlib.Path('/proc/uptime').read_text().split()[0])))),
                 'proxy_ready':bool(self.applier.health()),'sampled_at':int(time.time())}
+        try:
+            client=UnixHTTP(self.root/'run/status.sock');client.request('GET','/nginx_status');response=client.getresponse();raw=response.read(2048).decode();client.close()
+            import re
+            match=re.fullmatch(r'Active connections:\s*(\d+)\s+server accepts handled requests\s+(\d+)\s+(\d+)\s+(\d+)\s+Reading:\s*(\d+)\s+Writing:\s*(\d+)\s+Waiting:\s*(\d+)\s*',raw)
+            if response.status==200 and match:
+                result.update(dict(zip(['nginx_active','nginx_accepts','nginx_handled','nginx_requests','nginx_reading','nginx_writing','nginx_waiting'],map(int,match.groups()))))
+        except (OSError,ValueError,http.client.HTTPException):pass
         if self.previous_metrics:
             old=self.previous_metrics;elapsed=max(.01,now-old[4]);delta=total-old[0]
             result['cpu']=round(max(0,min(100,100*(1-(idle-old[1])/max(1,delta)))),2)

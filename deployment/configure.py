@@ -116,6 +116,8 @@ if role == 'main':
     write_units(ROOT, '/etc/systemd/system')
     from setup_connections import write_units as write_connection_units
     write_connection_units(ROOT, '/etc/systemd/system')
+    from setup_proxy_monitor import write_units as write_proxy_monitor_units
+    write_proxy_monitor_units(ROOT, '/etc/systemd/system')
     unit('xcvm-independent-signals', f'{php} {SRC}/console.php signals')
     unit('xcvm-independent-fanout-sync', f'{php} {SRC}/console.php fanout_sync')
     write(ROOT / 'deployment/maintenance.sh', f'''#!/bin/sh

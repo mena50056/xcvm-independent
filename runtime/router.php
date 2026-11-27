@@ -27,6 +27,7 @@ if(!str_starts_with($path,'/horus_xc/assets/')) {
     }
 }
 if($path==='/horus-proxy/v1/sync'){require __DIR__.'/proxy-sync.php';return;}
+if($path==='/.well-known/horus-proxy-origin'){require __DIR__.'/proxy-origin-health.php';return;}
 if(str_starts_with($path,'/cluster/v1/')){require __DIR__.'/cluster-http.php';return;}
 // Public playlist downloads use subscriber authentication, never an admin session.
 if (in_array($path, ['/get.php', '/playlist', '/playlist.php', '/api/playlist'], true)

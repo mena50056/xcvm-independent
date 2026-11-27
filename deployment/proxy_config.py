@@ -138,6 +138,7 @@ def render(wire,root,worker_user='www-data',effective_revision=None,certificate_
                 'proxy_socket_keepalive on; proxy_next_upstream off; proxy_ignore_client_abort off;',
                 'proxy_set_header Host $http_host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $remote_addr;',
                 f'proxy_set_header X-IP {p["server_ip"]}; proxy_set_header X-Forwarded-Proto $scheme;',
+                f'proxy_set_header X-Horus-Proxy-Revision {rev};',
                 'proxy_set_header Accept-Encoding "";',
                 f'proxy_ssl_server_name on; proxy_ssl_name {n["tls_name"]}; proxy_ssl_verify on; proxy_ssl_verify_depth 8;',
                 f'proxy_ssl_trusted_certificate {root}/tls/upstreams-{rev}.pem;']

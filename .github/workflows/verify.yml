@@ -39,6 +39,8 @@ jobs:
       - run: php tests/independent-backups.php
       - run: php tests/connection-telemetry.php
       - run: php tests/proxy-profiles.php
+      - run: php tests/proxy-monitor.php
+      - run: python3 tests/proxy-monitor-http.py
       - run: php tests/admin-sessions.php
       - run: php tests/assistant-permissions.php
       - run: php tests/assistant-management.php
@@ -47,8 +49,10 @@ jobs:
       - run: python3 tests/assistant-client.py
       - run: node --check panel/src/Public/assets/admin/xcvm/assistant.js
       - run: node --check panel/src/Public/assets/admin/horus/proxy.js
+      - run: node --check panel/src/Public/assets/admin/horus/proxy-monitor.js
       - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl
       - run: sudo python3 -B deployment/test_proxy_runtime.py
+      - run: sudo python3 -B deployment/test_proxy_monitor.py
       - run: python3 deployment/test_vendor_isolation.py
       - run: python3 deployment/test_horus_paths.py
       - run: python3 deployment/test_horus_home.py
