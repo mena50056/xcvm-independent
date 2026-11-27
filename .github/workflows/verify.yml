@@ -46,6 +46,7 @@ jobs:
       - run: php tests/assistant-permissions.php
       - run: php tests/assistant-playback.php
       - run: php tests/assistant-recovery.php
+      - run: php tests/assistant-media.php
       - run: php tests/assistant-installation.php
       - run: php tests/assistant-install-worker.php
       - run: php tests/assistant-proxy.php

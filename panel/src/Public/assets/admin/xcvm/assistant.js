@@ -34,6 +34,8 @@
     PROFILE_NOT_CONFIGURED: t('البروكسي يحتاج إعداد ملفه أولًا من صفحة البروكسي.', 'Configure this proxy profile on the proxy page first.'),
     INVALID_PROXY_CONFIGURATION: t('إعداد البروكسي غير صالح. راجع المنافذ والسيرفرات والقيم المطلوبة.', 'Invalid proxy configuration. Review ports, upstreams and requested values.'),
     FORBIDDEN: t('ليس لديك صلاحية لهذا الإجراء.', 'You do not have permission for this action.'),
+    MEDIA_EXISTS: t('يوجد محتوى بنفس الاسم أو حلقة بنفس الرقم. راجع الموجود أولًا.', 'That media name or episode number already exists. Review it first.'),
+    MEDIA_SAVE_FAILED: t('لم يتأكد حفظ المحتوى. راجع قائمة المحتوى قبل إعادة الطلب.', 'Media save was not confirmed. Check the catalog before retrying.'),
     STALE_PROPOSAL: t('انتهى التأكيد أو تغيرت البيانات. اطلب الإجراء مرة أخرى.', 'Confirmation expired or the data changed. Request it again.'),
     ACTIVATION_REQUIRED: t('هذا الخط يحتاج استرداد كود التفعيل أولًا.', 'This line requires activation code redemption first.'),
     AI_UNAVAILABLE: t('خدمة المساعد غير متاحة حاليًا. حاول لاحقًا.', 'The AI service is unavailable. Try again later.'),
@@ -182,6 +184,7 @@
       set_proxy_enabled: t('تغيير حالة البروكسي', 'Change proxy state'), set_proxy_limit: t('تعديل حدود البروكسي', 'Change proxy limit'),
       set_proxy_ports: t('تعديل منافذ البروكسي', 'Change proxy ports'), set_proxy_parents: t('تعديل سيرفرات البروكسي', 'Change proxy upstreams'),
       create_subscriptions_bulk: t('إنشاء اشتراكات بالجملة', 'Create subscription batch'),
+      create_media: t('إضافة محتوى جديد', 'Add media'),
       create_subscription: t('إنشاء اشتراك جديد', 'Create subscription'), create_reseller: t('إنشاء ريسيلر جديد', 'Create reseller'),
       extend_line_days: t('تمديد صلاحية اشتراك', 'Extend subscription expiry'), set_line_connections: t('تعديل عدد الاتصالات', 'Change connection limit'),
       control_stream: t('التحكم في قناة بث', 'Control live stream'), set_reseller_enabled: t('تغيير حالة ريسيلر', 'Change reseller status'),
@@ -197,6 +200,7 @@
         const answer = await request({operation, token});
         clearPending();
         message(operation === 'cancel' ? t('تم إلغاء الطلب.', 'Request cancelled.') :
+          answer.execution.media_created ? t('تم حفظ المحتوى برقم ', 'Media saved with ID ') + answer.execution.media_created.id + (answer.execution.media_created.type === 'series' ? t('. أضف الحلقات للمسلسل بعد ذلك.', '. Add episodes to this series next.') : t('. لم يبدأ التشغيل أو التحويل تلقائيًا. راجع صفحة المحتوى لتجهيزه وفحصه.', '. Streaming or encoding has not started automatically. Open the media page to prepare and verify it.')) + (answer.execution.audit_pending ? t(' تعذر تسجيل سجل العملية.', ' Audit logging failed.') : '') :
           answer.execution.recovery_report ? (ar ? answer.execution.recovery_report.ar : answer.execution.recovery_report.en) :
           answer.execution.proxy_followup_report ? (ar ? answer.execution.proxy_followup_report.ar : answer.execution.proxy_followup_report.en) :
           answer.execution.proxy_restart_queued ? t('تم إرسال طلب إعادة التشغيل، ولم تتأكد النتيجة بعد. سأتابع نتيجة الوكيل وأفحص المنافذ تلقائيًا وأعرض النتيجة هنا.', 'Restart queued; outcome is not confirmed yet. I will follow the agent result, verify the ports automatically and show the outcome here.') :

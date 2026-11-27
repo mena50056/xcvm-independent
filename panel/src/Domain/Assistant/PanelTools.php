@@ -48,7 +48,7 @@ final class PanelTools {
             ]);
         }
         if ($this->scope === 'admin' && defined('XCVM_INDEPENDENT_LAB') && InstallationWizard::allowed()) $tools[] = $this->definition('begin_server_installation', 'Start the protected, step-by-step admin installation conversation for a NEW proxy, streaming node or load balancer. Do not collect SSH passwords in model messages; the wizard collects them securely, presents a plan, requires confirmation and tracks the background job.', []);
-        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions(), (new RecoveryTools($this->scope))->definitions());
+        return array_merge($tools, (new MediaTools($this->scope))->definitions(), (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions(), (new CreationTools($this->scope))->definitions(), (new PlaybackTools($this->scope))->definitions(), (new ProxyTools($this->scope))->definitions(), (new RecoveryTools($this->scope))->definitions());
     }
 
     private function definition(string $name, string $description, array $properties): array {
@@ -58,6 +58,7 @@ final class PanelTools {
     }
 
     public function call(string $name, array $arguments): array {
+        if (in_array($name, ['media_options','create_media'], true)) return (new MediaTools($this->scope))->call($name,$arguments);
         if ($name === 'begin_server_installation') {
             if ($this->scope !== 'admin' || !defined('XCVM_INDEPENDENT_LAB') || !InstallationWizard::allowed()) throw new \RuntimeException('FORBIDDEN');
             if ($arguments) throw new \RuntimeException('INVALID_ARGUMENTS');
@@ -112,6 +113,7 @@ final class PanelTools {
 
     public function execute(array $proposal): array {
         global $db, $rUserInfo;
+        if (($proposal['kind'] ?? '') === 'media') return (new MediaTools($this->scope))->execute($proposal);
         if (($proposal['kind'] ?? '') === 'recovery') return (new RecoveryTools($this->scope))->execute($proposal);
         if (($proposal['kind'] ?? '') === 'proxy') { return (new ProxyTools($this->scope))->execute($proposal); }
         if (($proposal['kind'] ?? '') === 'creation') { return (new CreationTools($this->scope))->execute($proposal); }

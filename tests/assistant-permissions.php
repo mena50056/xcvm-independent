@@ -13,6 +13,7 @@ namespace {
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/PlaybackTools.php';
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/ProxyTools.php';
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/RecoveryTools.php';
+    require dirname(__DIR__) . '/panel/src/Domain/Assistant/MediaTools.php';
     use XcVm\Domain\Assistant\PanelTools;
     function check(bool $ok, string $why): void { if (!$ok) { throw new RuntimeException($why); } }
     function refused(callable $fn, string $code): void {
