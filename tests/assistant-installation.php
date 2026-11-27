@@ -20,6 +20,9 @@ function finish(array $job,string $kind='proxy'):array {
  while($job['state']==='draft')$job=step($job,$values[$job['field']]);return $job;
 }
 try {
+ check(InstallationWizard::requested('عاوز أنصب سيرفر بروكسي جديد'),'Arabic start shortcut');
+ check(InstallationWizard::requested('Install a load balancer'),'English start shortcut');
+ foreach(['لا تنصب بروكسي','Do not install a server','اشرح تنصيب بروكسي','restart proxy'] as $text)check(!InstallationWizard::requested($text),'Incorrect installation shortcut');
  $job=$wizard->handle(['operation'=>'install_begin'])['installation'];$id=$job['id'];
  refused(fn()=>$wizard->handle(['operation'=>'install_confirm','job_id'=>$id,'token'=>$job['token']]),'STALE_PROPOSAL');
  $job=step($job,'proxy');$old=$job;$job=step($job,'QA');

@@ -31,7 +31,7 @@ class InstallationHTTP(unittest.TestCase):
  def test_secret_isolation_confirmation_and_resume(self):
   a=self.client();metadata=self.request(a)[1];self.assertTrue(metadata['installation_enabled']);csrf=metadata['csrf']
   self.assertEqual(self.request(a,{'operation':'install_begin'},'invalid')[0],403)
-  status,result=self.request(a,{'operation':'chat','message':'install'},csrf);self.assertEqual(status,200)
+  status,result=self.request(a,{'operation':'chat','message':'عاوز أنصب سيرفر بروكسي جديد'},csrf);self.assertEqual(status,200)
   job=result['installation'];self.assertEqual(job['field'],'kind')
   values={'kind':'proxy','name':'Wizard test','ip':'9.9.9.9','ssh_port':'22','fingerprint':'a'*40,'parent_id':'1','tls_mode':'later','capacity':'50','fresh':'yes','password':'NEVER_SEND_TO_MODEL'}
   while job['state']=='draft':
@@ -39,7 +39,7 @@ class InstallationHTTP(unittest.TestCase):
     status,ignored=self.request(a,{'operation':'chat','message':'NEVER_SEND_TO_MODEL'},csrf);self.assertEqual(status,200);self.assertEqual(ignored['installation']['field'],'password')
    status,result=self.request(a,{'operation':'install_step','job_id':job['id'],'token':job['token'],'value':values[job['field']]},csrf)
    self.assertEqual(status,200,result);job=result['installation'];self.assertNotIn('NEVER_SEND_TO_MODEL',json.dumps(result))
-  self.assertEqual(job['state'],'review');self.assertNotIn('NEVER_SEND_TO_MODEL',(self.path/'seen_messages').read_text())
+  self.assertEqual(job['state'],'review');self.assertFalse((self.path/'seen_messages').exists(),'Protected flow reached model')
   resume=self.request(a)[1]['installation'];self.assertEqual(resume['id'],job['id']);self.assertEqual(resume['state'],'review')
   confirmed=self.request(a,{'operation':'install_confirm','job_id':job['id'],'token':job['token']},csrf)
   self.assertEqual(confirmed[0],200);self.assertEqual(confirmed[1]['installation']['state'],'queued')

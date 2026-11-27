@@ -105,6 +105,11 @@ class AssistantController {
             if ($operation !== 'chat' || !is_string($input['message'] ?? null) || strlen(trim($input['message'])) < 1 || strlen($input['message']) > 3000) {
                 $this->reply(['error' => 'INVALID_REQUEST'], 400);
             }
+            if (defined('XCVM_INDEPENDENT_LAB') && InstallationWizard::allowed() && InstallationWizard::requested($input['message'])) {
+                $result=InstallationWizard::app()->handle(['operation'=>'install_begin']);
+                $state['install_job']=$result['installation']['id'];unset($state['pending']);
+                $this->reply(['ok'=>true]+$result);
+            }
             if (($state['busy']['until'] ?? 0) > time()) { $this->reply(['error' => 'BUSY'], 429); }
             $state['requests'] = array_values(array_filter($state['requests'] ?? [], static fn($time) => $time > time() - 60));
             if (count($state['requests']) >= 6) { $this->reply(['error' => 'RATE_LIMIT'], 429); }

@@ -9,6 +9,14 @@ final class InstallationWizard {
     public function __construct(private InstallationStore $store, private \PDO $db) {}
     public static function app(): self {global $db;return new self(new InstallationStore(CONFIG_PATH.'assistant-install'),$db->dbh);}
     public static function allowed(): bool {return defined('XCVM_INDEPENDENT_LAB') && Authorization::isFullAdmin() && Authorization::check('adv','add_server');}
+    /** A narrow shortcut only opens the wizard; it cannot submit values or approve installation. */
+    public static function requested(string $message): bool {
+        $text=trim($message);
+        if(preg_match('/(?:لا\s+(?:تنصب|تثبت|تسطب)|do not|don.t install|cancel|إلغاء|الغاء)/iu',$text))return false;
+        return preg_match('/^(?:عاوز|عايز|أريد|اريد|ابدأ|إبدأ|أبدأ|نصب|سطب|please|i want to|start|begin|install)\b/iu',$text)===1
+            && preg_match('/(?:تنصيب|تثبيت|تسطيب|أنصب|انصب|نصب|سطب|install|set up)/iu',$text)===1
+            && preg_match('/(?:بروكسي|proxy|سيرفر|server|لود|balancer|بث)/iu',$text)===1;
+    }
     private function gate(): int {global $rUserInfo;if(!self::allowed())throw new \RuntimeException('FORBIDDEN');return (int)$rUserInfo['id'];}
     private function steps(array $data): array {return array_merge(['kind','name','ip','ssh_port','fingerprint'],($data['kind']??'')==='proxy'?['parent_id','tls_mode']:[],['capacity','fresh','password']);}
     private function available(string $ip): void {
