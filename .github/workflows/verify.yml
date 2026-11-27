@@ -39,6 +39,7 @@ jobs:
       - run: php tests/independent-backups.php
       - run: php tests/connection-telemetry.php
       - run: php tests/proxy-profiles.php
+      - run: php tests/admin-sessions.php
       - run: node --check panel/src/Public/assets/admin/horus/proxy.js
       - run: sudo apt-get update -qq && sudo apt-get install -y nginx openssl
       - run: sudo python3 -B deployment/test_proxy_runtime.py

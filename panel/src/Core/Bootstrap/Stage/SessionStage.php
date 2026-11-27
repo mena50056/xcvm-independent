@@ -2,6 +2,7 @@
 
 namespace XcVm\Core\Bootstrap\Stage;
 
+use XcVm\Core\Auth\SessionManager;
 use XcVm\Core\Bootstrap\BootState;
 use XcVm\Core\Bootstrap\BootStageInterface;
 
@@ -36,6 +37,9 @@ class SessionStage implements BootStageInterface {
 	 * bootstraps call it too: they start the session before the framework boot.
 	 */
 	public static function startSession(): void {
+		// PHP's default 24-minute garbage collection must not remove a panel
+		// session before its one-hour idle guard. Keep longer configured values.
+		ini_set('session.gc_maxlifetime', (string) max((int) ini_get('session.gc_maxlifetime'), SessionManager::DEFAULT_TIMEOUT * 60));
 		// The web player has a session and a cookie of its own, which the
 		// browser also sends on a link from another site. The panels' cookie is
 		// sent on no such link, and a panel sign-in is never in the player's.

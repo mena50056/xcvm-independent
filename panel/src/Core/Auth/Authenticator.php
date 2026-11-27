@@ -130,8 +130,10 @@ class Authenticator {
 		}
 
 		if ($rUserInfo['status'] == 1) {
-			$rCrypt = self::hashPassword($rData['password']);
-			$db->query('UPDATE `users` SET `password` = ?, `last_login` = UNIX_TIMESTAMP(), `ip` = ? WHERE `id` = ?;', $rCrypt, $rIP, $rUserInfo['id']);
+			// Sessions bind to the stored credential hash. Re-salting an unchanged
+			// password here would invalidate every other browser at each sign-in.
+			$rCrypt = (string) $rUserInfo['password'];
+			$db->query('UPDATE `users` SET `last_login` = UNIX_TIMESTAMP(), `ip` = ? WHERE `id` = ?;', $rIP, $rUserInfo['id']);
 
 			self::renewSessionId();
 			$_SESSION['hash'] = $rUserInfo['id'];
@@ -200,8 +202,8 @@ class Authenticator {
 		}
 
 		if ($rUserInfo['status'] == 1) {
-			$rCrypt = self::hashPassword($rData['password']);
-			$db->query('UPDATE `users` SET `password` = ?, `last_login` = UNIX_TIMESTAMP(), `ip` = ? WHERE `id` = ?;', $rCrypt, $rIP, $rUserInfo['id']);
+			$rCrypt = (string) $rUserInfo['password'];
+			$db->query('UPDATE `users` SET `last_login` = UNIX_TIMESTAMP(), `ip` = ? WHERE `id` = ?;', $rIP, $rUserInfo['id']);
 
 			self::renewSessionId();
 			$_SESSION['reseller'] = $rUserInfo['id'];

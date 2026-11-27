@@ -71,6 +71,7 @@ display_errors=Off
 log_errors=On
 error_log={ROOT}/php-errors.log
 session.save_path={SRC}/tmp/player
+session.gc_maxlifetime=3600
 extension=igbinary.so
 extension=redis.so
 extension=ssh2.so
