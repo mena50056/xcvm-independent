@@ -45,6 +45,7 @@ try {
  $p=$store->document($id)['profile'];check($p['http_ports']===[8080]&&$p['https_ports']===[8443]&&$p['default_parent_id']===2,'Ports/upstreams not saved');
  $reseller=new \XcVm\Domain\Assistant\ProxyTools('reseller',$store);check($reseller->definitions()===[],'Reseller definitions');refuses(fn()=>$reseller->execute($proposal),'FORBIDDEN');
 
+ $probe=\XcVm\Core\Proxy\ProxyDiagnostics::evaluate(['id'=>'https:443','scheme'=>'https','port'=>443,'host'=>'test','origin_id'=>1,'revision'=>str_repeat('a',64)],str_repeat('b',32),'',[],27,time());check($probe['code']==='PROBE_FAILED'&&$probe['state']==='unsupported','Local probe error falsely blamed on connection');
  $rPermissions['advanced']=[];
  $doc=$store->document($id);$doc=$store->save($id,array_replace($doc['profile'],['enabled'=>true,'monitor_enabled'=>false]),$doc['revision']);
  $wire=$store->wire($id);$store->acknowledge($id,['applied_revision'=>$wire['revision'],'stats'=>['proxy_ready'=>true]]);

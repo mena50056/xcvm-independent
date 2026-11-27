@@ -84,6 +84,7 @@ final class ProxyTools {
         if($status['state']==='failed')$add('APPLY_FAILED','البروكسي أبلغ بفشل تطبيق الإعداد؛ إعادة التشغيل لا تصلح إعدادًا غير صالح.','The proxy reported a configuration apply failure; restarting does not repair invalid configuration.');
         if($probeFailed||$status['monitor_stale']||!$status['ports']||count(array_filter($status['ports'],static fn($p)=>in_array($p['state'],['not_checked','disabled','stale'],true))))$add('UNKNOWN','الفحص الحالي غير مكتمل أو غير متاح؛ البيانات القديمة ليست إثباتًا لسلامة الخدمة.','Current probes are incomplete or unavailable; old telemetry is not proof of health.');
         $labels=[
+            'PROBE_FAILED'=>['أداة الفحص لم تكمل الطلب؛ هذا لا يثبت تعطل البروكسي.','The probe could not complete; this does not prove proxy failure.'],
             'TLS_FAILED'=>['فشل التحقق من TLS؛ راجع الشهادة واسم النطاق والثقة.','TLS verification failed; review certificate, hostname and trust.'],
             'CONNECT_FAILED'=>['تعذر الاتصال بالمنفذ؛ قد تكون الخدمة متوقفة أو المنفذ محجوبًا.','Port connection failed; the service may be stopped or the port blocked.'],
             'TIMEOUT'=>['انتهت مهلة الفحص؛ راجع الشبكة والحمل والخدمة.','Probe timed out; review network, load and service.'],
@@ -96,7 +97,7 @@ final class ProxyTools {
         ];
         $healthy=0;
         foreach($status['ports'] as $port){
-            if($port['state']==='healthy'){$healthy++;continue;}
+            if($port['state']==='healthy'){$healthy++;if($port['scheme']==='https'&&$port['certificate_expires_at']===null)$add('CERTIFICATE_DETAILS_UNAVAILABLE','HTTPS يعمل والتحقق من TLS نجح، لكن تاريخ انتهاء الشهادة غير متاح من أداة الفحص.','HTTPS and TLS verification passed, but certificate expiry is unavailable from this probe.');continue;}
             if(!in_array($port['state'],['failed','unsupported'],true))continue;
             [$ar,$en]=$labels[$port['code']]??['الفحص لم ينجح؛ يلزم مراجعة الحالة.','Probe did not succeed; review its state.'];
             $add($port['code'],$port['scheme'].':'.$port['port'].' — '.$ar,$port['scheme'].':'.$port['port'].' — '.$en);

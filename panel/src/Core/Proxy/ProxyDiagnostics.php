@@ -17,7 +17,7 @@ final class ProxyDiagnostics {
     }
     public static function evaluate(array $target,string $nonce,string $body,array $info,int $error,int $now): array {
         $code='OK';$http=(int)($info['http_code']??0);$data=json_decode($body,true);
-        if($error!==0)$code=in_array($error,[35,51,58,60,64,66,77,80,82,83,90,91],true)?'TLS_FAILED':($error===28?'TIMEOUT':'CONNECT_FAILED');
+        if($error!==0)$code=in_array($error,[35,51,58,60,64,66,77,80,82,83,90,91],true)?'TLS_FAILED':($error===28?'TIMEOUT':(in_array($error,[5,6,7],true)?'CONNECT_FAILED':'PROBE_FAILED'));
         elseif($http!==200)$code=$http===404?'PROBE_UNAVAILABLE':($http>=500?'UPSTREAM_FAILED':'HTTP_REJECTED');
         elseif(!is_array($data)||($data['protocol']??'')!=='horus-origin-v1'||!is_string($data['nonce']??null)||!hash_equals($nonce,$data['nonce']))$code='INVALID_RESPONSE';
         elseif(!is_int($data['origin_id']??null)||$data['origin_id']!==$target['origin_id'])$code='ORIGIN_MISMATCH';
@@ -28,13 +28,16 @@ final class ProxyDiagnostics {
         }
         $tcp=(float)($info['connect_time']??0);$tls=(float)($info['appconnect_time']??0);
         return array_intersect_key($target,array_flip(['id','scheme','port','host','origin_id']))+[
-            'state'=>$code==='OK'?'healthy':($code==='PROBE_UNAVAILABLE'?'unsupported':'failed'),'code'=>$code,'http_status'=>$http,
+            'state'=>$code==='OK'?'healthy':(in_array($code,['PROBE_UNAVAILABLE','PROBE_FAILED'],true)?'unsupported':'failed'),'code'=>$code,'http_status'=>$http,
             'tcp_ms'=>$tcp>0?round($tcp*1000,1):null,'tls_ms'=>$tls>0?round(max(0,$tls-$tcp)*1000,1):null,
             'total_ms'=>round((float)($info['total_time']??0)*1000,1),'certificate_expires_at'=>$expires,'checked_at'=>$now];
     }
     public static function run(array $wire,int $timeout,string $ca=''): array {
         if(!function_exists('curl_multi_init'))throw new \RuntimeException('CURL_UNAVAILABLE');
         $targets=self::targets($wire);$results=[];$caFile=null;
+        // Bundled GnuTLS libcurl returns CURLE_OUT_OF_MEMORY for CERTINFO.
+        // Keep TLS peer/hostname verification; certificate expiry remains unknown.
+        $certificateInfo=!str_starts_with((string)(curl_version()['ssl_version']??''),'GnuTLS/');
         if($ca!==''){$caFile=tempnam(sys_get_temp_dir(),'horus-probe-ca-');if($caFile===false)throw new \RuntimeException('PROBE_CA_FAILED');chmod($caFile,0600);file_put_contents($caFile,$ca);}
         try {
             // At most eight bounded requests, no redirects, environment proxies, DNS lookups or body uploads.
@@ -48,7 +51,7 @@ final class ProxyDiagnostics {
                         $entry=(object)['handle'=>$handle,'target'=>$target,'nonce'=>$nonce,'body'=>''];
                         curl_setopt_array($handle,[CURLOPT_URL=>$url,CURLOPT_PROXY=>'',CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROTOCOLS=>CURLPROTO_HTTP|CURLPROTO_HTTPS,
                             CURLOPT_RESOLVE=>[$authority.':'.$target['port'].':'.$pin],CURLOPT_CONNECTTIMEOUT_MS=>min(2000,$timeout*1000),CURLOPT_TIMEOUT_MS=>$timeout*1000,
-                            CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CERTINFO=>true,CURLOPT_USERAGENT=>'Horus-Proxy-Diagnostics/1',CURLOPT_HTTPHEADER=>['Accept: application/json','Cache-Control: no-cache'],
+                            CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_CERTINFO=>$certificateInfo,CURLOPT_USERAGENT=>'Horus-Proxy-Diagnostics/1',CURLOPT_HTTPHEADER=>['Accept: application/json','Cache-Control: no-cache'],
                             CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use($entry):int{if(strlen($entry->body)+strlen($chunk)>4096)return 0;$entry->body.=$chunk;return strlen($chunk);}]);
                         if($caFile!==null)curl_setopt($handle,CURLOPT_CAINFO,$caFile);
                         curl_multi_add_handle($multi,$handle);$handles[]=$entry;
