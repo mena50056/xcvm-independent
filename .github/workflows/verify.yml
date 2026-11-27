@@ -41,6 +41,7 @@ jobs:
       - run: php tests/proxy-profiles.php
       - run: php tests/admin-sessions.php
       - run: php tests/assistant-permissions.php
+      - run: php tests/assistant-management.php
       - run: python3 tests/assistant-http.py
       - run: python3 tests/assistant-client.py
       - run: node --check panel/src/Public/assets/admin/xcvm/assistant.js

@@ -6,17 +6,37 @@ only the conversation and allowlisted tool results, never database credentials.
 
 ## Available panel actions
 
-- Search up to ten normal subscriptions by username or ID (no passwords).
-- Summarize subscriptions visible to the current user.
-- Propose enabling or disabling one subscription, then execute after the user
-  presses the explicit confirmation button. Confirmation expires after five minutes.
+- Search subscriptions, read details and report upcoming expirations or totals.
+- Propose enabling/disabling a subscription. Admins can extend expiry by days and
+  change connection limits. Resellers can list official packages and purchase a
+  renewal through the existing sale service at their effective package price.
+- Search ordinary live channels, inspect assigned-server state, and propose
+  start/stop/restart on one assigned server. Read server health snapshots.
+- Search resellers, propose account activation/suspension and credit adjustments.
+  Reseller adjustments transfer funds to/from managed sub-resellers; they do not
+  create credits. Admin adjustments support four decimal places. No negative balance.
+- Report recent credit movements and net credits within the user's account scope.
 
-Admins require `users` for reads and both `users` and `edit_user` for changes.
-Resellers require `create_line` and are limited to their own lines and report tree,
-matching the existing ownership policy. MAG and Enigma subscriptions are excluded.
-Pending activation-code subscriptions cannot be enabled through the assistant.
-Creation, deletion, renewal, balance changes, shell commands and arbitrary SQL are
-not available tools.
+Every mutation requires a separate explicit confirmation, valid for five minutes.
+The backend revalidates permissions, ownership, balances and reviewed snapshots.
+
+| Area | Admin permissions | Reseller permissions |
+| --- | --- | --- |
+| Subscription reads and enable/disable | `users`; changes also `edit_user` | `create_line`, own/report-tree lines |
+| Expiry/connection administrative edits | `users` and `edit_user` | Unavailable |
+| Package renewal | Unavailable; use administrative extension | `create_line`, available official package; charges actor |
+| Channel lookup | `streams` | Unavailable |
+| Channel status/control | `streams` + `servers`; control also `edit_stream` | Unavailable |
+| Server health | `servers` | Unavailable |
+| Resellers and credits | `mng_regusers`; changes also `edit_reguser` | `create_sub_resellers`, managed descendants |
+| Credit report | `credits_log` | `create_sub_resellers`, scoped movements |
+
+MAG/Enigma lines are excluded. Pending activation codes cannot be enabled or renewed.
+Paired lines and unlimited-expiry lines cannot use extension/package renewal.
+Package changes follow native duration, bouquet and connection rules, including
+restarting the term for incompatible packages. Prices and group access are checked
+again at confirmation. Stream acceptance is reported as queued, not proof of playback.
+Creation, deletion, bulk actions, shell commands and arbitrary SQL are not tools.
 
 ## Enable the panel integration
 
@@ -38,8 +58,11 @@ continues; a request ID prevents an old response from reviving a reset conversat
 There is one active inference request per session, at most six per minute.
 Confirmation tokens are session-bound and consumed before execution. The backend
 rechecks permissions and locks/rechecks the line's owner, username and state.
-Changes and credential-free `users_logs` audit entries commit together, followed by
-the existing line-invalidation signal. A signal failure is reported separately.
+Database changes and assistant audit entries commit together, followed by the existing
+line-invalidation signal. Package renewals also retain the native sale audit behavior.
+Assistant audit entries omit passwords; existing native audit formats are unchanged.
+A signal failure is reported separately. Stream requests and acknowledgments are
+audited separately because the stream backend is outside the database transaction.
 
 ## Connection contract
 
@@ -119,12 +142,15 @@ a test of panel integration or permission enforcement. Panel regression checks:
 
 ```sh
 php tests/assistant-permissions.php
+php tests/assistant-management.php
 python3 tests/assistant-http.py
 python3 tests/assistant-client.py
 node --check panel/src/Public/assets/admin/xcvm/assistant.js
 ```
 
-The permission tests use an isolated SQLite database. HTTP tests use the real
+The permission and management tests use an isolated SQLite database with the real
+credit-transfer primitive. Package tests stub the native sale boundary; they verify
+price/ownership revalidation and confirmation behavior, not the complete sale runtime. HTTP tests use the real
 controller and isolated model/tool doubles to check authentication, CSRF,
 session-bound confirmations, cancellation, replay and rate limiting. Live deployment
 checks separately verify assets, authentication and actual Ollama tool round trips.

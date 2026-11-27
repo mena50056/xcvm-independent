@@ -7,6 +7,8 @@ namespace XcVm\Domain\Line {
 namespace {
     require dirname(__DIR__) . '/panel/src/Core/Auth/Authorization.php';
     require dirname(__DIR__) . '/panel/src/Domain/Assistant/PanelTools.php';
+    require dirname(__DIR__) . '/panel/src/Domain/Assistant/ManagementTools.php';
+    require dirname(__DIR__) . '/panel/src/Domain/Assistant/SubscriptionTools.php';
     use XcVm\Domain\Assistant\PanelTools;
     function check(bool $ok, string $why): void { if (!$ok) { throw new RuntimeException($why); } }
     function refused(callable $fn, string $code): void {
@@ -69,12 +71,12 @@ namespace {
     refused(fn() => $reseller->call('set_line_enabled', ['line_id' => 1, 'enabled' => true]), 'ACTIVATION_REQUIRED');
     $rPermissions = ['is_admin' => 1, 'advanced' => ['users'], 'all_reports' => []];
     $admin = new PanelTools('admin');
-    check(count($admin->definitions()) === 2, 'Read-only admin received mutation tool');
+    check(!in_array('set_line_enabled', array_column(array_column($admin->definitions(), 'function'), 'name'), true), 'Read-only admin received mutation tool');
     refused(fn() => $admin->call('set_line_enabled', ['line_id' => 3, 'enabled' => false]), 'FORBIDDEN');
     check($admin->call('line_summary', [])['summary']['total'] === 3, 'Admin scope incorrect');
     $rPermissions['advanced'] = ['settings'];
     check($admin->definitions() === [], 'Unrelated permission exposed line tools');
     $rPermissions['advanced'] = [];
-    check(count($admin->definitions()) === 3, 'Full admin missing tools');
+    check(in_array('control_stream', array_column(array_column($admin->definitions(), 'function'), 'name'), true), 'Full admin missing management tools');
     echo "PASS: scoped reads, no secrets, strict arguments, permission revocation, ownership changes, confirmation proposals, atomic audit, replay, activation guard and admin restrictions\n";
 }

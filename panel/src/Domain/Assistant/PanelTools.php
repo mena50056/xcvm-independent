@@ -47,7 +47,7 @@ final class PanelTools {
                 'enabled' => ['type' => 'boolean']
             ]);
         }
-        return $tools;
+        return array_merge($tools, (new ManagementTools($this->scope))->definitions(), (new SubscriptionTools($this->scope))->definitions());
     }
 
     private function definition(string $name, string $description, array $properties): array {
@@ -58,6 +58,10 @@ final class PanelTools {
 
     public function call(string $name, array $arguments): array {
         global $db;
+        if (in_array($name, ['list_packages', 'renew_line_package'], true)) { return (new SubscriptionTools($this->scope))->call($name, $arguments); }
+        if (!in_array($name, ['line_summary', 'find_lines', 'set_line_enabled'], true)) {
+            return (new ManagementTools($this->scope))->call($name, $arguments);
+        }
         $names = array_column(array_column($this->definitions(), 'function'), 'name');
         if (!in_array($name, $names, true)) {
             throw new \RuntimeException('FORBIDDEN');
@@ -98,6 +102,8 @@ final class PanelTools {
 
     public function execute(array $proposal): array {
         global $db, $rUserInfo;
+        if (($proposal['kind'] ?? '') === 'subscription') { return (new SubscriptionTools($this->scope))->execute($proposal); }
+        if (($proposal['kind'] ?? '') === 'management') { return (new ManagementTools($this->scope))->execute($proposal); }
         if (!$db->beginTransaction()) { throw new \RuntimeException('DATABASE_ERROR'); }
         try {
             // Re-read both permissions and ownership on the confirmation request.
