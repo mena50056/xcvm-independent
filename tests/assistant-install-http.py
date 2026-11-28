@@ -15,7 +15,7 @@ class InstallationHTTP(unittest.TestCase):
  $pdo->exec('CREATE TABLE IF NOT EXISTS servers(id INTEGER PRIMARY KEY,server_name TEXT,server_ip TEXT,private_ip TEXT,server_type INTEGER,enabled INTEGER,https_broadcast_port INTEGER)');
  $pdo->exec("INSERT OR IGNORE INTO servers VALUES(1,'MAIN','8.8.8.8','10.0.0.1',0,1,443)");$db=(object)['dbh'=>$pdo];
  '''
-  source=base.HARNESS.replace('session_start();',setup+'\nsession_start();',1)
+  source=base.HARNESS.replace('<?php', '<?php namespace XcVm\\Cli\\Commands {class SshSession {public function connect($h,$p){return true;}public function hostKey(){return str_repeat("a",40);}public function close(){}}}',1).replace('session_start();',setup+'\nsession_start();',1)
   source=source.replace("file_put_contents(__DIR__.'/seen_messages',json_encode($messages));", "file_put_contents(__DIR__.'/seen_messages',json_encode($messages)); if(end($messages)['content']==='install')return ['message'=>'','proposal'=>null,'begin_installation'=>true];")
   source=source.replace('RESELLER_CONTROLLER',json.dumps((ROOT/'panel/src/Public/Controllers/Reseller/AssistantController.php').as_posix())).replace('CONTROLLER',json.dumps((ROOT/'panel/src/Public/Controllers/Admin/AssistantController.php').as_posix()))
   (cls.path/'router.php').write_text(source,encoding='utf-8')

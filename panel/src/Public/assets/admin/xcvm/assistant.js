@@ -34,6 +34,7 @@
     PROFILE_NOT_CONFIGURED: t('البروكسي يحتاج إعداد ملفه أولًا من صفحة البروكسي.', 'Configure this proxy profile on the proxy page first.'),
     INVALID_PROXY_CONFIGURATION: t('إعداد البروكسي غير صالح. راجع المنافذ والسيرفرات والقيم المطلوبة.', 'Invalid proxy configuration. Review ports, upstreams and requested values.'),
     FORBIDDEN: t('ليس لديك صلاحية لهذا الإجراء.', 'You do not have permission for this action.'),
+    INSTALL_SSH_UNAVAILABLE: t('تعذر الاتصال بـ SSH. راجع الهوست والمنفذ وإتاحة الاتصال من البانل، ثم أعد المحاولة.', 'Cannot connect to SSH. Check the host, port and access from MAIN, then retry.'),
     MEDIA_EXISTS: t('يوجد محتوى بنفس الاسم أو حلقة بنفس الرقم. راجع الموجود أولًا.', 'That media name or episode number already exists. Review it first.'),
     MEDIA_SAVE_FAILED: t('لم يتأكد حفظ المحتوى. راجع قائمة المحتوى قبل إعادة الطلب.', 'Media save was not confirmed. Check the catalog before retrying.'),
     STALE_PROPOSAL: t('انتهى التأكيد أو تغيرت البيانات. اطلب الإجراء مرة أخرى.', 'Confirmation expired or the data changed. Request it again.'),
@@ -95,7 +96,7 @@
   const installationQuestions = {
     kind: t('ما نوع السيرفر الذي تريد تنصيبه؟', 'Which server type do you want to install?'),
     name: t('ما الاسم الذي سيظهر للسيرفر في البانل؟', 'What display name should the server have?'),
-    ip: t('اكتب عنوان IPv4 العام للسيرفر الجديد. لا تستخدم عنوان البانل أو سيرفرًا مسجلًا.', 'Enter the fresh server public IPv4 address. Do not use MAIN or a registered server.'),
+    ip: t('اكتب هوست السيرفر الجديد: عنوان IPv4 عام أو دومين يشير إلى عنوان IPv4 واحد. لا تستخدم عنوان البانل أو سيرفرًا مسجلًا.', 'Enter the fresh server host: a public IPv4 address or a hostname resolving to one IPv4. Do not use MAIN or a registered server.'),
     ssh_port: t('ما منفذ SSH؟', 'What is the SSH port?'),
     fingerprint: t('اكتب بصمة مفتاح SSH بصيغة SHA1 من مصدر موثوق. يمكن عرضها من كونسول مزود السيرفر بالأمر: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha1', 'Enter the expected SHA1 SSH host-key fingerprint from a trusted source. Provider console command: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha1'),
     parent_id: t('اختر السيرفر الأصل الذي سيخدمه البروكسي.', 'Choose the upstream server for this proxy.'),
@@ -150,7 +151,7 @@
       button(t('متابعة','Continue'),next);button(t('إلغاء التنصيب','Cancel installation'),()=>submit('install_cancel'));
       setTimeout(()=>input.focus(),0);
     } else if(job.state==='review') {
-      text.textContent=t('راجع خطة التنصيب قبل التنفيذ:','Review the installation plan:')+'\n'+Object.entries(job.plan).map(([k,v])=>({kind:t('النوع','Type'),name:t('الاسم','Name'),ip:t('العنوان','Address'),ssh_port:t('منفذ SSH','SSH port'),fingerprint:t('بصمة SSH','SSH fingerprint'),parent_id:t('رقم السيرفر الأصل','Upstream ID'),tls_mode:t('شهادة HTTPS','HTTPS certificate'),capacity:t('حد الاتصالات','Connection limit'),fresh:t('سيرفر جديد','Fresh server')}[k]||k)+': '+({proxy:t('بروكسي','Proxy'),stream:t('سيرفر بث','Streaming node'),lb:t('لود بالانسر','Load balancer'),public_ip:t('شهادة IP عامة وتجديد آلي','Public IP TLS and renewal'),later:t('إعداد لاحق','Configure later'),true:t('نعم','Yes')}[String(v)]||v)).join('\n')+'\nSSH: root | HTTP: 80 | HTTPS: 443\n\n'+job.notes.join('\n\n');
+      text.textContent=t('راجع خطة التنصيب قبل التنفيذ:','Review the installation plan:')+'\n'+Object.entries(job.plan).map(([k,v])=>({kind:t('النوع','Type'),name:t('الاسم','Name'),ip:t('العنوان المثبت','Pinned IP'),host:t('الهوست','Host'),ssh_port:t('منفذ SSH','SSH port'),fingerprint:t('بصمة SSH','SSH fingerprint'),parent_id:t('رقم السيرفر الأصل','Upstream ID'),tls_mode:t('شهادة HTTPS','HTTPS certificate'),capacity:t('حد الاتصالات','Connection limit'),fresh:t('سيرفر جديد','Fresh server')}[k]||k)+': '+({proxy:t('بروكسي','Proxy'),stream:t('سيرفر بث','Streaming node'),lb:t('لود بالانسر','Load balancer'),public_ip:t('شهادة IP عامة وتجديد آلي','Public IP TLS and renewal'),later:t('إعداد لاحق','Configure later'),true:t('نعم','Yes')}[String(v)]||v)).join('\n')+'\nSSH: root | HTTP: 80 | HTTPS: 443\n\n'+job.notes.join('\n\n');
       button(t('تأكيد خطة التنصيب والتنفيذ','Confirm plan and install'),()=>submit('install_confirm'));
       button(t('إلغاء','Cancel'),()=>submit('install_cancel'));
     } else {

@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace XcVm\Domain\Assistant;
 
 use XcVm\Core\Auth\Authorization;
+use XcVm\Cli\Commands\SshSession;
 use XcVm\Domain\Server\InstallCredentials;
 
 final class InstallationWizard {
@@ -18,7 +19,7 @@ final class InstallationWizard {
             && preg_match('/(?:بروكسي|proxy|سيرفر|server|لود|balancer|بث)/iu',$text)===1;
     }
     private function gate(): int {global $rUserInfo;if(!self::allowed())throw new \RuntimeException('FORBIDDEN');return (int)$rUserInfo['id'];}
-    private function steps(array $data): array {return array_merge(['kind','name','ip','ssh_port','fingerprint'],($data['kind']??'')==='proxy'?['parent_id','tls_mode']:[],['capacity','fresh','password']);}
+    private function steps(array $data,int $version=1): array {return array_merge($version>=2?['kind','name','ip','ssh_port']:['kind','name','ip','ssh_port','fingerprint'],($data['kind']??'')==='proxy'?['parent_id','tls_mode']:[],['capacity','fresh','password']);}
     private function available(string $ip): void {
         $q=$this->db->prepare('SELECT id FROM servers WHERE server_ip=? OR private_ip=?');$q->execute([$ip,$ip]);
         if($q->fetchColumn())throw new \RuntimeException('INSTALL_EXISTING_SERVER');
@@ -30,7 +31,7 @@ final class InstallationWizard {
         try {
             if($op==='install_begin') {
                 foreach($this->store->all() as $old)if($old['actor']===$actor && in_array($old['state'],['draft','review','queued','running'],true)) { $old=$this->expire($old);if(in_array($old['state'],['draft','review','queued','running'],true))return $this->public($old); }
-                $job=['id'=>bin2hex(random_bytes(16)),'actor'=>$actor,'state'=>'draft','phase'=>'collecting','step'=>0,'data'=>[],'token'=>bin2hex(random_bytes(24)),'created_at'=>time(),'expires'=>time()+1800];$this->store->write($job);return $this->public($job);
+                $job=['id'=>bin2hex(random_bytes(16)),'actor'=>$actor,'version'=>2,'state'=>'draft','phase'=>'collecting','step'=>0,'data'=>[],'token'=>bin2hex(random_bytes(24)),'created_at'=>time(),'expires'=>time()+1800];$this->store->write($job);return $this->public($job);
             }
             $job=$this->expire($this->store->read((string)($input['job_id']??'')));
             if($job['actor']!==$actor)throw new \RuntimeException('FORBIDDEN');
@@ -38,12 +39,24 @@ final class InstallationWizard {
             if(!is_string($input['token']??null)||!hash_equals($job['token'],$input['token']))throw new \RuntimeException('STALE_PROPOSAL');
             if($op==='install_cancel' && in_array($job['state'],['draft','review','queued'],true)){$job['state']='cancelled';unset($job['secret']);$this->store->write($job);return $this->public($job);}
             if($op==='install_step' && $job['state']==='draft') {
-                $field=$this->steps($job['data'])[$job['step']];$value=$input['value']??null;
+                $field=$this->steps($job['data'],(int)($job['version']??1))[$job['step']];$value=$input['value']??null;
                 if(!is_string($value))throw new \RuntimeException('INVALID_ARGUMENTS');
-                if($field==='password') {if(strlen($value)<1||strlen($value)>512||str_contains($value,"\0"))throw new \RuntimeException('INVALID_ARGUMENTS');$job['secret']=$this->store->seal($value);}
-                else $job['data'][$field]=$this->validate($field,trim($value));
+                if($field==='password') {
+                    if(strlen($value)<1||strlen($value)>512||str_contains($value,"\0"))throw new \RuntimeException('INVALID_ARGUMENTS');
+                    if(($job['version']??1)>=2) {
+                        $ssh=new SshSession();
+                        try {
+                            if(!$ssh->connect($job['data']['ip'],$job['data']['ssh_port']))throw new \RuntimeException('INSTALL_SSH_UNAVAILABLE');
+                            $key=InstallCredentials::normalizeHostKey($ssh->hostKey());
+                            if($key===null)throw new \RuntimeException('INSTALL_SSH_UNAVAILABLE');
+                            $job['data']['fingerprint']=$key;
+                        } finally {$ssh->close();}
+                    }
+                    $job['secret']=$this->store->seal($value);
+                }
+                else { $job['data'][$field]=$this->validate($field,trim($value)); if($field==='ip')$job['data']['host']=trim($value); }
                 $job['step']++;$job['token']=bin2hex(random_bytes(24));$job['expires']=time()+1800;
-                if($job['step']===count($this->steps($job['data']))){$this->available($job['data']['ip']);$job['state']='review';$job['expires']=time()+300;}
+                if($job['step']===count($this->steps($job['data'],(int)($job['version']??1)))){$this->available($job['data']['ip']);$job['state']='review';$job['expires']=time()+300;}
             } elseif($op==='install_confirm' && $job['state']==='review') {
                 $this->available($job['data']['ip']);if($job['data']['kind']==='proxy')$this->validate('parent_id',(string)$job['data']['parent_id']);
                 if(empty($job['secret']))throw new \RuntimeException('INSTALL_CREDENTIALS');
@@ -56,7 +69,14 @@ final class InstallationWizard {
         switch($field) {
             case 'kind':if(in_array($v,['proxy','stream','lb'],true))return $v;break;
             case 'name':if(strlen($v)>=1&&strlen($v)<=80&&!preg_match('/[\x00-\x1F\x7F]/',$v))return $v;break;
-            case 'ip':if(filter_var($v,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4|FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE)){$this->available($v);return $v;}break;
+            case 'ip':
+                $ip=$v;
+                if(!filter_var($v,FILTER_VALIDATE_IP) && strlen($v)<=253 && str_contains($v,'.') && filter_var($v,FILTER_VALIDATE_DOMAIN,FILTER_FLAG_HOSTNAME)) {
+                    $ips=array_values(array_unique(gethostbynamel($v)?:[]));
+                    if(count($ips)!==1)break;
+                    $ip=$ips[0];
+                }
+                if(filter_var($ip,FILTER_VALIDATE_IP,FILTER_FLAG_IPV4|FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE)){$this->available($ip);return $ip;}break;
             case 'ssh_port':case 'capacity':$max=$field==='ssh_port'?65535:100000;if(ctype_digit($v)&&(int)$v>=1&&(int)$v<=$max)return (int)$v;break;
             case 'fingerprint':$key=InstallCredentials::normalizeHostKey($v);if($key!==null)return $key;break;
             case 'parent_id':if(ctype_digit($v)){ $q=$this->db->prepare('SELECT id FROM servers WHERE id=? AND server_type<>1 AND enabled=1 AND https_broadcast_port>0');$q->execute([(int)$v]);if($q->fetchColumn())return (int)$v;}break;
@@ -81,10 +101,11 @@ final class InstallationWizard {
             'كلمة المرور مشفرة مؤقتًا ولا تُرسل للموديل، وتُحذف عند بدء التنفيذ أو الإلغاء أو انتهاء المهلة / Password is temporarily encrypted, never sent to the model, and removed on start, cancellation or expiry.',
             'لا تعاد محاولة التنصيب تلقائيًا بعد فشل جزئي؛ قد تبقى حزم أو سجل سيرفر يحتاج المراجعة / Partial failures are not retried automatically; packages or a server record may remain for review.'
         ];
+        if(($job['version']??1)>=2)$out['notes'][]='بصمة SSH التُقطت تلقائيًا عند أول اتصال دون إرسال كلمة المرور. تأكيد الخطة يثق بهذه البصمة؛ يتوقف التنفيذ إذا تغيرت. العنوان المحلول مثبت لهذه العملية / SSH key captured automatically on first contact without sending the password. Confirming trusts this key; execution refuses a changed key. Resolved IP is pinned for this job.';
         if(($job['data']['tls_mode']??'')==='public_ip')$out['notes'][]='سيُطلب إصدار شهادة IP عامة والموافقة على شروط ACME وتفعيل التجديد؛ يجب إتاحة منفذ 80 لدى مزود السيرفر / Request public IP TLS, agree to ACME terms and enable renewal; provider port 80 must be reachable.';
         if(($job['data']['tls_mode']??'')==='later')$out['notes'][]='الشهادة الأولية محلية وغير موثوقة للمتصفحات؛ يلزم إعداد TLS قبل استخدام العملاء / Initial TLS is locally generated, not publicly trusted; configure trusted TLS before customer use.';
         if($job['state']==='draft') {
-            $field=$this->steps($job['data'])[$job['step']];$out['field']=$field;
+            $field=$this->steps($job['data'],(int)($job['version']??1))[$job['step']];$out['field']=$field;
             $out['choices']=match($field){'kind'=>['proxy'=>'بروكسي / Proxy','stream'=>'سيرفر بث / Streaming node','lb'=>'لود بالانسر / Load balancer'],'tls_mode'=>['public_ip'=>'شهادة IP عامة وتجديد آلي / Public IP TLS and renewal','later'=>'إعداد TLS لاحقًا / Configure TLS later'],'fresh'=>['yes'=>'نعم، سيرفر جديد مخصص للتنصيب / Yes, a fresh dedicated server'],default=>[]};
             if($field==='parent_id')foreach($this->db->query('SELECT id,server_name FROM servers WHERE server_type<>1 AND enabled=1 AND https_broadcast_port>0')->fetchAll(\PDO::FETCH_ASSOC) as $row)$out['choices'][(string)$row['id']]=$row['server_name'].' (#'.$row['id'].')';
         }

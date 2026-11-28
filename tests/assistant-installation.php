@@ -1,5 +1,7 @@
 <?php
 declare(strict_types=1);
+class FakeWizardSSH {public static bool $fail=false;public function connect($host,$port){return !self::$fail;}public function hostKey(){return str_repeat('a',40);}public function close(){}}
+class_alias(FakeWizardSSH::class,'XcVm\\Cli\\Commands\\SshSession');
 require __DIR__.'/../panel/src/Core/Auth/Authorization.php';
 require __DIR__.'/../panel/src/Domain/Server/InstallCredentials.php';
 require __DIR__.'/../panel/src/Domain/Assistant/InstallationStore.php';
@@ -17,7 +19,7 @@ $store=new InstallationStore($root);$wizard=new InstallationWizard($store,$pdo);
 function step(array $job,string $value): array {global $wizard;return $wizard->handle(['operation'=>'install_step','job_id'=>$job['id'],'token'=>$job['token'],'value'=>$value])['installation'];}
 function finish(array $job,string $kind='proxy'):array {
  $values=['kind'=>$kind,'name'=>'QA node','ip'=>'9.9.9.9','ssh_port'=>'22','fingerprint'=>str_repeat('a',40),'parent_id'=>'1','tls_mode'=>'later','capacity'=>'100','fresh'=>'yes','password'=>'TEST_SECRET_DO_NOT_EXPOSE'];
- while($job['state']==='draft')$job=step($job,$values[$job['field']]);return $job;
+ while($job['state']==='draft'){check($job['field']!=='fingerprint','New flow asks for manual fingerprint'); if($job['field']==='password'){FakeWizardSSH::$fail=true;refused(fn()=>step($job,$values['password']),'INSTALL_SSH_UNAVAILABLE');FakeWizardSSH::$fail=false;} $job=step($job,$values[$job['field']]);}return $job;
 }
 try {
  check(InstallationWizard::requested('عاوز أنصب سيرفر بروكسي جديد'),'Arabic start shortcut');
@@ -27,11 +29,11 @@ try {
  refused(fn()=>$wizard->handle(['operation'=>'install_confirm','job_id'=>$id,'token'=>$job['token']]),'STALE_PROPOSAL');
  $job=step($job,'proxy');$old=$job;$job=step($job,'QA');
  refused(fn()=>step($old,'replay'),'STALE_PROPOSAL');
- foreach(['127.0.0.1','10.0.0.1','::1','localhost','8.8.8.8','9.9.9.9;id'] as $ip)refused(fn()=>step($job,$ip),$ip==='8.8.8.8'?'INSTALL_EXISTING_SERVER':'INVALID_ARGUMENTS');
+ foreach(['127.0.0.1','10.0.0.1','::1','localhost','missing.invalid','8.8.8.8','9.9.9.9;id'] as $ip)refused(fn()=>step($job,$ip),$ip==='8.8.8.8'?'INSTALL_EXISTING_SERVER':'INVALID_ARGUMENTS');
  $job=step($job,'9.9.9.9');refused(fn()=>step($job,'0'),'INVALID_ARGUMENTS');$job=step($job,'22');
- refused(fn()=>step($job,'skip'),'INVALID_ARGUMENTS');$job=step($job,str_repeat('a',40));
+ check($job['field']==='parent_id','Manual fingerprint still requested');
  refused(fn()=>step($job,'2'),'INVALID_ARGUMENTS');$job=step($job,'1');$job=finish($job);
- check($job['state']==='review','Plan not reviewed');check(!str_contains(json_encode($job),'TEST_SECRET'),'Secret in public projection');
+ check($job['state']==='review','Plan not reviewed');check($job['plan']['fingerprint']===str_repeat('a',40),'Automatic fingerprint missing');check(!str_contains(json_encode($job),'TEST_SECRET'),'Secret in public projection');
  $private=$store->read($id);check(!str_contains(json_encode($private),'TEST_SECRET'),'Password stored in plaintext');check($store->open($private['secret'])==='TEST_SECRET_DO_NOT_EXPOSE','Cannot decrypt worker credentials');
  check((int)$pdo->query('SELECT COUNT(*) FROM servers')->fetchColumn()===2,'Wizard modified servers before confirmation');
  $rUserInfo['id']=2;refused(fn()=>$wizard->handle(['operation'=>'install_status','job_id'=>$id]),'FORBIDDEN');$rUserInfo['id']=1;
