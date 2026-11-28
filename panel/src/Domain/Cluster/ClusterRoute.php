@@ -5,6 +5,7 @@ namespace XcVm\Domain\Cluster;
 use XcVm\Core\Cluster\AgentConnections;
 use XcVm\Core\Cluster\CacheJobs;
 use XcVm\Core\Cluster\ClusterSettings;
+use XcVm\Core\Cluster\ControlError;
 use XcVm\Core\Cluster\Crypto\ClusterCrypto;
 use XcVm\Core\Cluster\Crypto\ClusterCryptoFactory;
 use XcVm\Core\Cluster\Crypto\ClusterRefusedException;
@@ -48,6 +49,7 @@ final class ClusterRoute {
 				return [$rRouted, null];
 			}
 			$rOutcome = CommandBus::await((string) end($rCmdIDs), max(1, $rTimeout));
+			if($rOutcome!==null&&!$rOutcome[0]&&($reason=ControlError::fromBody((string)$rOutcome[1]))!==null)return [true,json_encode(['result'=>false,'error'=>$reason])];
 			return [true, $rOutcome !== null && $rOutcome[0] ? (string) json_encode(['result' => true]) : null];
 		}
 		[$rRouted, $rCmdID] = self::command($rServerID, 'node.rpc', static fn(ClusterCrypto $rCrypto): string => CommandBus::enqueue($rCrypto, $rServerID, 'node.rpc', $rData), null);

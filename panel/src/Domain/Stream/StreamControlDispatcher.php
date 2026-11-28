@@ -3,6 +3,8 @@
 namespace XcVm\Domain\Stream;
 
 use XcVm\Core\Cluster\NodeRpc;
+use XcVm\Core\Cluster\StreamVersions;
+use XcVm\Core\Cluster\ControlError;
 use XcVm\Core\Logging\FileLogger;
 use XcVm\Domain\Server\ServerRepository;
 use XcVm\Infrastructure\Database\DatabaseFactory;
@@ -93,6 +95,13 @@ final class StreamControlDispatcher {
 						$errors[] = ['server_id' => $serverId, 'code' => 'SERVER_OFFLINE'];
 						continue;
 					}
+					// A native node starts from its signed replica. Publish the selected
+					// assignments before the command, including imports whose change event
+					// was missed; its on-demand sync can then fetch them immediately.
+					if ($action === 'stream' && $function === 'start' && !empty($servers[$serverId]['serve_only']) && StreamVersions::bump($streamIds) < 1) {
+						$errors[] = ['server_id' => $serverId, 'code' => 'STREAM_REPLICA_PUBLISH_FAILED'];
+						continue;
+					}
 					$payload = ['action' => $action, 'function' => $function, 'stream_ids' => $streamIds];
 					if ($action === 'vod' && $function === 'start') {
 						$payload['force'] = !empty($request['force']);
@@ -105,7 +114,7 @@ final class StreamControlDispatcher {
 						$answer = is_string($reply) ? json_decode($reply, true) : null;
 					}
 					if (!is_array($answer) || ($answer['result'] ?? false) !== true) {
-						$errors[] = ['server_id' => $serverId, 'code' => 'REMOTE_CONTROL_FAILED'];
+						$errors[] = ['server_id' => $serverId, 'code' => ControlError::fromBody((string)json_encode($answer)) ?? 'REMOTE_CONTROL_FAILED'];
 					} else {
 						foreach ($streamIds as $streamId) {
 							$accepted[] = ['server_id' => $serverId, 'stream_id' => $streamId];
