@@ -156,14 +156,44 @@ class MaxMindUpdater {
 			return $result;
 		}
 
-		rename($mmdbPath, $destPath);
-		chown($destPath, 'xc_vm');
-		chmod($destPath, 0750);
+		$buildEpoch = self::installDatabase($mmdbPath, $destPath, $edition);
+		if ($buildEpoch === null) {
+			@unlink($mmdbPath);
+			$result['error'] = 'Invalid database edition or failed installation; existing database retained';
+			return $result;
+		}
 
-		$this->updateVersionFile($edition);
+		$this->updateVersionFile($edition, $buildEpoch);
 
 		$result['updated'] = true;
 		return $result;
+	}
+
+	/** Validate the downloaded edition before an atomic replacement of the file in use. */
+	public static function installDatabase(string $source, string $destination, string $edition): ?int {
+		try {
+			$reader = new \MaxMind\Db\Reader($source);
+			try { $metadata = $reader->metadata(); }
+			finally { $reader->close(); }
+			if ($metadata->databaseType !== $edition || $metadata->buildEpoch <= 0) return null;
+			// Preserve the directory's runtime owner when root performs a manual update.
+			$owner = @stat(dirname($destination));
+			if ($owner !== false) { @chown($source, $owner['uid']); @chgrp($source, $owner['gid']); }
+			if (!@chmod($source, 0644) || !@rename($source, $destination)) return null;
+			return (int) $metadata->buildEpoch;
+		} catch (\Throwable) { return null; }
+	}
+
+	public static function editionVersions(array $previous, string $edition, int $buildEpoch): array {
+		$key = match ($edition) {
+			'GeoLite2-Country' => 'geolite2_version',
+			'GeoLite2-City' => 'geolite2c_version',
+			'GeoLite2-ASN' => 'geolite2asn_version',
+			'GeoIP2-ISP' => 'geoisp_version',
+			default => strtolower(str_replace(['GeoIP2-', '-'], ['geo', '_'], $edition)) . '_version',
+		};
+		$previous[$key] = gmdate('Y-m-d', $buildEpoch);
+		return $previous;
 	}
 
 	/**
@@ -211,19 +241,9 @@ class MaxMindUpdater {
 	 *
 	 * @param string $edition Edition id that was updated.
 	 */
-	private function updateVersionFile(string $edition): void {
+	private function updateVersionFile(string $edition, int $buildEpoch): void {
 		$data  = json_decode(@file_get_contents(self::VERSION_FILE), true) ?: [];
-		$today = date('d.m.y');
-
-		if (strpos($edition, 'GeoLite2') !== false) {
-			$data['geolite2_version'] = $today;
-		} else {
-			if ($edition === 'GeoIP2-ISP') {
-				$data['geoisp_version'] = $today;
-			}
-			$key = strtolower(str_replace(['GeoIP2-', '-'], ['geo', '_'], $edition)) . '_version';
-			$data[$key] = $today;
-		}
+		$data = self::editionVersions($data, $edition, $buildEpoch);
 
 		file_put_contents(self::VERSION_FILE, json_encode($data, JSON_PRETTY_PRINT));
 	}

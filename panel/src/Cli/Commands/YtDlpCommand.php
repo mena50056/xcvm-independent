@@ -17,8 +17,8 @@ use XcVm\Core\Updates\GitHubReleases;
  * to the latest upstream release, and on a mismatch downloads the release asset,
  * verifies its SHA-256, run-tests it and installs it atomically.
  *
- * Source is upstream `yt-dlp/yt-dlp` (the python-zip `yt-dlp` asset — architecture
- * independent, needs a system python3). Polled ~daily by `cron:root_signals`
+ * Source is upstream `yt-dlp/yt-dlp`, using a standalone Linux build so Ubuntu
+ * 22.04's Python 3.10 does not constrain future releases. Polled by `cron:root_signals`
  * (stamp `ytdlp_check`), so no dedicated cron/crontab row is required.
  *
  * It also installs deno (the JS runtime yt-dlp needs for YouTube) to
@@ -35,8 +35,12 @@ use XcVm\Core\Updates\GitHubReleases;
 class YtDlpCommand implements CommandInterface {
 	private const REPO_OWNER = 'yt-dlp';
 	private const REPO_NAME  = 'yt-dlp';
-	private const ASSET      = 'yt-dlp'; // python-zip variant (arch independent)
 	private const DENO_BIN   = '/usr/local/bin/deno';
+
+	public static function releaseAsset(string $rOS, string $rArch): ?string {
+		if ($rOS !== 'Linux') return null;
+		return ['x86_64' => 'yt-dlp_linux', 'aarch64' => 'yt-dlp_linux_aarch64'][$rArch] ?? null;
+	}
 
 	public function getName(): string {
 		return 'ytdlp';
@@ -102,6 +106,11 @@ class YtDlpCommand implements CommandInterface {
 	}
 
 	private function updateYtDlp(bool $rForce): int {
+		$rAsset = self::releaseAsset(PHP_OS_FAMILY, php_uname('m'));
+		if ($rAsset === null) {
+			echo "No compatible standalone yt-dlp build; kept the installed binary.\n";
+			return 1;
+		}
 		$rBinary = YOUTUBE_BIN;
 		$rDir = dirname($rBinary);
 		if (!is_dir($rDir)) {
@@ -135,30 +144,30 @@ class YtDlpCommand implements CommandInterface {
 			. '/releases/download/' . rawurlencode($rTag) . '/';
 		$rTmp = $rDir . '/.yt-dlp.new';
 
-		if (!$this->download($rBase . self::ASSET, $rTmp)) {
-			echo 'Failed to download ' . self::ASSET . "\n";
+		if (!$this->download($rBase . $rAsset, $rTmp)) {
+			echo 'Failed to download ' . $rAsset . "\n";
 			@unlink($rTmp);
 			return 1;
 		}
 
 		// Upstream publishes checksums as SHA2-256SUMS (not SHA256SUMS).
-		$rExpected = $this->expectedSha256($rBase . 'SHA2-256SUMS', self::ASSET);
+		$rExpected = $this->expectedSha256($rBase . 'SHA2-256SUMS', $rAsset);
 		if ($rExpected === null) {
 			echo "Failed to fetch SHA2-256SUMS\n";
 			@unlink($rTmp);
 			return 1;
 		}
 		if (!hash_equals($rExpected, hash_file('sha256', $rTmp))) {
-			echo 'Checksum mismatch for ' . self::ASSET . " — aborting\n";
+			echo 'Checksum mismatch for ' . $rAsset . " — aborting\n";
 			@unlink($rTmp);
 			return 1;
 		}
 
 		@chmod($rTmp, 0755);
-		// Run-test: proves the fresh binary actually runs with the host python3
+		// Run-test: proves the standalone binary actually runs on this host
 		// before we swap it in — a broken download must never replace a working one.
 		$rNewVer = trim((string) shell_exec(escapeshellarg($rTmp) . ' --version 2>/dev/null'));
-		if ($rNewVer === '') {
+		if ($rNewVer !== $rLatest) {
 			echo "Downloaded binary does not run on this host — aborting\n";
 			@unlink($rTmp);
 			return 1;
@@ -200,6 +209,7 @@ class YtDlpCommand implements CommandInterface {
 			CURLOPT_FOLLOWLOCATION => true,
 			CURLOPT_CONNECTTIMEOUT => 20,
 			CURLOPT_TIMEOUT        => 120,
+			CURLOPT_MAX_RECV_SPEED_LARGE => 5 * 1024 * 1024,
 			CURLOPT_FAILONERROR    => true,
 			CURLOPT_USERAGENT      => 'XC_VM',
 		]);

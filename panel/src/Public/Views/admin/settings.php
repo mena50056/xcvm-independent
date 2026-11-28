@@ -1268,7 +1268,7 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 								<div class="col-md-8">
 									<?php
 									$rSelectedEditions = json_decode($rSettings["maxmind_editions"] ?? '[]', true) ?: ["GeoLite2-Country", "GeoLite2-City"];
-									$rAvailableEditions = class_exists("MaxMindUpdater")
+								$rAvailableEditions = class_exists(MaxMindUpdater::class)
 										? MaxMindUpdater::availableEditions()
 										: ["GeoLite2-Country" => "GeoLite2 Country", "GeoLite2-City" => "GeoLite2 City"];
 									?>

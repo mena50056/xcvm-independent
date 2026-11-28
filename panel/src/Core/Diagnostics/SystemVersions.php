@@ -107,7 +107,7 @@ final class SystemVersions {
                 $rows[$id] = ['value' => null, 'state' => 'not_installed'];
                 continue;
             }
-            $output = self::probe($argv);
+            $output = self::probe($argv, $id === 'yt-dlp' ? 3 : 1);
             if ($id === 'nginx') preg_match('~nginx/([\w.+-]+)~', (string) $output, $match);
             else preg_match('/^v?([0-9][A-Za-z0-9.+_-]*)\s*$/m', (string) $output, $match);
             $rows[$id] = ['value' => $match[1] ?? null, 'state' => isset($match[1]) ? 'detected' : 'unknown'];
@@ -127,12 +127,12 @@ final class SystemVersions {
     }
 
     /** Fixed argv, bounded output and deadline: an optional tool cannot hang Settings. */
-    private static function probe(array $argv): ?string {
+    private static function probe(array $argv, float $timeout = 1): ?string {
         if (!function_exists('proc_open')) return null;
         $process = @proc_open($argv, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
         if (!is_resource($process)) return null;
         stream_set_blocking($pipes[1], false);
-        $output = ''; $deadline = microtime(true) + 1; $code = -1;
+        $output = ''; $deadline = microtime(true) + $timeout; $code = -1;
         do {
             $output .= (string) fread($pipes[1], 8192);
             $status = proc_get_status($process);
