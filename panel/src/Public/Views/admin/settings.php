@@ -3067,100 +3067,6 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 								</tbody>
 							</table></div>
 
-							<h4 class="card-title mb-4"><?= $language::get('support_project') ?></h4>
-
-							<div class="table-responsive horus-version-details" tabindex="0"><table class="table table-striped table-bordered text-center">
-								<thead class="thead-light">
-									<tr>
-										<th><?= $language::get('name') ?></th>
-										<th><?= $language::get('address') ?></th>
-										<th style="width: 90px;"><?= $language::get('qr') ?></th>
-										<th style="width: 90px;"><?= $language::get('copy') ?></th>
-									</tr>
-								</thead>
-
-								<tbody>
-									<tr>
-										<td>
-											<i class="icon-base ti tabler-currency-bitcoin text-warning"></i> Bitcoin (BTC)
-										</td>
-
-										<td class="text-monospace small">1EP3XFHVk1fF3kV6zSg7whZzQdUpVMcAQz</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-primary" data-toggle="modal" data-target="#qrModal" onclick="showQR(this)">
-												<i class="icon-base ti tabler-qrcode"></i>
-											</button>
-										</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-success" onclick="copyAddr(this)">
-												<i class="icon-base ti tabler-copy"></i>
-											</button>
-										</td>
-									</tr>
-
-									<tr>
-										<td>
-											<i class="icon-base ti tabler-currency-ethereum text-info"></i> Ethereum (ETH)
-										</td>
-
-										<td class="text-monospace small">0x613411dB8cFbaeaCC3A075EF39F41DFaaab4E1B8</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-primary" onclick="showQR(this)">
-												<i class="icon-base ti tabler-qrcode"></i>
-											</button>
-										</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-success" onclick="copyAddr(this)">
-												<i class="icon-base ti tabler-copy"></i>
-											</button>
-										</td>
-									</tr>
-
-									<tr>
-										<td>
-											<i class="icon-base ti tabler-currency-litecoin text-secondary"></i> Litecoin (LTC)
-										</td>
-
-										<td class="text-monospace small">MFmn43WF2k2bsAQJe8rRmq2sKke95JmqC4</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-primary" onclick="showQR(this)">
-												<i class="icon-base ti tabler-qrcode"></i>
-											</button>
-										</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-success" onclick="copyAddr(this)">
-												<i class="icon-base ti tabler-copy"></i>
-											</button>
-										</td>
-									</tr>
-
-									<tr>
-										<td>
-											<i class="icon-base ti tabler-currency-dollar text-success"></i> USDT (ERC-20)
-										</td>
-
-										<td class="text-monospace small">0x034a2263a15Ade8606cC60181f12E5c2f0Ac59C6</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-primary" onclick="showQR(this)">
-												<i class="icon-base ti tabler-qrcode"></i>
-											</button>
-										</td>
-
-										<td>
-											<button type="button" class="btn btn-sm btn-outline-success" onclick="copyAddr(this)">
-												<i class="icon-base ti tabler-copy"></i>
-											</button>
-										</td>
-									</tr>
-								</tbody>
-							</table></div>
 						</div>
 					</div>
 				</div>
@@ -3176,21 +3082,6 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 		</div>
 	</div>
 </form>
-
-<!-- Donation QR modal (populated by showQR) -->
-<div class="modal fade" id="qrModal" tabindex="-1" aria-hidden="true">
-	<div class="modal-dialog modal-dialog-centered modal-sm">
-		<div class="modal-content">
-			<div class="modal-header">
-				<h5 class="modal-title"><?= $language::get('qr_code') ?></h5>
-				<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-			</div>
-			<div class="modal-body text-center">
-				<img id="qrImage" src="" alt="QR Code" style="max-width:100%">
-			</div>
-		</div>
-	</div>
-</div>
 
 <?php
 
@@ -3306,7 +3197,6 @@ LayoutRenderer::renderFooter('admin');
 			});
 		}
 
-		// Address helpers (crypto-donation table on the Info tab).
 		// Metrics Token: 40 hexadecimal digits from the browser's cryptographic source.
 		(function() {
 			var field = document.getElementById('metrics_token');
@@ -3322,51 +3212,6 @@ LayoutRenderer::renderFooter('admin');
 				field.value = '';
 			});
 		})();
-
-		window.showQR = function(btnEl) {
-			var row = btnEl.closest('tr');
-			var addrCell = row ? row.querySelector('td.text-monospace') : null;
-			if (!addrCell) {
-				return;
-			}
-			var text = addrCell.textContent.trim();
-			var img = document.getElementById('qrImage');
-			if (img) {
-				img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(text);
-			}
-			var modalEl = document.getElementById('qrModal') || document.querySelector('.bs-addr-qr-modal-center');
-			if (modalEl && window.bootstrap) {
-				bootstrap.Modal.getOrCreateInstance(modalEl).show();
-			}
-		};
-
-		window.copyAddr = function(btnEl) {
-			var row = btnEl.closest('tr');
-			var addrCell = row ? row.querySelector('td.text-monospace') : null;
-			if (!addrCell) {
-				return;
-			}
-			var text = addrCell.textContent.trim();
-			var tempInput = document.createElement('input');
-			tempInput.value = text;
-			document.body.appendChild(tempInput);
-			tempInput.select();
-			try {
-				document.execCommand('copy');
-				var icon = btnEl.querySelector('i');
-				if (icon) {
-					icon.classList.remove('tabler-copy');
-					icon.classList.add('tabler-check', 'text-success');
-					setTimeout(function() {
-						icon.classList.remove('tabler-check', 'text-success');
-						icon.classList.add('tabler-copy');
-					}, 1000);
-				}
-			} catch (err) {
-				console.error('Copy failed:', err);
-			}
-			document.body.removeChild(tempInput);
-		};
 
 		window.UpdateServer = function() {
             <?php if (defined('XCVM_INDEPENDENT_LAB')): ?>
