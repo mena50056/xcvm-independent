@@ -7,8 +7,6 @@ use XcVm\Cli\CronTrait;
 use XcVm\Core\Backup\BackupService;
 use XcVm\Core\Backup\BackupIntegrity;
 use XcVm\Core\Config\SettingsManager;
-use XcVm\Domain\Backup\BackupTargets;
-use XcVm\Domain\Backup\RecoveryBundle;
 use XcVm\Domain\Server\ServerRepository;
 
 /**
@@ -39,10 +37,15 @@ class BackupsCronJob implements CommandInterface {
         $due = !empty($rArgs[0]) || (isset(BackupService::PERIODS[SettingsManager::get('automatic_backups')]) &&
             (int) SettingsManager::get('last_backup') + BackupService::PERIODS[SettingsManager::get('automatic_backups')] <= time());
         try {
+            if (!$due) \XcVm\Domain\Backup\OffsiteBackup::retry(time());
             if ($due) BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>'running', 'time'=>time(), 'pid'=>getmypid()]);
             $result = $this->runBackup($rArgs);
-            if ($due) BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>$result === 0 ? 'success' : 'failed', 'time'=>time(), 'file'=>BackupService::newestBackup()['filename'] ?? null]);
-            return $result;
+            if ($due) {
+                $offsite = \XcVm\Domain\Backup\OffsiteBackup::status();
+                $state = $result === 0 ? (in_array($offsite['state']??'', ['failed','blocked'], true) ? 'partial' : 'success') : 'failed';
+                BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>$state, 'time'=>time(), 'file'=>BackupService::newestBackup()['filename'] ?? null]);
+            }
+            return ($state ?? '') === 'partial' ? 1 : $result;
         } catch (\Throwable $exception) {
             BackupIntegrity::writeJson(MAIN_HOME . 'backups/status.json', ['state'=>'failed', 'time'=>time()]);
             error_log('Horus backup failed; check storage and database availability.');
@@ -127,7 +130,7 @@ class BackupsCronJob implements CommandInterface {
 				}
 				if (file_exists(MAIN_HOME . 'backups/' . $rItem['filename'])) {
 					unlink(MAIN_HOME . 'backups/' . $rItem['filename']);
-                    foreach (['.sha256.json', '.error', '.uploading'] as $suffix) @unlink(MAIN_HOME . 'backups/' . $rItem['filename'] . $suffix);
+                    foreach (['.sha256.json', '.error', '.uploading', '.offsite.json'] as $suffix) @unlink(MAIN_HOME . 'backups/' . $rItem['filename'] . $suffix);
 				}
 			}
 		}
@@ -163,31 +166,6 @@ class BackupsCronJob implements CommandInterface {
 	 * keep each target's newest copies.
 	 */
 	private static function offsite(string $rDump, int $rNow): void {
-		if (!class_exists(BackupTargets::class)) {
-			return;
-		}
-		$rFiles = [$rDump];
-		if (RecoveryBundle::passphrase() !== null && $rNow - RecoveryBundle::newest() >= 23 * 3600 && ($rBundle = RecoveryBundle::make($rNow)) !== null) {
-			$rFiles[] = $rBundle;
-			// A week of bundles here; the targets keep as many as they are set to.
-			$rLocal = glob(MAIN_HOME . 'backups/recovery_*.bundle') ?: [];
-			sort($rLocal);
-			foreach (array_slice($rLocal, 0, max(0, count($rLocal) - 7)) as $rOld) {
-				@unlink($rOld);
-			}
-		}
-		$rErrors = [];
-		foreach (BackupTargets::enabled() as $rTarget) {
-			foreach ($rFiles as $rFile) {
-				$rError = BackupTargets::upload($rTarget, $rFile, basename($rFile));
-				if ($rError !== null) {
-					$rErrors[] = $rTarget['name'] . ': ' . $rError;
-				}
-			}
-			BackupTargets::prune($rTarget);
-		}
-		if ($rErrors !== []) {
-			file_put_contents($rDump . '.error', implode("\n", $rErrors) . "\n", FILE_APPEND);
-		}
+		\XcVm\Domain\Backup\OffsiteBackup::run($rDump, $rNow);
 	}
 }

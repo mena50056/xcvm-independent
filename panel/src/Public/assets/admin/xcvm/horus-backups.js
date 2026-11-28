@@ -39,8 +39,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const create = document.getElementById('create-backup');
     async function status() {
         try {
-            const {status:data} = await request('status');
-            const states={running:text('جارٍ النسخ','Running'),success:text('نجح النسخ والتحقق','Backup verified'),failed:text('فشل النسخ','Backup failed'),restore_failed:text('تعذرت الاستعادة — راجع نسخة الأمان','Restore failed — check safety copy')};
+            const {status:data, offsite={}} = await request('status');
+            const states={running:text('جارٍ النسخ','Running'),success:text('نجح النسخ والتحقق','Backup verified'),partial:text('النسخة المحلية سليمة، وفشل النسخ الخارجي','Local backup verified; off-site delivery failed'),failed:text('فشل النسخ','Backup failed'),restore_failed:text('تعذرت الاستعادة — راجع نسخة الأمان','Restore failed — check safety copy')};
+            const offsiteLabels={success:text('تم رفع نسخة مشفرة والتحقق من قراءتها من الوجهة الخارجية.','Encrypted off-site copy uploaded and read-back verified.'),failed:text('تعذر إكمال النسخ الخارجي. النسخة المحلية محفوظة، وستعاد المحاولة تلقائيًا.','Off-site delivery failed. The local backup is preserved; a retry is scheduled.'),blocked:text('النسخ الخارجي ينتظر ضبط مفتاح الاسترداد.','Off-site delivery needs a recovery passphrase.'),not_configured:text('لا توجد وجهة خارجية مفعّلة. اضبط مساحة S3 لإكمال الحماية.','No enabled off-site target. Configure S3 storage to complete protection.')};
+            const offsiteNotice=document.getElementById('hb-offsite-state');
+            offsiteLabels.pending=text('الوجهة جاهزة. أنشئ نسخة لبدء أول رفع والتحقق منه.','Target configured. Create a backup to verify the first delivery.');
+            if(offsiteNotice && offsiteLabels[offsite.state]) {offsiteNotice.textContent=offsiteLabels[offsite.state];offsiteNotice.classList.toggle('alert-warning',['failed','blocked','not_configured'].includes(offsite.state));offsiteNotice.classList.toggle('alert-info',offsite.state==='success');}
             document.getElementById('hb-status').textContent=states[data.state] || text('لم يتم تشغيل النسخ بعد','No backup run recorded');
             document.getElementById('hb-time').textContent=data.time ? new Date(data.time*1000).toLocaleString() : '';
             const current=JSON.stringify(data);

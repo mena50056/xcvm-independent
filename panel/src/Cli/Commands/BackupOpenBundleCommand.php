@@ -43,21 +43,9 @@ class BackupOpenBundleCommand implements CommandInterface {
 			echo "Not a recovery bundle, or the wrong passphrase.\n";
 			return 1;
 		}
-		if (!mkdir($rDir, 0700, true)) {
-			echo "Cannot create {$rDir}.\n";
-			return 1;
-		}
-		foreach ($rOpened['files'] as $rName => $rContent) {
-			// A custom translation goes back under lang/, as it lies under config/; of any name, only its last part is used.
-			$rFile = $rDir . '/' . (str_starts_with((string) $rName, 'lang/') ? 'lang/' : '') . basename((string) $rName);
-			if (!is_dir(dirname($rFile))) {
-				mkdir(dirname($rFile), 0700);
-			}
-			file_put_contents($rFile, $rContent);
-			chmod($rFile, 0600);
-			echo "  {$rFile}\n";
-		}
-		echo 'Made ' . date('Y-m-d H:i', $rOpened['made']) . ". Restore the newest database backup, then put these files back in /home/xc_vm/config/.\n";
+		try { RecoveryBundle::extract($rOpened, $rDir); }
+		catch (\Throwable $rError) { echo "Cannot extract recovery bundle safely.\n"; return 1; }
+		echo 'Made ' . date('Y-m-d H:i', $rOpened['made']) . ". Extracted into a new directory; review independent/manifest.json before applying files to a recovered MAIN.\n";
 		return 0;
 	}
 }

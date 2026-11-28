@@ -37,6 +37,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: php tests/vendor-disconnect.php
       - run: php tests/independent-backups.php
+      - run: php tests/offsite-recovery.php
+      - run: python3 tests/offsite-http.py
       - run: php tests/connection-telemetry.php
       - run: php tests/fanout-handler-switch.php
       - run: php tests/proxy-profiles.php

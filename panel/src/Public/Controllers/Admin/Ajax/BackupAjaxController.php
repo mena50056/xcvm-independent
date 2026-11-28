@@ -103,7 +103,10 @@ class BackupAjaxController extends BaseAjaxController {
         }
         $this->requireXhr();
         if ($sub === 'status') {
-            $this->ok(['status'=>\XcVm\Core\Backup\BackupIntegrity::status()]);
+            $offsite=\XcVm\Domain\Backup\OffsiteBackup::status();
+            if (\XcVm\Domain\Backup\BackupTargets::enabled()===[]) $offsite=['state'=>'not_configured'];
+            elseif (in_array($offsite['state']??'', ['', 'not_configured'],true)) $offsite=['state'=>\XcVm\Domain\Backup\RecoveryBundle::passphrase()===null?'blocked':'pending'];
+            $this->ok(['status'=>\XcVm\Core\Backup\BackupIntegrity::status(), 'offsite'=>$offsite]);
         }
         if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !hash_equals((string) ($_SESSION['horus_backup_csrf'] ?? ''), (string) RequestManager::get('csrf')) || empty($_SESSION['horus_backup_csrf'])) $this->fail();
         if ($sub === 'verify') {
@@ -121,7 +124,7 @@ class BackupAjaxController extends BaseAjaxController {
             if (!$lock) $this->fail(['error'=>'busy']);
             $deleted = $file !== null ? unlink($file) : false;
             if ($remote) { BackupService::deleteRemote('/' . $name); if ($file === null) $deleted = true; }
-            if ($deleted && $file !== null) foreach (['.sha256.json', '.error', '.uploading'] as $suffix) @unlink($file . $suffix);
+            if ($deleted && $file !== null) foreach (['.sha256.json', '.error', '.uploading', '.offsite.json'] as $suffix) @unlink($file . $suffix);
             flock($lock, LOCK_UN); fclose($lock);
             $this->json(['result'=>$deleted]);
         }

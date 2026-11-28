@@ -40,6 +40,7 @@ class BackupTargetAjaxController extends BaseAjaxController {
 	/** action=backup_bundle_passphrase: set it (20+ characters) or, empty, clear it. */
 	public function passphrase(): never {
 		$this->guard();
+		if (trim((string) RequestManager::get('passphrase')) === '' && BackupTargets::enabled() !== []) $this->fail(['error'=>'RECOVERY_PASSPHRASE_REQUIRED']);
 		$this->json(['result' => RecoveryBundle::setPassphrase((string) RequestManager::get('passphrase'))]);
 	}
 
@@ -54,6 +55,10 @@ class BackupTargetAjaxController extends BaseAjaxController {
 		$this->gate('adv', 'database');
 		if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 			$this->fail(['error' => 'method']);
+		}
+		$rToken = RequestManager::get('csrf');
+		if (!is_string($rToken) || empty($_SESSION['horus_backup_csrf']) || !hash_equals($_SESSION['horus_backup_csrf'], $rToken)) {
+			http_response_code(403); $this->fail(['error'=>'INVALID_CSRF']);
 		}
 	}
 }

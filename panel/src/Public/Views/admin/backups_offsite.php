@@ -15,6 +15,7 @@ use XcVm\Domain\Backup\RecoveryBundle;
 $rTargets = array_map([BackupTargets::class, 'forPage'], BackupTargets::all());
 $rBundleOn = RecoveryBundle::passphrase() !== null;
 $rVerify = BackupVerifier::last((string) ($rSettings['backup_verify'] ?? ''));
+$rBackupText = static fn($ar,$en) => \XcVm\Core\Localization\Translator::isRtl() ? $ar : $en;
 $rTargetFields = [
     'endpoint' => $language::get('backup_s3_endpoint'), 'region' => $language::get('backup_s3_region'), 'bucket' => $language::get('backup_s3_bucket'), 'prefix' => $language::get('backup_s3_prefix'),
     'access_key' => $language::get('backup_s3_access_key'), 'secret_key' => $language::get('backup_s3_secret_key'), 'path_style' => $language::get('backup_s3_path_style'),
@@ -23,15 +24,16 @@ $rTargetFields = [
 ];
 ?>
 <div class="col-12">
+    <div class="alert alert-info" id="hb-offsite-state" role="status"><?= $rBackupText('نسخ S3 وSFTP تُشفّر قبل الرفع، ثم تُقرأ من الوجهة للتحقق من بصمتها. اضبط وجهة ومفتاح الاسترداد ثم أنشئ نسخة لاختبار الربط.', 'S3 and SFTP copies are encrypted before upload and read back to verify their checksum. Configure a target and recovery passphrase, then create a backup to test delivery.') ?></div>
     <div class="card">
         <div class="card-header">
             <h5 class="card-title mb-1"><?= $language::get('backup_targets'); ?></h5>
-            <p class="mb-0 text-body-secondary"><?= $language::get('backup_targets_intro'); ?></p>
+            <p class="mb-0 text-body-secondary"><?= $rBackupText('نسخة مشفرة وحزمة استرداد لكل وجهة. تُحذف النسخ القديمة من الوجهة بعد التحقق من الرفع الجديد.', 'An encrypted export and recovery bundle for each target. Older remote copies are pruned after the new delivery is verified.'); ?></p>
         </div>
         <div class="card-body">
             <?php if ($rTargets !== []): ?>
                 <div class="table-responsive mb-6">
-                    <table class="table table-sm">
+                    <table class="table table-sm" id="hb-targets-table">
                         <thead>
                             <tr>
                                 <th><?= $language::get('name'); ?></th>
@@ -44,11 +46,11 @@ $rTargetFields = [
                         <tbody>
                             <?php foreach ($rTargets as $rTarget): ?>
                                 <tr>
-                                    <td><?= htmlspecialchars($rTarget['name'], ENT_QUOTES); ?></td>
-                                    <td><?= strtoupper(htmlspecialchars($rTarget['type'], ENT_QUOTES)); ?></td>
-                                    <td><?= $rTarget['keep'] > 0 ? (int) $rTarget['keep'] : $language::get('backup_target_keep_all'); ?></td>
-                                    <td><span class="badge <?= $rTarget['enabled'] ? 'bg-label-success' : 'bg-label-secondary'; ?>"><?= $language::get($rTarget['enabled'] ? 'enabled' : 'disabled'); ?></span></td>
-                                    <td class="text-end text-nowrap">
+                                    <td data-label="<?= $language::get('name'); ?>"><?= htmlspecialchars($rTarget['name'], ENT_QUOTES); ?></td>
+                                    <td data-label="<?= $language::get('type'); ?>"><?= strtoupper(htmlspecialchars($rTarget['type'], ENT_QUOTES)); ?></td>
+                                    <td data-label="<?= $language::get('backup_target_keep'); ?>"><?= $rTarget['keep'] > 0 ? (int) $rTarget['keep'] : $language::get('backup_target_keep_all'); ?></td>
+                                    <td data-label="<?= $language::get('status'); ?>"><span class="badge <?= $rTarget['enabled'] ? 'bg-label-success' : 'bg-label-secondary'; ?>"><?= $language::get($rTarget['enabled'] ? 'enabled' : 'disabled'); ?></span></td>
+                                    <td data-label="<?= $language::get('actions'); ?>" class="text-end text-nowrap">
                                         <button type="button" class="btn btn-sm btn-label-info" data-target-test="<?= (int) $rTarget['id']; ?>"><?= $language::get('alert_test'); ?></button>
                                         <button type="button" class="btn btn-sm btn-label-primary" data-target-edit="<?= htmlspecialchars((string) json_encode($rTarget), ENT_QUOTES); ?>"><?= $language::get('edit'); ?></button>
                                         <button type="button" class="btn btn-sm btn-label-danger" data-target-delete="<?= (int) $rTarget['id']; ?>"><?= $language::get('delete'); ?></button>
@@ -117,7 +119,7 @@ $rTargetFields = [
     <div class="card h-100">
         <div class="card-header">
             <h5 class="card-title mb-1"><?= $language::get('backup_bundle'); ?></h5>
-            <p class="mb-0 text-body-secondary"><?= $language::get('backup_bundle_intro'); ?></p>
+            <p class="mb-0 text-body-secondary"><?= $rBackupText('تحفظ هوية حورس ومفاتيح التشغيل وإعدادات البروكسي والمساعد داخل حزمة مشفرة. احتفظ بمفتاح الاسترداد في مكان مستقل؛ ستحتاجه لفتح النسخ على سيرفر بديل.', 'Preserve the Horus identity, runtime keys, proxy and assistant settings in an encrypted bundle. Keep the recovery passphrase separately; a replacement server needs it to open these copies.'); ?></p>
         </div>
         <div class="card-body">
             <p><span class="badge <?= $rBundleOn ? 'bg-label-success' : 'bg-label-secondary'; ?>"><?= $language::get($rBundleOn ? 'backup_bundle_on' : 'backup_bundle_off'); ?></span></p>
@@ -140,7 +142,7 @@ $rTargetFields = [
     <div class="card h-100">
         <div class="card-header">
             <h5 class="card-title mb-1"><?= $language::get('backup_verify'); ?></h5>
-            <p class="mb-0 text-body-secondary"><?= $language::get('backup_verify_intro'); ?></p>
+            <p class="mb-0 text-body-secondary"><?= $rBackupText('اختبار دوري لاستعادة أحدث نسخة داخل قاعدة اختبار منفصلة والتحقق من محتواها. بيانات البانل الحالية محفوظة أثناء الاختبار.', 'Periodically restore the latest backup into a separate test database and verify its contents. The current panel data is preserved during this check.'); ?></p>
         </div>
         <div class="card-body">
             <?php if ($rVerify === null): ?>
@@ -179,6 +181,7 @@ $rTargetFields = [
         var form = document.getElementById('target-form');
 
         function post(action, fd) {
+            fd.set('csrf', <?= json_encode($_SESSION['horus_backup_csrf'] ?? '') ?>);
             return fetch('./api?action=' + action, {
                 method: 'POST',
                 body: fd,

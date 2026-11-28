@@ -10,14 +10,13 @@ use XcVm\Core\Localization\Translator;
  * config.ini (the database credentials), the modules' configuration, the
  * custom translations (config/lang/) and, when the cluster API is set up, the
  * cluster's key export — encrypted with a
- * passphrase (Argon2id, then XSalsa20-Poly1305). cron:backups makes one a day
- * when a passphrase is set and copies it to the backup targets beside the
- * dumps; `console.php backup:open-bundle` opens one.
+ * passphrase (Argon2id, then XSalsa20-Poly1305). Each off-site export pairs
+ * encrypted SQL with a fresh bundle; `backup:open-bundle` opens one.
  *
  * The passphrase is kept in config/backup_bundle.pass (xc_vm only), never in
  * the database, so no dump carries it; keep a copy of it off this machine.
- * Files sealed to this machine (config.enc, install_id, the licence) are not
- * in the bundle: they are no use anywhere else.
+ * The independent runtime includes its protected state and master key together.
+ * Vendor-specific machine-sealed files remain outside the legacy bundle.
  *
  * @package XC_VM_Domain_Backup
  * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
@@ -36,6 +35,7 @@ final class RecoveryBundle {
 	}
 
 	public static function passphrase(): ?string {
+		if (is_link(self::passphraseFile()) || !is_file(self::passphraseFile()) || filesize(self::passphraseFile())>4096) return null;
 		$rPass = @file_get_contents(self::passphraseFile());
 		return is_string($rPass) && strlen(trim($rPass)) >= self::MIN_LENGTH ? trim($rPass) : null;
 	}
@@ -43,20 +43,19 @@ final class RecoveryBundle {
 	/** Set (or with '', clear) the passphrase. False: too short. */
 	public static function setPassphrase(string $rPass): bool {
 		$rPass = trim($rPass);
+		if (is_link(self::passphraseFile())) return false;
 		if ($rPass === '') {
 			@unlink(self::passphraseFile());
 			return true;
 		}
-		if (strlen($rPass) < self::MIN_LENGTH) {
+		if (strlen($rPass) < self::MIN_LENGTH || strlen($rPass)>4096) {
 			return false;
 		}
 		$rFile = self::passphraseFile();
-		$rTemp = $rFile . '.tmp';
-		if (file_put_contents($rTemp, $rPass, LOCK_EX) === false) {
-			return false;
-		}
-		chmod($rTemp, 0600);
-		return rename($rTemp, $rFile);
+		$rTemp = tempnam(dirname($rFile), '.recovery-key-');
+		if ($rTemp===false) return false;
+		try { chmod($rTemp,0600);return file_put_contents($rTemp,$rPass)===strlen($rPass) && rename($rTemp,$rFile); }
+		finally { if(is_file($rTemp))unlink($rTemp); }
 	}
 
 	/**
@@ -69,6 +68,11 @@ final class RecoveryBundle {
 	 */
 	public static function files(string $rPass): array {
 		$rFiles = [];
+		if (defined('XCVM_INDEPENDENT_LAB') && XCVM_INDEPENDENT_LAB) {
+			$rState = (string) getenv('XCVM_LAB_STATE');
+			if ($rState === '') throw new \RuntimeException('RECOVERY_STATE_REQUIRED');
+			$rFiles = IndependentRecovery::files($rState, rtrim(CONFIG_PATH, '/'));
+		}
 		foreach (self::FILES as $rName) {
 			if (is_readable(CONFIG_PATH . $rName)) {
 				$rFiles[$rName] = (string) file_get_contents(CONFIG_PATH . $rName);
@@ -128,12 +132,33 @@ final class RecoveryBundle {
 		if ($rPass === null) {
 			return null;
 		}
-		$rFile = MAIN_HOME . 'backups/recovery_' . date('Y-m-d_H-i-s', $rNow) . '.bundle';
-		if (file_put_contents($rFile, self::seal(self::files($rPass), $rPass, $rNow)) === false) {
-			return null;
+		$rFile = MAIN_HOME . 'backups/recovery_' . date('Y-m-d_H-i-s', $rNow) . '_' . bin2hex(random_bytes(3)) . '.bundle';
+		$rStage = tempnam(MAIN_HOME . 'backups', '.recovery-');
+		if ($rStage === false) return null;
+		try {
+			chmod($rStage, 0600);
+			$rSealed = self::seal(self::files($rPass), $rPass, $rNow);
+			if (file_put_contents($rStage, $rSealed) !== strlen($rSealed) || !link($rStage, $rFile)) return null;
+			return $rFile;
+		} finally { unlink($rStage); }
+	}
+
+	/** Extract only to a new directory; validate every name before creating any output. */
+	public static function extract(array $rOpened, string $rDir): void {
+		if (file_exists($rDir) || is_link($rDir)) throw new \RuntimeException('RECOVERY_DESTINATION_EXISTS');
+		foreach ($rOpened['files'] as $rName => $rBytes) {
+			if (!preg_match('~^(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$~D', (string) $rName)
+				|| array_intersect(explode('/', (string) $rName), ['.', '..'])) throw new \RuntimeException('INVALID_RECOVERY_PATH');
 		}
-		chmod($rFile, 0600);
-		return $rFile;
+		if (!mkdir($rDir, 0700, true)) throw new \RuntimeException('RECOVERY_DIRECTORY_FAILED');
+		foreach ($rOpened['files'] as $rName => $rBytes) {
+			$rPath = $rDir . '/' . $rName;
+			if (!is_dir(dirname($rPath)) && !mkdir(dirname($rPath), 0700, true)) throw new \RuntimeException('RECOVERY_DIRECTORY_FAILED');
+			$rFile = fopen($rPath, 'xb');
+			if (!$rFile) throw new \RuntimeException('RECOVERY_WRITE_FAILED');
+			try { chmod($rPath, 0600); if (fwrite($rFile, $rBytes) !== strlen($rBytes)) throw new \RuntimeException('RECOVERY_WRITE_FAILED'); }
+			finally { fclose($rFile); }
+		}
 	}
 
 	/** The newest local bundle's time, or 0. */

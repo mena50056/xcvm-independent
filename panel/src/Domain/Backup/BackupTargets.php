@@ -114,6 +114,10 @@ final class BackupTargets {
 			if (filter_var($rConfig['endpoint'] ?? '', FILTER_VALIDATE_URL) === false || !preg_match('#^https?://#i', $rConfig['endpoint'])) {
 				return 'endpoint';
 			}
+			$rURL = parse_url($rConfig['endpoint']);
+			if (isset($rURL['user']) || isset($rURL['pass']) || isset($rURL['query']) || isset($rURL['fragment'])
+				|| !in_array($rURL['path'] ?? '', ['', '/'], true)
+				|| (($rURL['scheme'] ?? '') !== 'https' && !in_array($rURL['host'] ?? '', ['localhost','127.0.0.1','[::1]'], true))) return 'endpoint';
 			if (!preg_match('/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/', $rConfig['bucket'] ?? '')) {
 				return 'bucket';
 			}
@@ -141,6 +145,7 @@ final class BackupTargets {
 
 	/** Copy a local file to a target under $rName. Null when it went, else why not. */
 	public static function upload(array $rTarget, string $rFile, string $rName): ?string {
+		if (!self::safeName($rName)) return 'INVALID_BACKUP_NAME';
 		try {
 			return $rTarget['type'] === 's3' ? self::s3Put($rTarget, $rFile, $rName) : self::sftp($rTarget, static function ($rSftp, string $rDir) use ($rFile, $rName): ?string {
 				$rOut = @fopen('ssh2.sftp://' . intval($rSftp) . $rDir . '/' . $rName . '.part', 'w');
@@ -189,12 +194,13 @@ final class BackupTargets {
 			return $rNames;
 		}
 		// Only what cron:backups puts there: its names sort by date.
-		$rNames = array_values(array_filter($rNames, static fn(string $rName): bool => (bool) preg_match('/^(backup_.+\.sql|recovery_.+\.bundle)$/', $rName)));
+		$rNames = array_values(array_filter($rNames, [self::class, 'safeName']));
 		sort($rNames);
 		return $rNames;
 	}
 
 	public static function remove(array $rTarget, string $rName): ?string {
+		if (!self::safeName($rName)) return 'INVALID_BACKUP_NAME';
 		try {
 			return $rTarget['type'] === 's3' ? self::s3Delete($rTarget, $rName) : self::sftp($rTarget, static fn($rSftp, string $rDir): ?string => @ssh2_sftp_unlink($rSftp, $rDir . '/' . $rName) ? null : 'cannot delete ' . $rName);
 		} catch (\Throwable $e) {
@@ -207,16 +213,19 @@ final class BackupTargets {
 	 *
 	 * @return int how many were removed
 	 */
-	public static function prune(array $rTarget): int {
+	public static function prune(array $rTarget, array $rProtected = []): int {
 		$rNames = self::listing($rTarget);
-		if ((int) $rTarget['keep'] <= 0 || !is_array($rNames)) {
+		if ((int) $rTarget['keep'] <= 0) {
 			return 0;
 		}
+		if (!is_array($rNames)) throw new \RuntimeException('OFFSITE_RETENTION_LIST_FAILED');
 		$rRemoved = 0;
 		foreach (['/^backup_/', '/^recovery_/'] as $rKind) {
 			$rOld = array_values(preg_grep($rKind, $rNames) ?: []);
 			foreach (array_slice($rOld, 0, max(0, count($rOld) - (int) $rTarget['keep'])) as $rName) {
-				$rRemoved += self::remove($rTarget, $rName) === null ? 1 : 0;
+				if (in_array($rName, $rProtected, true)) continue;
+				if (self::remove($rTarget, $rName) !== null) throw new \RuntimeException('OFFSITE_RETENTION_DELETE_FAILED');
+				$rRemoved++;
 			}
 		}
 		return $rRemoved;
@@ -228,8 +237,10 @@ final class BackupTargets {
 		$rFile = (string) tempnam(sys_get_temp_dir(), 'xcvm-target-');
 		file_put_contents($rFile, "-- XC_VM backup target test\n");
 		$rError = self::upload($rTarget, $rFile, $rName);
+		if ($rError === null) $rError = self::verify($rTarget, $rFile, $rName);
 		@unlink($rFile);
 		if ($rError !== null) {
+			self::remove($rTarget, $rName);
 			return $rError;
 		}
 		$rList = self::listing($rTarget);
@@ -240,6 +251,46 @@ final class BackupTargets {
 			return 'the test file was written but is not listed';
 		}
 		return self::remove($rTarget, $rName);
+	}
+
+	private static function safeName(string $name): bool {
+		return (bool) preg_match('/^(?:backup_[A-Za-z0-9_.:-]+\.sql(?:\.horus)?|recovery_[A-Za-z0-9_.:-]+\.bundle)$/D', $name);
+	}
+
+	/** Stream a remote object to a new private file, including on machines without the original MAIN. */
+	public static function download(array $target, string $name, string $destination): ?string {
+		if (!self::safeName($name) || file_exists($destination) || is_link($destination)) return 'INVALID_BACKUP_PATH';
+		$output = fopen($destination, 'xb');
+		if (!$output) return 'BACKUP_DOWNLOAD_FAILED';
+		chmod($destination, 0600); $error = null;
+		try {
+			if ($target['type'] === 's3') {
+				[$code] = self::s3Request($target['config'], 'GET', self::s3Key($target['config'], $name), '', null, $output);
+				if ($code !== 200) $error = 'S3 answered HTTP ' . $code;
+			} else {
+				$error = self::sftp($target, static function ($sftp, string $dir) use ($name, $output): ?string {
+					$input = @fopen('ssh2.sftp://' . intval($sftp) . $dir . '/' . $name, 'rb');
+					if (!$input) return 'BACKUP_DOWNLOAD_FAILED';
+					try { stream_set_timeout($input, 30); return stream_copy_to_stream($input, $output) === false ? 'BACKUP_DOWNLOAD_FAILED' : null; }
+					finally { fclose($input); }
+				});
+			}
+			if (!fflush($output)) $error = 'BACKUP_WRITE_FAILED';
+		} catch (\Throwable $e) { $error = 'BACKUP_DOWNLOAD_FAILED'; }
+		finally { fclose($output); if ($error !== null) @unlink($destination); }
+		return $error;
+	}
+
+	/** Verify bytes read back from the target, rather than trusting a listing or an ETag. */
+	public static function verify(array $target, string $file, string $name): ?string {
+		$temp = tempnam(sys_get_temp_dir(), 'horus-offsite-check-');
+		if ($temp === false) return 'BACKUP_STAGE_FAILED';
+		unlink($temp);
+		try {
+			$error = self::download($target, $name, $temp);
+			if ($error !== null) return $error;
+			return filesize($file) === filesize($temp) && hash_equals(hash_file('sha256', $file), hash_file('sha256', $temp)) ? null : 'REMOTE_BACKUP_CHECKSUM_FAILED';
+		} finally { if (is_file($temp)) unlink($temp); }
 	}
 
 	// ── S3 (Signature Version 4) ─────────────────────────────
@@ -278,7 +329,7 @@ final class BackupTargets {
 	}
 
 	/** @return array{0: int, 1: string} HTTP status and body */
-	private static function s3Request(array $rConfig, string $rMethod, string $rKey, string $rQuery = '', ?string $rFile = null): array {
+	private static function s3Request(array $rConfig, string $rMethod, string $rKey, string $rQuery = '', ?string $rFile = null, $rOutput = null): array {
 		$rNow = time();
 		[$rURL, $rHost, $rPath] = self::s3Url($rConfig, $rKey, $rQuery);
 		$rHash = $rFile !== null ? hash_file('sha256', $rFile) : hash('sha256', '');
@@ -290,9 +341,13 @@ final class BackupTargets {
 			CURLOPT_HTTPHEADER => ['Authorization: ' . $rAuth, 'x-amz-content-sha256: ' . $rHash, 'x-amz-date: ' . $rHeaders['x-amz-date']],
 			CURLOPT_RETURNTRANSFER => true,
 			CURLOPT_CONNECTTIMEOUT => self::TIMEOUT,
+			CURLOPT_TIMEOUT => 600,
+			CURLOPT_LOW_SPEED_LIMIT => 1024,
+			CURLOPT_LOW_SPEED_TIME => 30,
 			CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
 		];
 		$rIn = null;
+		if ($rOutput !== null) { $rOpts[CURLOPT_RETURNTRANSFER] = false; $rOpts[CURLOPT_FILE] = $rOutput; }
 		if ($rFile !== null) {
 			$rIn = fopen($rFile, 'r');
 			$rOpts += [CURLOPT_UPLOAD => true, CURLOPT_INFILE => $rIn, CURLOPT_INFILESIZE => filesize($rFile)];
@@ -308,7 +363,7 @@ final class BackupTargets {
 		if ($rBody === false) {
 			throw new \RuntimeException('no answer from ' . $rHost . ($rError !== '' ? ' (' . $rError . ')' : ''));
 		}
-		return [$rCode, (string) $rBody];
+		return [$rCode, $rOutput === null ? (string) $rBody : ''];
 	}
 
 	private static function s3Key(array $rConfig, string $rName): string {
@@ -337,6 +392,7 @@ final class BackupTargets {
 		$rPrefix = trim((string) ($rTarget['config']['prefix'] ?? ''), '/');
 		$rNames = [];
 		$rToken = null;
+		$rSeen=[];
 		do {
 			$rQuery = http_build_query(array_filter(['list-type' => '2', 'prefix' => $rPrefix === '' ? null : $rPrefix . '/', 'continuation-token' => $rToken], static fn($rValue): bool => $rValue !== null), '', '&', PHP_QUERY_RFC3986);
 			[$rCode, $rBody] = self::s3Request($rTarget['config'], 'GET', '', $rQuery);
@@ -344,8 +400,10 @@ final class BackupTargets {
 				return self::s3Error($rCode, $rBody);
 			}
 			[$rPage, $rToken] = self::s3ParseList($rBody);
+			if ($rToken!==null) { if(isset($rSeen[$rToken])||count($rSeen)>=1000)throw new \RuntimeException('S3_LIST_PAGINATION_FAILED');$rSeen[$rToken]=true; }
 			foreach ($rPage as $rKey) {
-				$rNames[] = basename($rKey);
+				$rName = $rPrefix === '' ? $rKey : substr($rKey, strlen($rPrefix) + 1);
+				if (($rPrefix === '' || str_starts_with($rKey, $rPrefix . '/')) && !str_contains($rName, '/')) $rNames[] = $rName;
 			}
 		} while ($rToken !== null);
 		return $rNames;
@@ -353,8 +411,10 @@ final class BackupTargets {
 
 	/** @return array{0: list<string>, 1: ?string} the keys of a ListObjectsV2 answer, and the next page's token */
 	public static function s3ParseList(string $rXML): array {
+		if (!preg_match('#<ListBucketResult(?:\s|>)#',$rXML)) throw new \RuntimeException('S3_LIST_INVALID');
 		preg_match_all('#<Key>(.*?)</Key>#s', $rXML, $rKeys);
 		$rNext = preg_match('#<IsTruncated>true</IsTruncated>#', $rXML) && preg_match('#<NextContinuationToken>(.*?)</NextContinuationToken>#s', $rXML, $rToken) ? html_entity_decode($rToken[1]) : null;
+		if(preg_match('#<IsTruncated>true</IsTruncated>#',$rXML)&&($rNext===null||$rNext===''))throw new \RuntimeException('S3_LIST_PAGINATION_FAILED');
 		return [array_map('html_entity_decode', $rKeys[1]), $rNext];
 	}
 
