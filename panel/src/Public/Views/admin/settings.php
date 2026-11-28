@@ -418,7 +418,7 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 										</select>
 									</div>
 									<?php if ($rChannelKey === "update_channel_main"): ?>
-										<div class="col-md-6 col-form-label text-warning small"><?= $language::get('update_channel_dev_warning') ?></div>
+										<div class="col-md-6 col-form-label text-warning text-wrap small"><?= $language::get('update_channel_dev_warning') ?></div>
 									<?php endif; ?>
 								</div>
 							<?php endforeach; ?>
@@ -2497,55 +2497,7 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 									</div>
 							</div>
 
-							<p class="text-body-secondary"><?= $language::get('genre_mapping_help') ?></p>
-							<?php $rGenreBouquetList = BouquetService::getAll(); ?>
-							<h5 class="card-title mb-4"><?= $language::get('genre_mapping_movies') ?></h5>
-								<?php foreach (CategoryService::getGenreMap(1) as $rGenre): ?>
-									<?php $rGenreBouquets = array_map('intval', (array) json_decode((string) $rGenre['bouquets'], true)); ?>
-									<div class="form-group row mb-4">
-										<label class="col-md-2 col-form-label" for="genre_<?= (int) $rGenre['genre_id'] ?>"><?= htmlspecialchars((string) $rGenre['genre']) ?></label>
-										<div class="col-md-4">
-											<select name="genre_<?= (int) $rGenre['genre_id'] ?>" id="genre_<?= (int) $rGenre['genre_id'] ?>" class="form-control" data-toggle="select2">
-												<option value="0"><?= $language::get('do_not_use') ?></option>
-												<?php foreach (CategoryService::getAllByType('movie') as $rCategory): ?>
-													<option value="<?= (int) $rCategory['id'] ?>" <?= intval($rGenre['category_id']) === intval($rCategory['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $rCategory['category_name']) ?></option>
-												<?php endforeach; ?>
-											</select>
-										</div>
-										<label class="col-md-2 col-form-label" for="bouquet_<?= (int) $rGenre['genre_id'] ?>"><?= $language::get('bouquets') ?></label>
-										<div class="col-md-4">
-											<select name="bouquet_<?= (int) $rGenre['genre_id'] ?>[]" id="bouquet_<?= (int) $rGenre['genre_id'] ?>" class="form-control" data-toggle="select2" multiple="multiple" data-placeholder="<?= $language::get('choose') ?>">
-												<?php foreach ($rGenreBouquetList as $rBouquet): ?>
-													<option value="<?= (int) $rBouquet['id'] ?>" <?= in_array(intval($rBouquet['id']), $rGenreBouquets, true) ? ' selected' : '' ?>><?= htmlspecialchars((string) $rBouquet['bouquet_name']) ?></option>
-												<?php endforeach; ?>
-											</select>
-										</div>
-									</div>
-								<?php endforeach; ?>
-
-							<h5 class="card-title mb-4 mt-6"><?= $language::get('genre_mapping_series') ?></h5>
-								<?php foreach (CategoryService::getGenreMap(2) as $rGenre): ?>
-									<?php $rGenreBouquets = array_map('intval', (array) json_decode((string) $rGenre['bouquets'], true)); ?>
-									<div class="form-group row mb-4">
-										<label class="col-md-2 col-form-label" for="genretv_<?= (int) $rGenre['genre_id'] ?>"><?= htmlspecialchars((string) $rGenre['genre']) ?></label>
-										<div class="col-md-4">
-											<select name="genretv_<?= (int) $rGenre['genre_id'] ?>" id="genretv_<?= (int) $rGenre['genre_id'] ?>" class="form-control" data-toggle="select2">
-												<option value="0"><?= $language::get('do_not_use') ?></option>
-												<?php foreach (CategoryService::getAllByType('series') as $rCategory): ?>
-													<option value="<?= (int) $rCategory['id'] ?>" <?= intval($rGenre['category_id']) === intval($rCategory['id']) ? ' selected' : '' ?>><?= htmlspecialchars((string) $rCategory['category_name']) ?></option>
-												<?php endforeach; ?>
-											</select>
-										</div>
-										<label class="col-md-2 col-form-label" for="bouquettv_<?= (int) $rGenre['genre_id'] ?>"><?= $language::get('bouquets') ?></label>
-										<div class="col-md-4">
-											<select name="bouquettv_<?= (int) $rGenre['genre_id'] ?>[]" id="bouquettv_<?= (int) $rGenre['genre_id'] ?>" class="form-control" data-toggle="select2" multiple="multiple" data-placeholder="<?= $language::get('choose') ?>">
-												<?php foreach ($rGenreBouquetList as $rBouquet): ?>
-													<option value="<?= (int) $rBouquet['id'] ?>" <?= in_array(intval($rBouquet['id']), $rGenreBouquets, true) ? ' selected' : '' ?>><?= htmlspecialchars((string) $rBouquet['bouquet_name']) ?></option>
-												<?php endforeach; ?>
-											</select>
-										</div>
-									</div>
-								<?php endforeach; ?>
+							<?php require __DIR__ . '/settings_genres.php'; ?>
 						</div>
 					</div>
 				</div>

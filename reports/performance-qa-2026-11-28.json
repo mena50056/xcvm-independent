@@ -1,0 +1,185 @@
+{
+  "date": "2026-11-28",
+  "scope": "Isolated local QA only; no production connections or deployment",
+  "environment": {
+    "php": "8.3.36, built-in HTTP server, 5 workers, OPcache enabled",
+    "mysql": "MariaDB 10.11.14, 64 MiB InnoDB buffer pool",
+    "redis": "7.0.15, separate temporary loopback instance for synthetic viewers",
+    "dataset": {
+      "lines": 3114,
+      "streams": 3522,
+      "streams_series": 154,
+      "users": 108,
+      "servers": 22,
+      "bouquets": 106,
+      "streams_categories": 103,
+      "lines_live": 0,
+      "lines_activity": 0
+    }
+  },
+  "changes": [
+    "Share movie/series genre option pools and hydrate each dropdown when opened; keep saved values in every ordinary form submission",
+    "Count stream viewers with ZCARD instead of transferring every UUID; preserve detailed connection reads",
+    "Allow the update-channel note to wrap on narrow screens"
+  ],
+  "paired_http_runs": {
+    "requests_per_run": 600,
+    "routes": "10 pages, 7 tables, 3 table searches; 96 mixed requests each at concurrency 1/4/8/16/32",
+    "query_profiling_note": "All queries were temporarily logged with long_query_time=0 during paired runs; Slow_queries counters here do not classify normal slow operations. Original logging settings restored.",
+    "errors_before": 0,
+    "errors_after": 0,
+    "settings_before": {
+      "median_ms": 81.93,
+      "bytes": 1107031
+    },
+    "settings_after": {
+      "median_ms": 32.52,
+      "bytes": 428495
+    },
+    "mixed_concurrency_32_before": {
+      "requests": 96,
+      "errors": 0,
+      "p95_ms": 294.41,
+      "mysql_delta": {
+        "Created_tmp_disk_tables": 16,
+        "Innodb_buffer_pool_read_requests": 157004,
+        "Innodb_buffer_pool_reads": 0,
+        "Questions": 2610,
+        "Select_full_join": 0,
+        "Select_scan": 1633,
+        "Slow_queries": 2513
+      }
+    },
+    "mixed_concurrency_32_after": {
+      "requests": 96,
+      "errors": 0,
+      "p95_ms": 176.55,
+      "mysql_delta": {
+        "Created_tmp_disk_tables": 16,
+        "Innodb_buffer_pool_read_requests": 133293,
+        "Innodb_buffer_pool_reads": 0,
+        "Questions": 1778,
+        "Select_full_join": 0,
+        "Select_scan": 801,
+        "Slow_queries": 1681
+      }
+    }
+  },
+  "redis_counter": {
+    "method": "30 batched counts of 25 streams with 5000 synthetic viewer records; INFO overhead included in byte totals",
+    "before": {
+      "streams": 25,
+      "viewers": 5000,
+      "median_ms": 3.598574,
+      "p95_ms": 4.410946,
+      "redis_bytes_out": 5862888,
+      "commands": 812
+    },
+    "after": {
+      "streams": 25,
+      "viewers": 5000,
+      "median_ms": 1.916199,
+      "p95_ms": 2.561999,
+      "redis_bytes_out": 12892,
+      "commands": 812
+    },
+    "repeat_after": {
+      "streams": 25,
+      "viewers": 5000,
+      "median_ms": 2.636864,
+      "p95_ms": 3.859266,
+      "redis_bytes_out": 12904,
+      "commands": 812
+    }
+  },
+  "sustained_http": {
+    "duration_target_s": 120,
+    "elapsed_s": 120.32,
+    "concurrency": 12,
+    "synthetic_viewers": 5000,
+    "requests": 17635,
+    "errors": 0,
+    "median_ms": 24.73,
+    "p95_ms": 66.2,
+    "max_ms": 275.27
+  },
+  "mysql_review": {
+    "physical_buffer_pool_reads_during_soak": 0,
+    "new_full_joins_during_soak": 0,
+    "disk_temporary_tables_during_soak": 1762,
+    "notes": "Repeated category queries eliminated. Stream listing GROUP BY still uses a temporary table; its query averaged about 4 ms in QA. No schema, index or database sizing changes applied."
+  },
+  "redis_review": {
+    "used_memory_before": 8193096,
+    "used_memory_after": 8193096,
+    "blocked_clients_peak": 0,
+    "evicted_keys_delta": 0,
+    "rejected_connections_delta": 0
+  },
+  "browser": {
+    "settings": {
+      "before": {
+        "nodes": 12369,
+        "options": 8311,
+        "domReadyMs": 1417.4000000003725,
+        "bytes": 1107148
+      },
+      "after": {
+        "nodes": 5229,
+        "options": 1169,
+        "domReadyMs": 1217.800000000745,
+        "bytes": 429388
+      },
+      "initial_values_preserved": true,
+      "opening_preserves_values": true,
+      "reset_preserves_defaults": true,
+      "changed_and_unopened_mappings_saved": true,
+      "geometry": [
+        {
+          "name": "desktop",
+          "width": 1440,
+          "scroll": 1440
+        },
+        {
+          "name": "mobile",
+          "width": 390,
+          "scroll": 390
+        },
+        {
+          "name": "small-mobile",
+          "width": 360,
+          "scroll": 360
+        }
+      ],
+      "errors": []
+    },
+    "page_views_checked": 20,
+    "all_pages_fit_viewport": true,
+    "page_js_errors": 0
+  },
+  "regression_checks": [
+    "34 related PHPUnit tests / 210 assertions against isolated Redis and database fixtures",
+    "Stream count protocol fixture",
+    "Settings render and saved-value fixture",
+    "Connection telemetry and handler-switch guards",
+    "5 static HTTP asset tests",
+    "Real settings save, opened/unopened dropdowns and reset checked in headless Chrome"
+  ],
+  "cleanup": {
+    "persistent_row_counts_unchanged": true,
+    "original_mysql_logging_restored": true,
+    "qa_connection_mode_restored": true,
+    "temporary_redis_removed": true,
+    "original_redis_keys_preserved": true,
+    "qa_settings_and_genre_mappings_restored": true
+  },
+  "repeat_command": "python3 tests/performance-http.py --confirm-isolated-qa --credentials-file /private/qa-login.json --seconds 120 --concurrency 12 --output /private/performance.json",
+  "limits": [
+    "Loopback measurements exclude Internet, TLS and production network latency",
+    "PHP built-in server is not a production Nginx/PHP-FPM capacity test",
+    "Synthetic viewer records do not represent actual video traffic or encoder load",
+    "Two minutes validates a short sustained load, not long-term endurance",
+    "Warm response times vary with workstation load; paired samples and a separate sustained run are reported",
+    "S3 remains unconfigured; no production release or deployment performed"
+  ]
+}

@@ -726,13 +726,22 @@ class ConnectionTracker {
 	 * @return array Map of streamID => connections[] (or count).
 	 */
 	public static function getStreamConnections(array $rStreamIDs, bool $rGroup = true, bool $rCount = false): array {
+		$rStreamIDs = array_values($rStreamIDs);
+		if ($rStreamIDs === []) {
+			return [];
+		}
 		$rRedis = RedisManager::instance();
 		if (!$rRedis instanceof \Redis) {
 			return [];
 		}
 		$rMulti = $rRedis->multi();
 		foreach ($rStreamIDs as $rStreamID) {
-			$rMulti->zRevRangeByScore('STREAM#' . $rStreamID, '+inf', '-inf');
+			if ($rCount) {
+				// Counting needs a fixed-size reply, not every viewer UUID in the set.
+				$rMulti->zCard('STREAM#' . $rStreamID);
+			} else {
+				$rMulti->zRevRangeByScore('STREAM#' . $rStreamID, '+inf', '-inf');
+			}
 		}
 		$rGroups = $rMulti->exec();
 		$rConnectionMap = $rRedisKeys = [];
@@ -741,7 +750,10 @@ class ConnectionTracker {
 		}
 		foreach ($rGroups as $rGroupID => $rKeys) {
 			if ($rCount) {
-				$rConnectionMap[$rStreamIDs[$rGroupID]] = count($rKeys);
+				if (!is_int($rKeys) || $rKeys < 0) {
+					return [];
+				}
+				$rConnectionMap[$rStreamIDs[$rGroupID]] = $rKeys;
 			} else {
 				if (0 < count($rKeys)) {
 					$rRedisKeys = array_merge($rRedisKeys, $rKeys);
