@@ -23,4 +23,7 @@ $versionText = static fn(string $key): string => str_starts_with($key, 'versions
         </article>
         <?php endforeach; ?>
     </div>
+    <?php if (array_filter($rHorusVersions, static fn(array $row): bool => in_array($row['id'], ['geo-country','geo-city'], true) && $row['state'] === 'detected')): ?>
+    <p class="small text-body-secondary mt-3 mb-0">GeoLite data © <a href="https://www.maxmind.com/" target="_blank" rel="noopener">MaxMind</a>.</p>
+    <?php endif; ?>
 </section>

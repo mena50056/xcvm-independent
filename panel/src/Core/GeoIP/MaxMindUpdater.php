@@ -103,6 +103,7 @@ class MaxMindUpdater {
 		$ch = curl_init($url);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 		curl_setopt($ch, CURLOPT_TIMEOUT, self::TIMEOUT);
+		curl_setopt($ch, CURLOPT_MAX_RECV_SPEED_LARGE, 5 * 1024 * 1024);
 		curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
 		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 		curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);

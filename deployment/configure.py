@@ -118,6 +118,11 @@ if role == 'main':
     write_connection_units(ROOT, '/etc/systemd/system')
     from setup_proxy_monitor import write_units as write_proxy_monitor_units
     write_proxy_monitor_units(ROOT, '/etc/systemd/system')
+    from setup_geoip import write_units as write_geoip_units
+    geoip_dir = SRC / 'bin/maxmind'
+    geoip_dir.mkdir(mode=0o755, parents=True, exist_ok=True)
+    shutil.chown(geoip_dir, 'xcvm_lab', 'xcvm_lab')
+    write_geoip_units(ROOT, '/etc/systemd/system')
     unit('xcvm-independent-signals', f'{php} {SRC}/console.php signals')
     unit('xcvm-independent-fanout-sync', f'{php} {SRC}/console.php fanout_sync')
     write(ROOT / 'deployment/maintenance.sh', f'''#!/bin/sh

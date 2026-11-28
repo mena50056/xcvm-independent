@@ -44,6 +44,8 @@ jobs:
       - run: php tests/settings-options.php
       - run: php tests/system-versions.php
       - run: php tests/component-updates.php
+      - run: python3 deployment/test_geoip_schedule.py
+      - run: php -l runtime/geoip-update.php
       - run: node --check panel/src/Public/assets/admin/horus/settings-options.js
       - run: python3 -m py_compile tests/performance-http.py
       - run: php tests/fanout-handler-switch.php
