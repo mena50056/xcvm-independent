@@ -2,6 +2,7 @@
 namespace XcVm\Domain\Assistant;
 
 final class AssistantClient {
+    public const MODEL = 'xc-assistant:latest';
     public static function config(): array {
         $file = MAIN_HOME . 'config/assistant.json';
         $config = is_file($file) ? json_decode((string) file_get_contents($file), true) : [];
@@ -52,7 +53,7 @@ final class AssistantClient {
         for ($round = 0; $round < 3; $round++) {
             $remaining = (int) floor($deadline - microtime(true));
             if ($remaining < 1) throw new \RuntimeException('AI_UNAVAILABLE');
-            $payload = ['model' => 'xc-assistant:latest', 'messages' => $messages, 'think' => false, 'stream' => false,
+            $payload = ['model' => self::MODEL, 'messages' => $messages, 'think' => false, 'stream' => false,
                 'options' => ['num_predict' => 384], 'tools' => $definitions];
             $handle = curl_init($url);
             $body = '';

@@ -1,0 +1,19 @@
+.horus-versions { margin-block-end: 2rem; }
+.horus-versions-heading { display:flex; align-items:center; gap:1rem; margin-block-end:1.25rem; }
+.horus-versions-heading h4 { margin:0 0 .4rem; }
+.horus-versions-heading p,.horus-version-card p { margin:0; color:var(--bs-secondary-color,#9ca8ba); font-size:.8rem; line-height:1.7; }
+.horus-versions-mark { display:grid; place-items:center; flex-shrink:0; width:3rem; height:3rem; border-radius:1rem; background:rgba(79,111,255,.15); color:#8da6ff; }
+.horus-versions-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem; }
+.horus-version-card { min-width:0; padding:1.15rem; border:1px solid var(--bs-border-color,#344052); border-radius:1rem; background:var(--bs-body-bg,#111b2b); }
+.horus-version-top { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-block-end:1rem; color:#8da6ff; }
+.horus-version-card h5 { margin:0 0 .5rem; font-size:.88rem; }
+.horus-version-value { margin-block-end:.65rem; font-size:1.03rem; font-weight:700; line-height:1.5; color:var(--bs-heading-color,inherit); overflow-wrap:anywhere; }
+.horus-version-state { padding:.22rem .55rem; border-radius:2rem; font-size:.68rem; line-height:1.5; background:rgba(127,139,158,.13); color:var(--bs-secondary-color,#aab5c6); }
+.horus-version-state.is-detected { background:rgba(30,170,125,.13); color:var(--bs-success-text-emphasis,#48cfa3); }
+.horus-version-state.is-configured { background:rgba(79,111,255,.15); color:var(--bs-primary-text-emphasis,#9cb1ff); }
+.horus-version-details { max-width:100%; margin-block-end:1.5rem; }
+.horus-version-details > table { min-width:520px; margin-bottom:0!important; }
+.horus-version-details td { overflow-wrap:anywhere; }
+.horus-version-details .badge { white-space:normal; overflow-wrap:anywhere; max-width:100%; }
+@media (max-width:1199px) { .horus-versions-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:575px) { .horus-versions-grid { grid-template-columns:minmax(0,1fr); gap:.75rem; } .horus-version-card { padding:1rem; } .horus-versions-heading { align-items:flex-start; } }

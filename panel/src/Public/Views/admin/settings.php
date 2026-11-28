@@ -3008,27 +3008,10 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 				<div class="tab-pane fade" id="info" role="tabpanel">
 					<div class="row">
 						<div class="col-12">
-							<?php
-							// [label, value, bootstrap-bg-class, inline-bg-hex] — a distinct colour per row.
-							$rVersions = [
-								['Geolite2 Version', $GeoLite2, '', '#6f42c1'],
-								['GeoIP2-ISP Version', $GeoISP, 'bg-info', ''],
-								['PHP', phpversion(), 'bg-success', ''],
-								['Nginx', $Nginx, 'bg-danger', ''],
-								['Binaries', $BinVersion ?? 'N/A', 'bg-warning', ''],
-								['OS', $BinOS ?? 'N/A', 'bg-secondary', ''],
-								['Daemon (xc_fanout)', $FanoutVersion, 'bg-dark', ''],
-								['xcvm_core', $XcvmCoreVersion, '', '#e83e8c'],
-								['yt-dlp', $YtDlpVersion, '', '#20c997'],
-								['Licence', $License['status'], $License['status'] === 'Licensed' ? 'bg-success' : ($License['status'] === 'Unlicensed' ? 'bg-danger' : 'bg-secondary'), ''],
-								['HWID', $License['hwid'], '', '#6c757d'],
-								['Activation key', $License['key'], $License['key'] === 'Present' ? 'bg-success' : 'bg-secondary', ''],
-							];
-							// The cluster API's block (ClusterOverview::infoRows), none without the extension.
-							?>
-							<?php foreach (array_filter([$language::get('versions') => $rVersions, $language::get('cluster') => $clusterInfo ?? null]) as $rTitle => $rRows): ?>
+                            <?php require __DIR__ . '/settings_versions.php'; ?>
+                            <?php foreach (array_filter([$language::get('cluster') => $clusterInfo ?? null]) as $rTitle => $rRows): ?>
 							<h4 class="card-title mb-4"><?= htmlspecialchars((string) $rTitle, ENT_QUOTES); ?></h4>
-							<table class="table table-striped table-bordered mb-5">
+							<div class="table-responsive horus-version-details" tabindex="0"><table class="table table-striped table-bordered mb-5">
 								<tbody>
 									<?php foreach (array_chunk($rRows, 2) as $rPair): ?>
 										<tr>
@@ -3043,12 +3026,12 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 										</tr>
 									<?php endforeach; ?>
 								</tbody>
-							</table>
+							</table></div>
 							<?php endforeach; ?>
 
 							<h4 class="card-title mb-4">FFmpeg</h4>
 
-							<table class="table table-striped table-bordered">
+							<div class="table-responsive horus-version-details" tabindex="0"><table class="table table-striped table-bordered">
 								<thead class="thead-light">
 									<tr>
 										<th class="text-center" style="font-size: 0.85rem;"><?= $language::get('version') ?></th>
@@ -3082,11 +3065,11 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 										<?php endforeach; ?>
 									<?php endif; ?>
 								</tbody>
-							</table>
+							</table></div>
 
 							<h4 class="card-title mb-4"><?= $language::get('support_project') ?></h4>
 
-							<table class="table table-striped table-bordered text-center">
+							<div class="table-responsive horus-version-details" tabindex="0"><table class="table table-striped table-bordered text-center">
 								<thead class="thead-light">
 									<tr>
 										<th><?= $language::get('name') ?></th>
@@ -3177,7 +3160,7 @@ use XcVm\Domain\Cluster\ReleaseCanary;
 										</td>
 									</tr>
 								</tbody>
-							</table>
+							</table></div>
 						</div>
 					</div>
 				</div>

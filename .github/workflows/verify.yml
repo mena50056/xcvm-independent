@@ -42,6 +42,7 @@ jobs:
       - run: php tests/connection-telemetry.php
       - run: php -n tests/stream-counts.php
       - run: php tests/settings-options.php
+      - run: php tests/system-versions.php
       - run: node --check panel/src/Public/assets/admin/horus/settings-options.js
       - run: python3 -m py_compile tests/performance-http.py
       - run: php tests/fanout-handler-switch.php

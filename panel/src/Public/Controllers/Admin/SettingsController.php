@@ -4,6 +4,7 @@ namespace XcVm\Public\Controllers\Admin;
 
 use XcVm\Core\Config\SettingsManager;
 use XcVm\Core\Http\Response;
+use XcVm\Core\Diagnostics\SystemVersions;
 use XcVm\Core\Localization\Translator;
 use XcVm\Domain\Cluster\ClusterOverview;
 use XcVm\Domain\Stream\StreamConfigRepository;
@@ -34,36 +35,13 @@ class SettingsController extends BaseAdminController {
 		$rSettings = SettingsManager::getAll();
 		$rStreamArguments = StreamConfigRepository::getStreamArguments();
 
-		$versionData = json_decode(@file_get_contents(BIN_PATH . 'maxmind/version.json'), true) ?: [];
-		$GeoLite2 = $versionData['geolite2_version'] ?? 'N/A';
-		$GeoISP   = $versionData['geoisp_version'] ?? 'N/A';
-		$Nginx    = trim(shell_exec(BIN_PATH . 'nginx/sbin/nginx -v 2>&1 | cut -d\'/\' -f2') ?: '');
-		$rUpdate  = json_decode((string) ($rSettings['update_data'] ?? ''), true) ?: [];
+		$rUpdate = json_decode((string) ($rSettings['update_data'] ?? ''), true) ?: [];
+        $rHorusVersions = SystemVersions::collect();
 
-		$binVersionData = json_decode(@file_get_contents(BIN_PATH . 'bin_version.json'), true) ?: [];
-		$BinVersion = $binVersionData['release'] ?? 'N/A';
-		$BinOS = $this->resolveOsLabel($binVersionData);
-
-		// xc_fanout daemon (`-version`), xcvm_core extension marker and yt-dlp — Info tab.
-		$rFanoutBin = BIN_PATH . 'xc_fanout/xc_fanout';
-		$FanoutVersion = (is_file($rFanoutBin) && is_executable($rFanoutBin))
-			? (ltrim(trim((string) shell_exec(escapeshellarg($rFanoutBin) . ' -version 2>/dev/null')), 'vV') ?: 'N/A')
-			: 'N/A';
-
-		// Report what this worker actually loaded. The old sidecar marker file took
-		// priority here, which had it backwards: the marker can outlive the .so it
-		// described (a failed install that rolled back), and the page then showed a
-		// version the panel is not running.
-		$XcvmCoreVersion = phpversion('xcvm_core') ?: 'N/A';
-
-		$YtDlpVersion = (is_file(YOUTUBE_BIN) && is_executable(YOUTUBE_BIN))
-			? (trim((string) shell_exec(escapeshellarg(YOUTUBE_BIN) . ' --version 2>/dev/null')) ?: 'N/A')
-			: 'N/A';
-
-		$License = $this->licenseInfo();
-
-		$this->setTitle('Settings');
-		$this->render('settings', ['rSettings' => $rSettings, 'rStreamArguments' => $rStreamArguments, 'GeoLite2' => $GeoLite2, 'GeoISP' => $GeoISP, 'Nginx' => $Nginx, 'BinVersion' => $BinVersion, 'BinOS' => $BinOS, 'rUpdate' => $rUpdate, 'FanoutVersion' => $FanoutVersion, 'XcvmCoreVersion' => $XcvmCoreVersion, 'YtDlpVersion' => $YtDlpVersion, 'License' => $License, 'clusterInfo' => ClusterOverview::infoRows($rSettings)] + $this->ffmpegBuilds($rSettings));
+        $this->setTitle('Settings');
+        $this->render('settings', ['rSettings' => $rSettings, 'rStreamArguments' => $rStreamArguments,
+            'rUpdate' => $rUpdate, 'rHorusVersions' => $rHorusVersions,
+            'clusterInfo' => ClusterOverview::infoRows($rSettings)] + $this->ffmpegBuilds($rSettings));
 	}
 
 	/**
@@ -116,54 +94,4 @@ class SettingsController extends BaseAdminController {
 		return 'v' . $rM[1] . $rFolder;
 	}
 
-	/**
-	 * Licence status for the Settings → Info tab. Reads the compiled xcvm_core
-	 * verdict. Fail-open to N/A where the extension or the licence methods are
-	 * absent (dev/CI, or an older .so).
-	 *
-	 * @return array{status: string, hwid: string, key: string}
-	 */
-	private function licenseInfo(): array {
-		if (!class_exists('XC_VM') || !method_exists('XC_VM', 'license_valid')) {
-			return ['status' => 'N/A', 'hwid' => 'N/A', 'key' => 'N/A'];
-		}
-
-		return [
-			'status' => \XC_VM::license_valid() ? 'Licensed' : 'Unlicensed',
-			'hwid'   => (string) \XC_VM::install_id(),
-			'key'    => is_file(MAIN_HOME . 'config/licence/activation_key') || is_file(MAIN_HOME . 'config/activation_key') ? 'Present' : 'None',
-		];
-	}
-
-	/**
-	 * Build the OS label for the Versions tab.
-	 *
-	 * Prefers the distribution recorded in bin_version.json (set by
-	 * update_binaries.sh). When that metadata is missing or still holds the
-	 * seed "unknown" placeholder, falls back to the running host's
-	 * /etc/os-release so the tab never shows "unknown unknown".
-	 *
-	 * @param array<string,mixed> $binVersionData
-	 */
-	private function resolveOsLabel(array $binVersionData): string {
-		$dist    = trim((string) ($binVersionData['distribution'] ?? ''));
-		$version = trim((string) ($binVersionData['distribution_version'] ?? ''));
-
-		if ($dist !== '' && strcasecmp($dist, 'unknown') !== 0) {
-			return ucfirst($dist) . ($version !== '' && strcasecmp($version, 'unknown') !== 0 ? ' ' . $version : '');
-		}
-
-		$osRelease = @parse_ini_file('/etc/os-release');
-		if (is_array($osRelease)) {
-			if (!empty($osRelease['PRETTY_NAME'])) {
-				return (string) $osRelease['PRETTY_NAME'];
-			}
-			$label = trim(($osRelease['NAME'] ?? '') . ' ' . ($osRelease['VERSION_ID'] ?? ''));
-			if ($label !== '') {
-				return $label;
-			}
-		}
-
-		return 'N/A';
-	}
 }
