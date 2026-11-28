@@ -21,6 +21,7 @@ $rCanConns = Authorization::check('adv', 'live_connections');
 $rRedis = (bool) SettingsManager::get('redis_handler');
 $rMainVer = $rServers[SERVER_ID]['xc_vm_version'] ?? '';
 $rIndependent = defined('XCVM_INDEPENDENT_LAB');
+if($rIndependent&&$rCanEdit)$_SESSION['horus_proxy_csrf']??=bin2hex(random_bytes(32));
 $rIndependentRecords = $rIndependent ? \XcVm\Core\Updates\IndependentNodeUpdates::records() : [];
 $rIndependentReleases = $rIndependent ? \XcVm\Core\Updates\IndependentNodeUpdates::catalog() : [];
 $rIndependentMain = $rIndependent ? \XcVm\Core\Updates\IndependentUpdates::status() : [];
@@ -37,6 +38,7 @@ $rBar = static function (int $pct): string {
 ?>
 
 <?php // The rolling update's progress (Domain\Cluster\RollingUpdate), filled by the script below. ?>
+<?php if($rIndependent&&$rCanEdit): ?><div id="server-proxy-feedback" class="d-none" role="status" aria-live="polite"></div><?php endif; ?>
 <div class="card mb-4 d-none" id="rolling-update-card">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
         <h5 class="card-title mb-0"><i class="icon-base ti tabler-stairs-up me-1"></i><span id="rolling-update-title"></span> <span class="badge ms-1" id="rolling-update-status"></span></h5>
@@ -168,7 +170,7 @@ $rBar = static function (int $pct): string {
                                 <i class="icon-base ti tabler-circle-filled text-<?= $rSt[0]; ?>" data-bs-toggle="tooltip" title="<?= htmlspecialchars((string) $rSt[1], ENT_QUOTES); ?>"></i>
                             <?php endif; ?>
                         </td>
-                        <td class="text-center"><i class="icon-base ti tabler-circle-filled text-<?= $rServer['enable_proxy'] ? 'success' : 'secondary'; ?>"></i></td>
+                        <td class="text-center"><i data-proxy-state="<?= (int)$rServer['id']; ?>" class="icon-base ti tabler-circle-filled text-<?= $rServer['enable_proxy'] ? 'success' : 'secondary'; ?>"></i></td>
                         <td>
                             <a href="server_view?id=<?= (int) $rServer['id']; ?>" class="fw-medium"><?= htmlspecialchars((string) $rServer['server_name'], ENT_QUOTES); ?></a>
                             <?php $rNode = $rClusterNodes[(int) $rServer['id']] ?? null; ?>
@@ -339,6 +341,10 @@ $rBar = static function (int $pct): string {
 <?php
 LayoutRenderer::renderFooter('admin');
 ?>
+<?php if($rIndependent&&$rCanEdit): ?>
+<script>window.horusServerProxy=<?= json_encode(['csrf'=>$_SESSION['horus_proxy_csrf'],'canEdit'=>$rCanEdit],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;</script>
+<script src="./assets/horus/server-proxy.js?v=20261128-1"></script>
+<?php endif; ?>
 <script>
     (function() {
         var $ = window.jQuery;
@@ -422,8 +428,14 @@ LayoutRenderer::renderFooter('admin');
             'enable_proxy': 'Enable all proxies on this server? Traffic will route through the proxy servers.',
             'update': 'Update this server? It will go offline until the update completes.'
         };
+        if(window.horusServerProxy){
+            var proxyAr=document.documentElement.lang.indexOf('ar')===0||document.documentElement.dir==='rtl';
+            confirmMsgs.enable_proxy=proxyAr?'ربط هذا السيرفر بالبروكسي وتفعيله بعد تأكيد الوكيل؟':'Bind this server to a proxy and enable routing after agent acknowledgement?';
+            confirmMsgs.disable_proxy=proxyAr?'إيقاف تحويل الاتصالات الجديدة عبر البروكسي؟ ستستمر المشاهدات الحالية.':'Disable proxy redirects for new connections? Existing viewers will continue.';
+        }
 
         function runApi(id, sub) {
+            if(window.horusChangeServerProxy&&(sub==='enable_proxy'||sub==='disable_proxy')){window.horusChangeServerProxy([Number(id)],sub);return;}
             getJSON('./api?action=server&sub=' + encodeURIComponent(sub) + '&server_id=' + encodeURIComponent(id)).then(function(d) {
                 if (!d || d.result !== true) {
                     toast(errText, 'error');
@@ -748,6 +760,7 @@ LayoutRenderer::renderFooter('admin');
                     if (!ok) {
                         return;
                     }
+                    if(window.horusChangeServerProxy&&(sub==='enable_proxy'||sub==='disable_proxy')){window.horusChangeServerProxy(ids,sub);return;}
                     getJSON('./api?action=multi&type=server&sub=' + encodeURIComponent(sub) + '&ids=' + encodeURIComponent(JSON.stringify(ids))).then(function(d) {
                         if (!d || d.result !== true) {
                             toast(errText, 'error');

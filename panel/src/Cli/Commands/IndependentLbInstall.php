@@ -78,6 +78,11 @@ final class IndependentLbInstall {
             }
             if(!$online)throw new \RuntimeException('Node services started but MAIN has not received a fresh authenticated heartbeat; inspect the node agent log');
             $pdo->prepare('UPDATE servers SET status=1,enabled=1,serve_only=1,http_broadcast_port=80,https_broadcast_port=443,enable_https=1 WHERE id=?')->execute([$sid]);
+            // Trust this public certificate through the already checked SSH channel.
+            $certStream=@fopen('ssh2.sftp://'.intval($sftp).'/opt/horus_xc/tls/server.crt','rb');
+            if(!$certStream)throw new \RuntimeException('Cannot read the installed node public TLS certificate');
+            try{$nodeCertificate=stream_get_contents($certStream,65537);}finally{fclose($certStream);}
+            \XcVm\Core\Proxy\ProxyUpstreamTls::remember(CONFIG_PATH.'horus_proxy_upstreams',$sid,(string)$nodeCertificate);
             \XcVm\Core\Updates\IndependentNodeUpdates::record($sid,$plan['version']);
             @unlink(CACHE_TMP_PATH.'servers');
             echo "SUCCESS: node active; MAIN received an authenticated heartbeat. TLS verification remains enabled.\n";

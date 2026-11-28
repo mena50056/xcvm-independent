@@ -43,6 +43,7 @@ class MultiAjaxController extends BaseAjaxController {
 		if(defined('XCVM_INDEPENDENT_LAB')&&$rType==='proxy')$this->fail(['error'=>'USE_PROXY_PROFILE_API']);
 		$rRequestIDs = json_decode(RequestManager::get('ids') ?? '[]', true) ?: [];
 		$rSub = RequestManager::get('sub') ?? '';
+		if(defined('XCVM_INDEPENDENT_LAB')&&$rType==='server'&&in_array($rSub,['enable_proxy','disable_proxy','proxy_status'],true)){$this->gate('adv','edit_server');$this->serverProxyControl(is_array($rRequestIDs)?$rRequestIDs:[],$rSub);}
 
 		if (count($rRequestIDs) != 0) {
 			switch ($rType) {

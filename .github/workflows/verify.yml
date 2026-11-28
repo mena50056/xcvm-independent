@@ -50,6 +50,10 @@ jobs:
       - run: python3 -m py_compile tests/performance-http.py
       - run: php tests/fanout-handler-switch.php
       - run: php tests/proxy-profiles.php
+      - run: php tests/server-proxy.php
+      - run: python3 tests/server-proxy-http.py
+      - run: python3 deployment/test_server_proxy_tls.py
+      - run: node --check panel/src/Public/assets/admin/horus/server-proxy.js
       - run: php tests/proxy-monitor.php
       - run: python3 tests/proxy-monitor-http.py
       - run: php tests/admin-sessions.php

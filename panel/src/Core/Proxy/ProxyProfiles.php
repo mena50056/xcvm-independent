@@ -54,7 +54,7 @@ final class ProxyProfiles {
         foreach(explode(',',(string)($row['domain_name']??'')) as $host)if(trim($host)!=='')$p['hosts'][]=['host'=>$host,'parent_id'=>0,'certificate'=>'auto'];
         foreach(array_merge(ProxyProfile::LIMITS,ProxyProfile::MONITOR_LIMITS) as $key=>$range)$p[$key]=$range[2];$p['monitor_enabled']=true;$p['monitor_ca']='';return $p;
     }
-    public function save(int $id,array $input,string $baseRevision,array $actor=[],string $action='save'): array {
+    public function save(int $id,array $input,string $baseRevision,array $actor=[],string $action='save',array $enableParents=[]): array {
         $lock=fopen($this->directory.'/save.lock','c');if(!$lock)throw new \RuntimeException('PROFILE_STORAGE_FAILED');chmod($this->directory.'/save.lock',0600);flock($lock,LOCK_EX);
         $old=null;$path=null;$staged=[];$history=new ProxyHistory($this->directory);
         try {
@@ -62,6 +62,8 @@ final class ProxyProfiles {
             $document=$id?$this->document($id):[];
             if(!hash_equals((string)($document['revision']??''),$baseRevision))throw new \RuntimeException('PROFILE_CONFLICT');
             $p=ProxyProfile::normalize($input,array_map(static fn($r)=>(int)$r['id'],$this->parents()));
+            $enableParents=array_values(array_unique(array_map('intval',$enableParents)));
+            if(array_diff($enableParents,$p['parent_ids'])||($enableParents&&!$p['enabled']))throw new \InvalidArgumentException('INVALID_ROUTING_INTENT');
             if($id&&$row['server_ip']!==$p['server_ip'])throw new \InvalidArgumentException('PROXY_IP_IMMUTABLE');
             if($this->query('SELECT id FROM servers WHERE server_ip=? AND id<>?',[$p['server_ip'],$id])->fetchColumn())throw new \InvalidArgumentException('DUPLICATE_IP');
             $this->db->beginTransaction();
@@ -70,6 +72,8 @@ final class ProxyProfiles {
             // Routing metadata remains the last confirmed working configuration.
             $this->query('UPDATE servers SET server_name=?,proxy_key_gen=CASE WHEN proxy_key_gen<1 THEN 1 ELSE proxy_key_gen END WHERE id=? AND server_type=1',[$p['name'],$id]);
             $doc=['revision'=>bin2hex(random_bytes(32)),'saved_at'=>time(),'profile'=>$p];
+            // A signed, healthy acknowledgement commits this intent even if the browser closes.
+            $doc['enable_parents']=array_values(array_unique(array_merge(array_intersect($document['enable_parents']??[],$p['enabled']?$p['parent_ids']:[]),$enableParents)));
             if(isset($document['profile'])&&$history->entries($id)===[])$staged[]=$history->stage($id,$document,[],[],'baseline');
             $staged[]=$history->stage($id,$doc,$document['profile']??[],$actor,$action);
             $this->write($path,$doc);$this->db->commit();$history->prune($id);return ['id'=>$id]+$doc;
@@ -81,6 +85,17 @@ final class ProxyProfiles {
     public function wire(int $id): array {
         $lock=fopen($this->directory.'/save.lock','c');if(!$lock)throw new \RuntimeException('PROFILE_STORAGE_FAILED');flock($lock,LOCK_SH);
         try{return $this->buildWire($id);}finally{flock($lock,LOCK_UN);fclose($lock);}
+    }
+    /** Stop new redirects; keep upstream routes alive for viewers already watching. */
+    public function disableParents(array $ids): void {
+        $lock=fopen($this->directory.'/save.lock','c');if(!$lock)throw new \RuntimeException('PROFILE_STORAGE_FAILED');flock($lock,LOCK_EX);
+        try {
+            foreach($this->proxies() as $row) {
+                $id=(int)$row['id'];$doc=$this->document($id);
+                if(array_intersect($doc['enable_parents']??[],$ids)){$doc['enable_parents']=array_values(array_diff($doc['enable_parents'],$ids));$this->write($this->path($id),$doc);}
+            }
+            foreach($ids as $id)$this->query('UPDATE servers SET enable_proxy=0 WHERE id=? AND server_type<>1',[$id]);
+        } finally {flock($lock,LOCK_UN);fclose($lock);}
     }
     private function buildWire(int $id): array {
         $row=$this->row($id);$doc=$this->document($id);if(!$row||!isset($doc['profile']))throw new \InvalidArgumentException('PROFILE_NOT_CONFIGURED');
@@ -121,6 +136,11 @@ final class ProxyProfiles {
                 $advertised=$revision;
             }
             if($ready&&$error===''&&hash_equals($wire['revision'],$revision)&&($this->read($this->path($id,'.applied'))['revision']??'')!==$revision)$this->write($this->path($id,'.applied'),$wire);
+            if($ready&&$error===''&&hash_equals($wire['revision'],$revision)&&$wire['profile']['enabled']) {
+                $doc=$this->document($id);
+                foreach(array_intersect($doc['enable_parents']??[],$wire['profile']['parent_ids']) as $parent)$this->query('UPDATE servers SET enable_proxy=1 WHERE id=? AND enabled=1 AND server_type<>1',[(int)$parent]);
+                if(!empty($doc['enable_parents'])){$doc['enable_parents']=[];$this->write($this->path($id),$doc);$refresh=true;}
+            }
             $this->write($this->path($id,'.status'),['last_sync'=>time(),'applied_revision'=>$revision,'last_error'=>$error,'ready'=>$ready,'advertised_revision'=>$advertised]);
             return $refresh;
         } finally {flock($lock,LOCK_UN);fclose($lock);}

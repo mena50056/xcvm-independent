@@ -78,6 +78,7 @@ class ServerAjaxController extends BaseAjaxController {
 
 		global $db, $rServers;
 		$rSub = RequestManager::get('sub');
+		if(defined('XCVM_INDEPENDENT_LAB')&&in_array($rSub,['enable_proxy','disable_proxy','proxy_status'],true))$this->serverProxyControl([RequestManager::get('server_id')],$rSub);
 		if(defined('XCVM_INDEPENDENT_LAB')) {
 			$ids=$this->normalizeServerIds();
 			foreach((array)$ids as $id)if((int)(ServerRepository::getAll()[(int)$id]['server_type']??0)===1)$this->fail(['error'=>'USE_PROXY_PROFILE_API']);

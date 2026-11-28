@@ -25,6 +25,25 @@ use XcVm\Core\Http\ApiClient;
  * @license AGPL-3.0 https://www.gnu.org/licenses/agpl-3.0.html
  */
 abstract class BaseAjaxController {
+	/** Shared by individual and bulk server proxy buttons. */
+	protected function serverProxyControl(array $ids,string $sub): never {
+		try {
+			if($sub!=='proxy_status') {
+				if(($_SERVER['REQUEST_METHOD']??'')!=='POST')$this->fail(['error'=>'POST_REQUIRED']);
+				if(!is_string($_POST['csrf']??null)||!isset($_SESSION['horus_proxy_csrf'])||!hash_equals($_SESSION['horus_proxy_csrf'],$_POST['csrf'])){http_response_code(403);$this->fail(['error'=>'INVALID_CSRF']);}
+			}
+			$actor=['id'=>(int)($GLOBALS['rUserInfo']['id']??0),'name'=>(string)($GLOBALS['rUserInfo']['username']??'Admin')];
+			if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
+			$service=new \XcVm\Core\Proxy\ServerProxyControl(\XcVm\Core\Proxy\ProxyProfiles::app());
+			foreach($ids as $id)if(!is_int($id)&&!(is_string($id)&&preg_match('/^[1-9][0-9]{0,9}$/D',$id)))throw new \InvalidArgumentException('INVALID_SERVERS');
+			$ids=array_map('intval',$ids);
+			if($sub==='proxy_status')$this->ok($service->status($ids));
+			$selected=isset($_POST['proxy_id'])?(int)$_POST['proxy_id']:null;
+			$result=$service->change($ids,$sub==='enable_proxy',$selected,$actor);
+			if($sub==='disable_proxy')\XcVm\Core\Proxy\ProxyProfiles::refreshRouting();
+			$this->ok($result);
+		}catch(\Throwable $e){$message=$e->getMessage();$this->fail(['error'=>preg_match('/^(INVALID_[A-Z_]+|NO_ENABLED_PROXY|PROFILE_CONFLICT|PROFILE_STORAGE_FAILED|UPSTREAM_(TLS_UNTRUSTED|REQUIRES_HTTPS): [0-9]+)$/D',$message)?$message:'PROXY_OPERATION_FAILED']);}
+	}
 	/** Return the backend acknowledgement without hiding a refused stream control. */
 	protected function controlResponse(array $rRequest): never {
 		$rAnswer = json_decode((string) ApiClient::request($rRequest), true);
