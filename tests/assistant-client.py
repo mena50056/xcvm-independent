@@ -44,5 +44,12 @@ catch(\\RuntimeException $e){echo json_encode(['error'=>$e->getMessage()]);}
     diagnose=True;before=len(requests);self.assertEqual(run()['message'],'EXACT_DIAGNOSIS');self.assertEqual(len(requests)-before,1);diagnose=False
     fail=True;self.assertEqual(run()['error'],'AI_UNAVAILABLE')
     fail=False;empty=True;before=len(requests);self.assertEqual(run()['error'],'AI_UNAVAILABLE');self.assertEqual(len(requests)-before,3)
+    empty=False
+    media_source=source.replace("'name'=>'lookup'", "'name'=>'media_options'").replace("return [['type'=>'function'", "return [['function'=>['name'=>'unrelated']],['type'=>'function'").replace('Look up the value','Add a movie')
+    (path/'test.php').write_text(media_source,encoding='utf-8');self.assertEqual(run()['message'],'READY')
+    self.assertEqual([x['function']['name'] for x in requests[-1]['tools']],['media_options'])
+    self.assertIn('admin media assistant',requests[-1]['messages'][0]['content'])
+    (path/'test.php').write_text(media_source.replace('Add a movie','Show subscriptions'),encoding='utf-8');self.assertEqual(run()['message'],'READY')
+    self.assertEqual(len(requests[-1]['tools']),2)
   finally:server.shutdown();server.server_close();worker.join()
 if __name__=='__main__':unittest.main()
